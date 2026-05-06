@@ -12,8 +12,9 @@ defmodule Exograph.Postgres.FragmentRecord do
   schema "exograph_fragments" do
     field(:package_id, :string)
     field(:package_version_id, :string)
+    field(:file_id, :string)
     field(:file, :string)
-    field(:source, :string)
+    field(:source, :string, virtual: true)
     field(:ast, :binary)
 
     field(:kind, Ecto.Enum,
@@ -60,8 +61,8 @@ defmodule Exograph.Postgres.FragmentRecord do
       id: fragment.id,
       package_id: fragment.package_id,
       package_version_id: fragment.package_version_id,
+      file_id: fragment.file_id,
       file: fragment.file,
-      source: fragment.source,
       ast: :erlang.term_to_binary(fragment.ast),
       kind: fragment.kind,
       module: fragment.module,
@@ -97,6 +98,7 @@ defmodule Exograph.Postgres.FragmentRecord do
       id: record.id,
       package_id: record.package_id,
       package_version_id: record.package_version_id,
+      file_id: record.file_id,
       file: record.file,
       source: record.source,
       ast: :erlang.binary_to_term(record.ast),

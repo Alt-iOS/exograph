@@ -6,6 +6,7 @@ defmodule Exograph.Indexer do
   alias ExDNA.AST.{Fingerprint, Normalizer}
   alias Exograph.AST.Terms
   alias Exograph.{Fragment, Package, PackageVersion, Symbols}
+  alias Exograph.File, as: SourceFile
 
   @default_opts [min_mass: 15, literal_mode: :keep, normalize_pipes: true]
 
@@ -33,16 +34,17 @@ defmodule Exograph.Indexer do
     with {:ok, source} <- File.read(file),
          {:ok, ast} <- Code.string_to_quoted(source, line: 1, columns: true, file: file) do
       package_context = package_context(opts)
+      source_file = SourceFile.new(file, source, package_context)
 
       ast
       |> Fingerprint.fragments(file, Keyword.fetch!(opts, :min_mass), opts)
-      |> Enum.map(&to_fragment(&1, source, package_context))
+      |> Enum.map(&to_fragment(&1, source_file, package_context))
     else
       _ -> []
     end
   end
 
-  defp to_fragment(fingerprint, source, package_context) do
+  defp to_fragment(fingerprint, source_file, package_context) do
     ast = fingerprint.ast
     {kind, name, arity} = classify(ast)
     line = Map.get(fingerprint, :line, line(ast))
@@ -57,9 +59,10 @@ defmodule Exograph.Indexer do
     %Fragment{
       id: fragment_id(package_context.package_version_id, fingerprint.file, line, exact_hash),
       file: fingerprint.file,
-      source: source,
+      source: source_file.source,
       package_id: package_context.package_id,
       package_version_id: package_context.package_version_id,
+      file_id: source_file.id,
       ast: ast,
       kind: kind,
       name: name,

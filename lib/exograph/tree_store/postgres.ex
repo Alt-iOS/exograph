@@ -29,26 +29,24 @@ defmodule Exograph.TreeStore.Postgres do
     fragment_ids = Enum.map(fragments, & &1.id)
     records = fragments |> Tree.nodes() |> Enum.map(&TreeNodeRecord.from_node/1)
 
-    case store.repo.transaction(
-           fn ->
-             store.repo.delete_all(
-               from(node in {source(store), TreeNodeRecord},
-                 where: node.fragment_id in ^fragment_ids
-               ),
-               timeout: :infinity
-             )
+    store.repo.delete_all(
+      from(node in {source(store), TreeNodeRecord},
+        where: node.fragment_id in ^fragment_ids
+      ),
+      timeout: :infinity
+    )
 
-             records
-             |> Enum.chunk_every(4_000)
-             |> Enum.each(fn chunk ->
-               store.repo.insert_all({source(store), TreeNodeRecord}, chunk, timeout: :infinity)
-             end)
-           end,
-           timeout: :infinity
-         ) do
-      {:ok, _result} -> {:ok, store}
-      {:error, reason} -> {:error, reason}
-    end
+    Postgres.bulk_insert_all(
+      store.repo,
+      {source(store), TreeNodeRecord},
+      records,
+      chunk_size: 4_000,
+      timeout: :infinity
+    )
+
+    {:ok, store}
+  rescue
+    exception in [Postgrex.Error, Ecto.QueryError] -> {:error, exception}
   end
 
   @impl true

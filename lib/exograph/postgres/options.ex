@@ -34,6 +34,15 @@ defmodule Exograph.Postgres.Options do
     )
   end
 
+  def hydrate_fragment(record, source) do
+    record
+    |> Map.put(:source, source)
+    |> Exograph.Postgres.FragmentRecord.to_fragment()
+  end
+
+  def files_source(prefix), do: {"#{prefix}_files", Exograph.Postgres.FileRecord}
+  def fragments_source(prefix), do: "#{prefix}_fragments"
+
   def migrate(opts) do
     if Keyword.get(opts, :migrate?, false), do: Postgres.migrate!(opts)
   end

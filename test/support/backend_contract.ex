@@ -88,7 +88,14 @@ defmodule Exograph.BackendContract do
     repo = Keyword.fetch!(opts, :repo)
     prefix = Keyword.fetch!(opts, :prefix)
 
-    for table <- ["tree_nodes", "fragments", "package_versions", "packages", "schema_migrations"] do
+    for table <- [
+          "tree_nodes",
+          "fragments",
+          "files",
+          "package_versions",
+          "packages",
+          "schema_migrations"
+        ] do
       Ecto.Adapters.SQL.query!(
         repo,
         "DROP TABLE IF EXISTS #{Exograph.Postgres.table(prefix, table)} CASCADE",

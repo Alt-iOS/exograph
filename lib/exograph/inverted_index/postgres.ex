@@ -43,6 +43,7 @@ defmodule Exograph.InvertedIndex.Postgres do
       |> where_terms(required, optional)
       |> where_scope(opts)
       |> limit(^limit)
+      |> with_source(index)
       |> index.repo.all()
 
     hits = Enum.map(records, &hit(&1, query))
@@ -52,23 +53,36 @@ defmodule Exograph.InvertedIndex.Postgres do
   def search_text(%__MODULE__{} = index, literal, opts \\ []) when is_binary(literal) do
     limit = Keyword.get(opts, :limit, 50)
 
+    files_source = files_source(index)
+
     query =
       from(fragment in {source(index), FragmentRecord},
-        where: fragment("? ||| ?", fragment.source, ^literal),
-        order_by: [desc: fragment("paradedb.score(?)", fragment.id)],
-        limit: ^limit
+        join: file in ^files_source,
+        on: file.id == fragment.file_id,
+        where: fragment("? ||| ?", file.source, ^literal),
+        order_by: [desc: fragment("paradedb.score(?)", file.id)],
+        limit: ^limit,
+        select: {fragment, file.source}
       )
       |> where_scope(opts)
 
     hits =
       index.repo.all(query)
-      |> Enum.map(fn record ->
-        Hit.new(fragment: FragmentRecord.to_fragment(record), score: 1.0)
+      |> Enum.map(fn {record, source} ->
+        Hit.new(fragment: Options.hydrate_fragment(record, source), score: 1.0)
       end)
 
     {:ok, hits}
   rescue
     exception in [Postgrex.Error, Ecto.QueryError] -> {:error, exception}
+  end
+
+  defp with_source(queryable, index) do
+    from(fragment in queryable,
+      left_join: file in ^files_source(index),
+      on: file.id == fragment.file_id,
+      select: {fragment, file.source}
+    )
   end
 
   defp base_query(index) do
@@ -111,8 +125,8 @@ defmodule Exograph.InvertedIndex.Postgres do
     where(queryable, [fragment], fragment("? @> ?", fragment.terms, ^required))
   end
 
-  defp hit(%FragmentRecord{} = record, query) do
-    fragment = FragmentRecord.to_fragment(record)
+  defp hit({%FragmentRecord{} = record, source}, query) do
+    fragment = Options.hydrate_fragment(record, source)
     required_matches = MapSet.intersection(fragment.terms, query.required_terms)
     optional_matches = MapSet.intersection(fragment.terms, query.optional_terms)
 
@@ -123,5 +137,6 @@ defmodule Exograph.InvertedIndex.Postgres do
     )
   end
 
-  defp source(index), do: "#{index.prefix}_fragments"
+  defp files_source(index), do: Options.files_source(index.prefix)
+  defp source(index), do: Options.fragments_source(index.prefix)
 end

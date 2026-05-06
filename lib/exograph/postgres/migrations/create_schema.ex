@@ -43,6 +43,27 @@ defmodule Exograph.Postgres.Migrations.CreateSchema do
       )
     )
 
+    create_if_not_exists table(name("files"), primary_key: false) do
+      add(:id, :text, primary_key: true)
+      add(:package_id, references(name("packages"), type: :text, on_delete: :delete_all))
+
+      add(
+        :package_version_id,
+        references(name("package_versions"), type: :text, on_delete: :delete_all)
+      )
+
+      add(:path, :text, null: false)
+      add(:source, :text, null: false)
+      add(:sha256, :text, null: false)
+      timestamps(type: :utc_datetime_usec)
+    end
+
+    create_if_not_exists(
+      index(name("files"), [:package_version_id, :path],
+        name: index_name("files", "package_path")
+      )
+    )
+
     create_if_not_exists table(name("fragments"), primary_key: false) do
       add(:id, :text, primary_key: true)
       add(:package_id, references(name("packages"), type: :text, on_delete: :delete_all))
@@ -52,8 +73,8 @@ defmodule Exograph.Postgres.Migrations.CreateSchema do
         references(name("package_versions"), type: :text, on_delete: :delete_all)
       )
 
+      add(:file_id, references(name("files"), type: :text, on_delete: :delete_all))
       add(:file, :text, null: false)
-      add(:source, :text)
       add(:ast, :binary, null: false)
       add(:kind, :text, null: false)
       add(:module, :text)
@@ -122,6 +143,7 @@ defmodule Exograph.Postgres.Migrations.CreateSchema do
   def down do
     drop_if_exists(table(name("tree_nodes")))
     drop_if_exists(table(name("fragments")))
+    drop_if_exists(table(name("files")))
     drop_if_exists(table(name("package_versions")))
     drop_if_exists(table(name("packages")))
     drop_if_exists(table(name("schema_migrations")))

@@ -13,15 +13,23 @@ defmodule Exograph.Indexer do
   @spec index_paths(String.t() | [String.t()], keyword()) :: [Fragment.t()]
   def index_paths(paths, opts \\ []) do
     paths
+    |> stream_paths(opts)
+    |> Enum.to_list()
+  end
+
+  @spec stream_paths(String.t() | [String.t()], keyword()) :: Enumerable.t()
+  def stream_paths(paths, opts \\ []) do
+    paths
     |> List.wrap()
     |> Enum.flat_map(&expand_path/1)
     |> Enum.uniq()
     |> Enum.sort()
     |> Task.async_stream(&index_file(&1, opts),
-      max_concurrency: System.schedulers_online(),
-      ordered: false
+      max_concurrency: Keyword.get(opts, :index_concurrency, System.schedulers_online()),
+      ordered: false,
+      timeout: :infinity
     )
-    |> Enum.flat_map(fn
+    |> Stream.flat_map(fn
       {:ok, fragments} -> fragments
       {:exit, _reason} -> []
     end)

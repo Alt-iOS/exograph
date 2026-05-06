@@ -31,22 +31,26 @@ defmodule Exograph do
         :index_path
       ])
 
-    with fragments <- Indexer.index_paths(paths, indexer_opts),
-         {:ok, inverted} <- inverted_backend.new(inverted_opts),
-         {:ok, inverted} <- inverted_backend.add(inverted, fragments),
-         {:ok, fragment_store} <- fragment_store_backend.new(fragment_store_opts),
-         {:ok, fragment_store} <- fragment_store_backend.put(fragment_store, fragments),
-         {:ok, tree_store} <- tree_store_backend.new(tree_store_opts),
-         {:ok, tree_store} <- tree_store_backend.put_fragments(tree_store, fragments) do
-      {:ok,
-       %Index{
-         inverted_backend: inverted_backend,
-         inverted: inverted,
-         fragment_store_backend: fragment_store_backend,
-         fragment_store: fragment_store,
-         tree_store_backend: tree_store_backend,
-         tree_store: tree_store
-       }}
+    if streaming_index?(backend_config) do
+      index_stream(paths, backend_config, indexer_opts, opts)
+    else
+      with fragments <- Indexer.index_paths(paths, indexer_opts),
+           {:ok, inverted} <- inverted_backend.new(inverted_opts),
+           {:ok, inverted} <- inverted_backend.add(inverted, fragments),
+           {:ok, fragment_store} <- fragment_store_backend.new(fragment_store_opts),
+           {:ok, fragment_store} <- fragment_store_backend.put(fragment_store, fragments),
+           {:ok, tree_store} <- tree_store_backend.new(tree_store_opts),
+           {:ok, tree_store} <- tree_store_backend.put_fragments(tree_store, fragments) do
+        {:ok,
+         %Index{
+           inverted_backend: inverted_backend,
+           inverted: inverted,
+           fragment_store_backend: fragment_store_backend,
+           fragment_store: fragment_store,
+           tree_store_backend: tree_store_backend,
+           tree_store: tree_store
+         }}
+      end
     end
   end
 
@@ -126,6 +130,71 @@ defmodule Exograph do
   @spec tree_nodes(Index.t(), Exograph.Fragment.id()) :: [Exograph.Tree.Node.t()]
   def tree_nodes(%Index{} = index, fragment_id) do
     index.tree_store_backend.nodes(index.tree_store, fragment_id)
+  end
+
+  defp streaming_index?(backend_config) do
+    Keyword.fetch!(backend_config, :fragment_store) == Exograph.FragmentStore.Postgres
+  end
+
+  defp index_stream(paths, backend_config, indexer_opts, opts) do
+    inverted_backend = Keyword.fetch!(backend_config, :inverted)
+    fragment_store_backend = Keyword.fetch!(backend_config, :fragment_store)
+    tree_store_backend = Keyword.fetch!(backend_config, :tree_store)
+    batch_size = Keyword.get(opts, :index_batch_size, 2_000)
+
+    with {:ok, inverted} <- inverted_backend.new(Keyword.fetch!(backend_config, :inverted_opts)),
+         {:ok, fragment_store} <-
+           fragment_store_backend.new(Keyword.fetch!(backend_config, :fragment_store_opts)),
+         {:ok, tree_store} <-
+           tree_store_backend.new(Keyword.fetch!(backend_config, :tree_store_opts)),
+         {:ok, {inverted, fragment_store, tree_store}} <-
+           put_fragment_stream(
+             Indexer.stream_paths(paths, indexer_opts),
+             batch_size,
+             inverted_backend,
+             inverted,
+             fragment_store_backend,
+             fragment_store,
+             tree_store_backend,
+             tree_store
+           ) do
+      {:ok,
+       %Index{
+         inverted_backend: inverted_backend,
+         inverted: inverted,
+         fragment_store_backend: fragment_store_backend,
+         fragment_store: fragment_store,
+         tree_store_backend: tree_store_backend,
+         tree_store: tree_store
+       }}
+    end
+  end
+
+  defp put_fragment_stream(
+         fragments,
+         batch_size,
+         inverted_backend,
+         inverted,
+         fragment_store_backend,
+         fragment_store,
+         tree_store_backend,
+         tree_store
+       ) do
+    fragments
+    |> Stream.chunk_every(batch_size)
+    |> Enum.reduce_while({:ok, {inverted, fragment_store, tree_store}}, fn batch,
+                                                                           {:ok,
+                                                                            {inverted,
+                                                                             fragment_store,
+                                                                             tree_store}} ->
+      with {:ok, inverted} <- inverted_backend.add(inverted, batch),
+           {:ok, fragment_store} <- fragment_store_backend.put(fragment_store, batch),
+           {:ok, tree_store} <- tree_store_backend.put_fragments(tree_store, batch) do
+        {:cont, {:ok, {inverted, fragment_store, tree_store}}}
+      else
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
   end
 
   defp search_text_seq(%Index{} = index, literal_or_regex, opts) do

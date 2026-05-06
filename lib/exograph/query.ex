@@ -51,6 +51,15 @@ defmodule Exograph.Query do
     }
   end
 
+  @spec comment_texts(t()) :: [String.t()]
+  def comment_texts(%__MODULE__{source: %ExAST.Selector{filters: filters}}) do
+    filters
+    |> Enum.flat_map(&comment_texts_from_predicate/1)
+    |> Enum.uniq()
+  end
+
+  def comment_texts(_query), do: []
+
   @spec verify(t(), Macro.t() | Exograph.Fragment.t()) :: {:ok, [map()]} | :error
   def verify(%__MODULE__{verifier: {:pattern, pattern}}, %{ast: ast}) do
     verify(%__MODULE__{verifier: {:pattern, pattern}}, ast)
@@ -64,7 +73,7 @@ defmodule Exograph.Query do
   end
 
   def verify(%__MODULE__{verifier: {:selector, selector}}, %{source: source, ast: ast}) do
-    selector_input = source || ast
+    selector_input = if source_required?(selector), do: source || ast, else: ast
 
     case ExAST.Patcher.find_all(selector_input, selector) do
       [] -> :error
@@ -80,6 +89,45 @@ defmodule Exograph.Query do
   end
 
   def verify(%__MODULE__{verifier: nil}, _ast), do: {:ok, []}
+
+  defp comment_texts_from_predicate(%ExAST.Selector.Predicate{pattern: predicates})
+       when is_list(predicates),
+       do: Enum.flat_map(predicates, &comment_texts_from_predicate/1)
+
+  defp comment_texts_from_predicate(%ExAST.Selector.Predicate{
+         relation: relation,
+         pattern: %ExAST.Selector.CommentMatcher{kind: :text, value: value}
+       })
+       when relation in [
+              :comment,
+              :comment_before,
+              :comment_after,
+              :comment_inside,
+              :comment_inline
+            ],
+       do: [value]
+
+  defp comment_texts_from_predicate(_predicate), do: []
+
+  defp source_required?(%ExAST.Selector{filters: filters}) do
+    Enum.any?(filters, &source_required_predicate?/1)
+  end
+
+  defp source_required_predicate?(%ExAST.Selector.Predicate{relation: relation})
+       when relation in [
+              :comment,
+              :comment_before,
+              :comment_after,
+              :comment_inside,
+              :comment_inline
+            ],
+       do: true
+
+  defp source_required_predicate?(%ExAST.Selector.Predicate{pattern: predicates})
+       when is_list(predicates),
+       do: Enum.any?(predicates, &source_required_predicate?/1)
+
+  defp source_required_predicate?(_predicate), do: false
 
   defp partition_terms(terms) do
     high_signal = Enum.filter(terms, &Terms.high_signal?/1) |> MapSet.new()

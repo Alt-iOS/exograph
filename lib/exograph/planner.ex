@@ -178,8 +178,8 @@ defmodule Exograph.Planner do
     index.fragment_store_backend.count(index.fragment_store)
   end
 
-  defp hit_key(%{fragment_id: fragment_id}), do: fragment_id
-  defp hit_key(%{fragment: fragment}), do: fragment.id
+  defp hit_key(%{fragment_id: fragment_id}) when not is_nil(fragment_id), do: fragment_id
+  defp hit_key(%{fragment: fragment}) when not is_nil(fragment), do: fragment.id
 
   defp hydrate_hits(%Index{} = index, hits) do
     hits
@@ -243,11 +243,59 @@ defmodule Exograph.Planner do
   end
 
   defp verified_matches(hit, query) do
-    case Query.verify(query, hit.fragment) do
-      {:ok, matches} -> Enum.map(matches, &Hit.with_match(hit, &1))
-      :error -> []
+    if comment_prefilter?(query, hit.fragment) do
+      case Query.verify(query, hit.fragment) do
+        {:ok, matches} ->
+          matches
+          |> Enum.filter(&compatible_match?(&1, hit.fragment))
+          |> Enum.map(&Hit.with_match(hit, &1))
+
+        :error ->
+          []
+      end
+    else
+      []
     end
   end
+
+  defp comment_prefilter?(query, fragment) do
+    case Query.comment_texts(query) do
+      [] -> true
+      texts -> Enum.any?(texts, &String.contains?(source_window(fragment), &1))
+    end
+  end
+
+  defp source_window(%{source: source, ast: ast, line: line}) when is_binary(source) do
+    lines = String.split(source, "\n")
+    last_line = max_ast_line(ast, line) + 20
+
+    lines
+    |> Enum.slice(max(line - 21, 0)..last_line)
+    |> Enum.join("\n")
+  end
+
+  defp source_window(_fragment), do: ""
+
+  defp max_ast_line(ast, default) do
+    {_ast, max_line} =
+      Macro.prewalk(ast, default, fn
+        {_form, meta, _args} = node, acc when is_list(meta) ->
+          {node, max(acc, Keyword.get(meta, :line, acc))}
+
+        node, acc ->
+          {node, acc}
+      end)
+
+    max_line
+  end
+
+  defp compatible_match?(%{node: {:defmodule, _meta, _args}}, %{kind: kind}), do: kind == :module
+
+  defp compatible_match?(%{node: {form, _meta, _args}}, %{kind: kind})
+       when form in [:def, :defp, :defmacro, :defmacrop],
+       do: kind == form
+
+  defp compatible_match?(_match, _fragment), do: true
 
   defp result_key(%{fragment: fragment, match: %{node: node}}) do
     {fragment.file, node_line(node), Macro.to_string(node)}

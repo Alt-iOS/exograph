@@ -54,6 +54,7 @@ defmodule Exograph.Postgres.Migrations.CreateSchema do
 
       add(:path, :text, null: false)
       add(:source, :text, null: false)
+      add(:comments_text, :text, null: false, default: "")
       add(:sha256, :text, null: false)
       timestamps(type: :utc_datetime_usec)
     end

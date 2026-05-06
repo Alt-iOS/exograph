@@ -11,6 +11,7 @@ defmodule Exograph.Postgres.FileRecord do
     field(:package_version_id, :string)
     field(:path, :string)
     field(:source, :string)
+    field(:comments_text, :string)
     field(:sha256, :string)
 
     timestamps(type: :utc_datetime_usec)
@@ -23,6 +24,7 @@ defmodule Exograph.Postgres.FileRecord do
       package_version_id: file.package_version_id,
       path: file.path,
       source: file.source,
+      comments_text: file.comments_text,
       sha256: file.sha256
     }
   end

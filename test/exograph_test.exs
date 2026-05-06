@@ -72,6 +72,31 @@ defmodule ExographTest do
     assert Kernel.not("atom:id" in query.required_terms)
   end
 
+  test "searches comment text and partial definition names" do
+    path =
+      fixture("github_style_search.ex", """
+      defmodule Demo.Searchable do
+        # Handles streaming chunks from providers.
+        def parse_response_chunk(chunk) do
+          chunk
+        end
+
+        def unrelated(value) do
+          value
+        end
+      end
+      """)
+
+    {:ok, index} = Exograph.index(path, min_mass: 4)
+
+    assert {:ok, comment_results} = Exograph.search_comments(index, "streaming chunks")
+    assert Enum.any?(comment_results, &(&1.fragment.file == path))
+
+    assert {:ok, definition_results} = Exograph.search_definitions(index, "parse_resp")
+    assert Enum.any?(definition_results, &(&1.fragment.name == "parse_response_chunk"))
+    refute Enum.any?(definition_results, &(&1.fragment.name == "unrelated"))
+  end
+
   defp fixture(name, source) do
     dir = Path.join(System.tmp_dir!(), "exograph-tests-#{System.unique_integer([:positive])}")
     File.mkdir_p!(dir)

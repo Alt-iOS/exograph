@@ -8,7 +8,7 @@ defmodule Exograph.Postgres do
   """
 
   alias Ecto.Migration.Runner
-  alias Exograph.Postgres.Migrations.CreateSchema
+  alias Exograph.Postgres.Migrations.{AddSearchFields, CreateSchema}
 
   defmodule SchemaMigration do
     @moduledoc false
@@ -20,8 +20,6 @@ defmodule Exograph.Postgres do
       field(:version, :integer, primary_key: true)
     end
   end
-
-  @schema_version 1
 
   @type repo :: module()
   @type backend_opts :: [repo: repo(), prefix: String.t(), bm25?: boolean()]
@@ -45,35 +43,59 @@ defmodule Exograph.Postgres do
     execute!(repo, "CREATE EXTENSION IF NOT EXISTS pgcrypto", [])
     if bm25?, do: execute!(repo, "CREATE EXTENSION IF NOT EXISTS pg_search", [])
 
-    Application.put_env(:exograph, CreateSchema, prefix: prefix)
+    run_migration!(repo, prefix, 1, CreateSchema)
+    run_migration!(repo, prefix, 2, AddSearchFields)
 
-    Runner.run(repo, repo.config(), @schema_version, CreateSchema, :forward, :up, :up,
+    if bm25?, do: create_bm25_indexes!(repo, prefix)
+
+    :ok
+  end
+
+  defp run_migration!(repo, prefix, version, module) do
+    Application.put_env(:exograph, module, prefix: prefix)
+
+    Runner.run(repo, repo.config(), version, module, :forward, :up, :up,
       log: false,
       log_migrations_sql: false
     )
 
     repo.insert_all(
       {"#{prefix}_schema_migrations", SchemaMigration},
-      [%{version: @schema_version}],
+      [%{version: version}],
       conflict_target: [:version],
       on_conflict: :nothing
     )
-
-    if bm25?, do: create_bm25_index!(repo, prefix)
-
-    :ok
   end
 
-  defp create_bm25_index!(repo, prefix) do
+  defp create_bm25_indexes!(repo, prefix) do
     execute!(
       repo,
       """
-      CREATE INDEX IF NOT EXISTS #{prefix}_files_bm25_idx
+      CREATE INDEX IF NOT EXISTS #{prefix}_files_bm25_v2_idx
       ON #{table(prefix, "files")}
       USING bm25 (
         id,
         (source::pdb.source_code),
+        (comments_text::pdb.unicode),
         (path::pdb.literal),
+        (package_id::pdb.literal),
+        (package_version_id::pdb.literal)
+      )
+      WITH (key_field = 'id')
+      """,
+      []
+    )
+
+    execute!(
+      repo,
+      """
+      CREATE INDEX IF NOT EXISTS #{prefix}_fragments_bm25_idx
+      ON #{table(prefix, "fragments")}
+      USING bm25 (
+        id,
+        (name::pdb.edge_ngram(2, 32, 'token_chars=letter,digit,punctuation')),
+        (module::pdb.edge_ngram(2, 64, 'token_chars=letter,digit,punctuation')),
+        (kind::pdb.literal),
         (package_id::pdb.literal),
         (package_version_id::pdb.literal)
       )

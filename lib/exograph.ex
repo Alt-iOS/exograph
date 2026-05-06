@@ -94,6 +94,34 @@ defmodule Exograph do
     end
   end
 
+  @spec search_comments(Index.t(), String.t(), keyword()) :: {:ok, [map()]}
+  def search_comments(%Index{} = index, literal, opts \\ []) when is_binary(literal) do
+    if function_exported?(index.inverted_backend, :search_comments, 3) do
+      case index.inverted_backend.search_comments(index.inverted, literal, opts) do
+        {:ok, hits} ->
+          {:ok, Enum.filter(hits, &text_match?(comments_text(&1.fragment.source), literal))}
+
+        {:error, _reason} ->
+          search_comments_seq(index, literal, opts)
+      end
+    else
+      search_comments_seq(index, literal, opts)
+    end
+  end
+
+  @spec search_definitions(Index.t(), String.t(), keyword()) :: {:ok, [map()]}
+  def search_definitions(%Index{} = index, partial_name, opts \\ [])
+      when is_binary(partial_name) do
+    if function_exported?(index.inverted_backend, :search_definitions, 3) do
+      case index.inverted_backend.search_definitions(index.inverted, partial_name, opts) do
+        {:ok, hits} -> {:ok, Enum.filter(hits, &definition_match?(&1.fragment, partial_name))}
+        {:error, _reason} -> search_definitions_seq(index, partial_name, opts)
+      end
+    else
+      search_definitions_seq(index, partial_name, opts)
+    end
+  end
+
   @spec compile(ExAST.Pattern.pattern() | ExAST.Selector.t()) :: Query.t()
   def compile(%ExAST.Selector{} = selector), do: Query.selector(selector)
   def compile(pattern), do: Query.pattern(pattern)
@@ -220,6 +248,34 @@ defmodule Exograph do
     {:ok, results}
   end
 
+  defp search_comments_seq(%Index{} = index, literal, opts) do
+    limit = Keyword.get(opts, :limit, 50)
+
+    results =
+      index.fragment_store_backend.all(index.fragment_store)
+      |> Enum.filter(fn fragment ->
+        scoped?(fragment, opts) and text_match?(comments_text(fragment.source), literal)
+      end)
+      |> Enum.map(&Hit.new(fragment: &1, score: 1.0))
+      |> Enum.take(limit)
+
+    {:ok, results}
+  end
+
+  defp search_definitions_seq(%Index{} = index, partial_name, opts) do
+    limit = Keyword.get(opts, :limit, 50)
+
+    results =
+      index.fragment_store_backend.all(index.fragment_store)
+      |> Enum.filter(fn fragment ->
+        scoped?(fragment, opts) and definition_match?(fragment, partial_name)
+      end)
+      |> Enum.map(&Hit.new(fragment: &1, score: 1.0))
+      |> Enum.take(limit)
+
+    {:ok, results}
+  end
+
   defp scoped?(fragment, opts) do
     package_id = Keyword.get(opts, :package_id)
     package_version_id = Keyword.get(opts, :package_version_id)
@@ -243,6 +299,16 @@ defmodule Exograph do
     do: Text.literal_match?(source, literal)
 
   defp text_match?(source, %Regex{} = regex), do: Text.regex_match?(source, regex)
+
+  defp comments_text(source) when is_binary(source), do: Exograph.File.comments_text(source)
+
+  defp comments_text(_source), do: ""
+
+  defp definition_match?(fragment, partial_name) do
+    (fragment.kind in [:def, :defp, :defmacro, :defmacrop] and
+       fragment.name) &&
+      String.contains?(String.downcase(fragment.name), String.downcase(partial_name))
+  end
 
   defp verifier_name({:pattern, _}), do: :pattern
   defp verifier_name({:selector, _}), do: :selector

@@ -51,11 +51,50 @@ defmodule Exograph.InvertedIndex.Postgres do
   end
 
   def search_text(%__MODULE__{} = index, literal, opts \\ []) when is_binary(literal) do
+    search_file_field(index, literal, :source, opts)
+  end
+
+  def search_comments(%__MODULE__{} = index, literal, opts \\ []) when is_binary(literal) do
+    search_file_field(index, literal, :comments_text, opts)
+  end
+
+  def search_definitions(%__MODULE__{} = index, literal, opts \\ []) when is_binary(literal) do
     limit = Keyword.get(opts, :limit, 50)
 
-    files_source = files_source(index)
-
     query =
+      from(fragment in {source(index), FragmentRecord},
+        where: fragment.kind in [:def, :defp, :defmacro, :defmacrop],
+        where:
+          fragment(
+            "?::pdb.edge_ngram(2, 32, 'token_chars=letter,digit,punctuation') ||| ?",
+            fragment.name,
+            ^literal
+          ),
+        order_by: [desc: fragment("paradedb.score(?)", fragment.id)],
+        limit: ^limit,
+        select: {fragment, nil, nil}
+      )
+      |> where_scope(opts)
+      |> with_path(index)
+
+    hits =
+      index.repo.all(query)
+      |> Enum.map(fn {record, path} ->
+        Hit.new(fragment: Options.hydrate_fragment(record, nil, path), score: 1.0)
+      end)
+
+    {:ok, hits}
+  rescue
+    exception in [Postgrex.Error, Ecto.QueryError] -> {:error, exception}
+  end
+
+  defp include_source?(%ExographQuery{verifier: {:selector, _selector}} = query),
+    do: ExographQuery.requires_source?(query)
+
+  defp include_source?(_query), do: true
+
+  defp search_file_field(index, literal, :source, opts) do
+    file_search(index, literal, opts, fn files_source, limit ->
       from(fragment in {source(index), FragmentRecord},
         join: file in ^files_source,
         on: file.id == fragment.file_id,
@@ -64,6 +103,29 @@ defmodule Exograph.InvertedIndex.Postgres do
         limit: ^limit,
         select: {fragment, file.source, file.path}
       )
+    end)
+  end
+
+  defp search_file_field(index, literal, :comments_text, opts) do
+    file_search(index, literal, opts, fn files_source, limit ->
+      from(fragment in {source(index), FragmentRecord},
+        join: file in ^files_source,
+        on: file.id == fragment.file_id,
+        where: fragment("?::pdb.unicode ||| ?", file.comments_text, ^literal),
+        order_by: [desc: fragment("paradedb.score(?)", file.id)],
+        limit: ^limit,
+        select: {fragment, file.source, file.path}
+      )
+    end)
+  end
+
+  defp file_search(index, _literal, opts, query_fun) do
+    limit = Keyword.get(opts, :limit, 50)
+
+    query =
+      index
+      |> files_source()
+      |> query_fun.(limit)
       |> where_scope(opts)
 
     hits =
@@ -77,10 +139,13 @@ defmodule Exograph.InvertedIndex.Postgres do
     exception in [Postgrex.Error, Ecto.QueryError] -> {:error, exception}
   end
 
-  defp include_source?(%ExographQuery{verifier: {:selector, _selector}} = query),
-    do: ExographQuery.requires_source?(query)
-
-  defp include_source?(_query), do: true
+  defp with_path(queryable, index) do
+    from(fragment in queryable,
+      left_join: file in ^files_source(index),
+      on: file.id == fragment.file_id,
+      select: {fragment, file.path}
+    )
+  end
 
   defp with_file(queryable, index, true) do
     from(fragment in queryable,

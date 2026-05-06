@@ -95,6 +95,23 @@ defmodule Exograph.FragmentStore.Postgres do
     store.repo.aggregate({source(store), FragmentRecord}, :count)
   end
 
+  @impl true
+  def term_frequencies(_store, []), do: %{}
+
+  def term_frequencies(%__MODULE__{} = store, terms) do
+    sql = """
+    SELECT term, count(*)::bigint
+    FROM #{Exograph.Postgres.table(store.prefix, "fragments")}, unnest(terms) AS term
+    WHERE term = ANY($1)
+    GROUP BY term
+    """
+
+    store.repo
+    |> Ecto.Adapters.SQL.query!(sql, [terms], timeout: :infinity)
+    |> Map.fetch!(:rows)
+    |> Map.new(fn [term, count] -> {term, count} end)
+  end
+
   defp upsert_files(_store, [], _now), do: :ok
 
   defp upsert_files(store, fragments, now) do

@@ -12,7 +12,7 @@ defmodule Exograph.Planner do
 
   @spec plan(Index.t(), Query.t(), keyword()) :: Plan.t()
   def plan(%Index{} = index, %Query{} = query, opts \\ []) do
-    stats = Keyword.get_lazy(opts, :stats, fn -> Stats.collect(index) end)
+    stats = Keyword.get_lazy(opts, :stats, fn -> Stats.collect(index, query) end)
     logical = LogicalPlan.from_query(query)
     limit = Keyword.get(opts, :limit, 50)
     verify? = Keyword.get(opts, :verify, true)
@@ -44,7 +44,7 @@ defmodule Exograph.Planner do
          {:ok, hits} <- hydrate_hits(index, hits) do
       results =
         if plan.physical.verify? do
-          verify_hits(hits, plan.query)
+          verify_hits(hits, plan.query, plan.physical.limit)
         else
           hits
         end
@@ -216,15 +216,37 @@ defmodule Exograph.Planner do
     end)
   end
 
-  defp verify_hits(hits, query) do
-    hits
-    |> Enum.flat_map(fn hit ->
-      case Query.verify(query, hit.fragment) do
-        {:ok, matches} -> Enum.map(matches, &Hit.with_match(hit, &1))
-        :error -> []
-      end
-    end)
-    |> Enum.uniq_by(&result_key/1)
+  defp verify_hits(hits, query, limit) do
+    {results, _keys} =
+      Enum.reduce_while(hits, {[], MapSet.new()}, fn hit, {acc, keys} ->
+        {acc, keys} =
+          hit
+          |> verified_matches(query)
+          |> Enum.reduce({acc, keys}, fn result, {acc, keys} ->
+            key = result_key(result)
+
+            if MapSet.member?(keys, key) do
+              {acc, keys}
+            else
+              {[result | acc], MapSet.put(keys, key)}
+            end
+          end)
+
+        if length(acc) >= limit do
+          {:halt, {acc, keys}}
+        else
+          {:cont, {acc, keys}}
+        end
+      end)
+
+    results |> Enum.reverse() |> Enum.take(limit)
+  end
+
+  defp verified_matches(hit, query) do
+    case Query.verify(query, hit.fragment) do
+      {:ok, matches} -> Enum.map(matches, &Hit.with_match(hit, &1))
+      :error -> []
+    end
   end
 
   defp result_key(%{fragment: fragment, match: %{node: node}}) do

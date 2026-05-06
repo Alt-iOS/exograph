@@ -26,4 +26,15 @@ defmodule Exograph.FragmentStore.Memory do
 
   @impl true
   def count(%__MODULE__{fragments: fragments}), do: map_size(fragments)
+
+  @impl true
+  def term_frequencies(%__MODULE__{fragments: fragments}, terms) do
+    wanted = MapSet.new(terms)
+
+    Enum.reduce(fragments, %{}, fn {_id, fragment}, acc ->
+      fragment.terms
+      |> MapSet.intersection(wanted)
+      |> Enum.reduce(acc, fn term, acc -> Map.update(acc, term, 1, &(&1 + 1)) end)
+    end)
+  end
 end

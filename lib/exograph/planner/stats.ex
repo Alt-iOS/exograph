@@ -12,19 +12,22 @@ defmodule Exograph.Planner.Stats do
 
   defstruct fragment_count: 0, term_doc_freq: %{}
 
-  @spec collect(Index.t()) :: t()
-  def collect(%Index{} = index) do
-    fragments = index.fragment_store_backend.all(index.fragment_store)
+  @spec collect(Index.t(), Exograph.Query.t() | nil) :: t()
+  def collect(%Index{} = index, query \\ nil) do
+    terms = query_terms(query)
 
-    term_doc_freq =
-      fragments
-      |> Enum.reduce(%{}, fn fragment, acc ->
-        Enum.reduce(fragment.terms, acc, fn term, acc ->
-          Map.update(acc, term, 1, &(&1 + 1))
-        end)
-      end)
+    %__MODULE__{
+      fragment_count: index.fragment_store_backend.count(index.fragment_store),
+      term_doc_freq: index.fragment_store_backend.term_frequencies(index.fragment_store, terms)
+    }
+  end
 
-    %__MODULE__{fragment_count: length(fragments), term_doc_freq: term_doc_freq}
+  defp query_terms(nil), do: []
+
+  defp query_terms(query) do
+    query.candidate_groups
+    |> Enum.reduce(MapSet.union(query.required_terms, query.optional_terms), &MapSet.union/2)
+    |> MapSet.to_list()
   end
 
   @spec estimate_terms(t(), Enumerable.t()) :: non_neg_integer() | :unknown

@@ -24,7 +24,10 @@ defmodule Exograph.AST.Terms do
   def from_pattern(pattern), do: pattern |> to_quoted() |> collect(:pattern) |> MapSet.new()
 
   @spec high_signal?(String.t()) :: boolean()
+  def high_signal?("atom:" <> atom), do: atom not in ["do", "nil", "true", "false", "ok", "error"]
   def high_signal?("call.remote:" <> _), do: true
+  def high_signal?("call.local:./2"), do: false
+  def high_signal?("call.local:" <> _), do: true
   def high_signal?("def:" <> _), do: true
   def high_signal?("def.name:" <> _), do: true
   def high_signal?("attribute:" <> _), do: true
@@ -33,7 +36,6 @@ defmodule Exograph.AST.Terms do
   def high_signal?("map.key:" <> _), do: true
   def high_signal?("alias:" <> _), do: true
   def high_signal?("module:" <> _), do: true
-  def high_signal?("atom:" <> _), do: true
   def high_signal?(_), do: false
 
   defp collect(ast, mode) do

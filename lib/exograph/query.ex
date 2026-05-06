@@ -82,15 +82,24 @@ defmodule Exograph.Query do
   def verify(%__MODULE__{verifier: nil}, _ast), do: {:ok, []}
 
   defp partition_terms(terms) do
-    required = Enum.filter(terms, &Terms.high_signal?/1) |> MapSet.new()
-    optional = MapSet.difference(terms, required)
+    high_signal = Enum.filter(terms, &Terms.high_signal?/1) |> MapSet.new()
+    indexable = Enum.reject(terms, &low_signal?/1) |> MapSet.new()
 
-    if MapSet.size(required) == 0 do
-      {terms, MapSet.new()}
-    else
-      {required, optional}
+    cond do
+      MapSet.size(high_signal) > 0 -> {high_signal, MapSet.difference(indexable, high_signal)}
+      MapSet.size(indexable) > 0 -> {indexable, MapSet.new()}
+      true -> {MapSet.new(), MapSet.new()}
     end
   end
+
+  defp low_signal?("atom:" <> atom), do: atom in ["do", "nil", "true", "false", "ok", "error"]
+  defp low_signal?("node:call"), do: true
+  defp low_signal?("node:local_call"), do: true
+  defp low_signal?("node:remote_call"), do: true
+  defp low_signal?("call.arity:" <> _), do: true
+  defp low_signal?("call.local:./2"), do: true
+  defp low_signal?("call.function:."), do: true
+  defp low_signal?(_term), do: false
 
   defp selector_terms(%ExAST.Selector{steps: steps, filters: filters}) do
     step_terms =

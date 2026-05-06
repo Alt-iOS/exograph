@@ -58,11 +58,17 @@ defmodule Mix.Tasks.Exograph.Index do
     backend_name = Keyword.get(opts, :backend, "memory")
     min_mass = Keyword.get(opts, :min_mass, 8)
 
-    {backend, backend_opts} = backend(backend_name, opts)
+    backend_opts = backend_opts(backend_name, opts)
 
     started_at = System.monotonic_time()
 
-    case Exograph.index(paths, index_opts(backend, backend_opts, min_mass)) do
+    case Exograph.index(
+           paths,
+           Keyword.merge(
+             [backend: String.to_existing_atom(backend_name), min_mass: min_mass],
+             backend_opts
+           )
+         ) do
       {:ok, index} ->
         elapsed_ms =
           System.convert_time_unit(System.monotonic_time() - started_at, :native, :millisecond)
@@ -82,42 +88,22 @@ defmodule Mix.Tasks.Exograph.Index do
     end
   end
 
-  defp index_opts(Exograph.InvertedIndex.Postgres, backend_opts, min_mass) do
+  defp backend_opts("memory", _opts), do: []
+
+  defp backend_opts("postgres", opts) do
     [
-      backend: Exograph.InvertedIndex.Postgres,
-      backend_opts: backend_opts,
-      fragment_store: Exograph.FragmentStore.Postgres,
-      fragment_store_opts: Keyword.put(backend_opts, :migrate?, false),
-      tree_store: Exograph.TreeStore.Postgres,
-      tree_store_opts: Keyword.put(backend_opts, :migrate?, false),
-      min_mass: min_mass
+      repo: repo!(opts),
+      prefix: Keyword.get(opts, :prefix, "exograph"),
+      migrate?: Keyword.get(opts, :migrate, false),
+      bm25?: !Keyword.get(opts, :no_bm25, false)
     ]
   end
 
-  defp index_opts(backend, backend_opts, min_mass) do
-    [backend: backend, backend_opts: backend_opts, min_mass: min_mass]
+  defp backend_opts("tantivy", opts) do
+    [index_path: Keyword.get(opts, :index_path, ".exograph/tantivy")]
   end
 
-  defp backend("memory", _opts), do: {Exograph.InvertedIndex.Memory, []}
-
-  defp backend("postgres", opts) do
-    repo = repo!(opts)
-
-    {Exograph.InvertedIndex.Postgres,
-     [
-       repo: repo,
-       prefix: Keyword.get(opts, :prefix, "exograph"),
-       migrate?: Keyword.get(opts, :migrate, false),
-       bm25?: !Keyword.get(opts, :no_bm25, false)
-     ]}
-  end
-
-  defp backend("tantivy", opts) do
-    path = Keyword.get(opts, :index_path, ".exograph/tantivy")
-    {Exograph.InvertedIndex.TantivyEx, [path: path]}
-  end
-
-  defp backend(other, _opts) do
+  defp backend_opts(other, _opts) do
     Mix.raise("Unknown backend #{inspect(other)}. Expected: memory, postgres, or tantivy")
   end
 
@@ -134,7 +120,7 @@ defmodule Mix.Tasks.Exograph.Index do
     %{
       paths: paths,
       backend: backend_name,
-      index_path: Keyword.get(backend_opts, :path),
+      index_path: Keyword.get(backend_opts, :index_path),
       files: length(files),
       fragments: length(fragments),
       elapsed_ms: elapsed_ms,

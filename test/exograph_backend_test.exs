@@ -79,6 +79,22 @@ defmodule ExographBackendTest do
              Exograph.search_text(index, ~r/users\/:[a-z]+/)
   end
 
+  test "backend profiles wire stores from one high-level option" do
+    path =
+      fixture("profile.ex", """
+      defmodule Demo.Profile do
+        def get_user(id), do: Repo.get!(User, id)
+      end
+      """)
+
+    {:ok, index} = Exograph.index(path, backend: :memory, min_mass: 4)
+
+    assert index.inverted_backend == Exograph.InvertedIndex.Memory
+    assert index.fragment_store_backend == Exograph.FragmentStore.Memory
+    assert index.tree_store_backend == Exograph.TreeStore.Memory
+    assert {:ok, [_ | _]} = Exograph.search(index, "Repo.get!(_, _)")
+  end
+
   test "TantivyEx backend retrieves candidate fragments" do
     path =
       fixture("tantivy.ex", """

@@ -119,11 +119,17 @@ DDL and ParadeDB-specific BM25 operators/index creation.
 ```elixir
 {:ok, index} =
   Exograph.index("lib/",
+    backend: :postgres,
     repo: MyApp.Repo,
     migrate?: true,
     bm25?: true
   )
 ```
+
+Backends are high-level behaviour profiles. Built-in profiles are
+`backend: :postgres`, `backend: :memory`, and `backend: :tantivy`; custom profiles
+can implement `Exograph.Backend` to wire an inverted index, fragment store, and
+tree store together.
 
 This creates Ecto-backed tables named `exograph_fragments` and
 `exograph_tree_nodes`. When ParadeDB's `pg_search` extension is available,
@@ -160,8 +166,8 @@ mix exograph.search 'running shoes' --text --backend postgres --repo MyApp.Repo 
 ```elixir
 {:ok, index} =
   Exograph.index("lib/",
-    backend: Exograph.InvertedIndex.TantivyEx,
-    backend_opts: [path: ".exograph/tantivy"]
+    backend: :tantivy,
+    index_path: ".exograph/tantivy"
   )
 ```
 

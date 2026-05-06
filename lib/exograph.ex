@@ -3,27 +3,18 @@ defmodule Exograph do
   Structural search and code intelligence for Elixir.
   """
 
-  alias Exograph.{Index, Indexer, Planner, Query, Similarity, Text}
-  alias Exograph.FragmentStore.Memory, as: MemoryFragmentStore
-  alias Exograph.FragmentStore.Postgres, as: PostgresFragmentStore
+  alias Exograph.{Backend, Index, Indexer, Planner, Query, Similarity, Text}
   alias Exograph.InvertedIndex.Memory, as: MemoryInvertedIndex
-  alias Exograph.InvertedIndex.Postgres, as: PostgresInvertedIndex
-  alias Exograph.TreeStore.Memory, as: MemoryTreeStore
-  alias Exograph.TreeStore.Postgres, as: PostgresTreeStore
 
   @spec index(String.t() | [String.t()], keyword()) :: {:ok, Index.t()} | {:error, term()}
   def index(paths, opts \\ []) do
-    default_backends = default_backends(opts)
-    inverted_backend = Keyword.get(opts, :backend, default_backends.inverted)
-    fragment_store_backend = Keyword.get(opts, :fragment_store, default_backends.fragment_store)
-    tree_store_backend = Keyword.get(opts, :tree_store, default_backends.tree_store)
-    shared_store_opts = Keyword.take(opts, [:repo, :prefix, :migrate?, :bm25?])
-    inverted_opts = Keyword.merge(shared_store_opts, Keyword.get(opts, :backend_opts, []))
-
-    fragment_store_opts =
-      Keyword.merge(shared_store_opts, Keyword.get(opts, :fragment_store_opts, []))
-
-    tree_store_opts = Keyword.merge(shared_store_opts, Keyword.get(opts, :tree_store_opts, []))
+    backend_config = Backend.config(opts)
+    inverted_backend = Keyword.fetch!(backend_config, :inverted)
+    fragment_store_backend = Keyword.fetch!(backend_config, :fragment_store)
+    tree_store_backend = Keyword.fetch!(backend_config, :tree_store)
+    inverted_opts = Keyword.fetch!(backend_config, :inverted_opts)
+    fragment_store_opts = Keyword.fetch!(backend_config, :fragment_store_opts)
+    tree_store_opts = Keyword.fetch!(backend_config, :tree_store_opts)
 
     indexer_opts =
       Keyword.drop(opts, [
@@ -36,7 +27,8 @@ defmodule Exograph do
         :repo,
         :prefix,
         :migrate?,
-        :bm25?
+        :bm25?,
+        :index_path
       ])
 
     with fragments <- Indexer.index_paths(paths, indexer_opts),
@@ -154,22 +146,6 @@ defmodule Exograph do
       |> Enum.take(limit)
 
     {:ok, results}
-  end
-
-  defp default_backends(opts) do
-    if Keyword.has_key?(opts, :repo) do
-      %{
-        inverted: PostgresInvertedIndex,
-        fragment_store: PostgresFragmentStore,
-        tree_store: PostgresTreeStore
-      }
-    else
-      %{
-        inverted: MemoryInvertedIndex,
-        fragment_store: MemoryFragmentStore,
-        tree_store: MemoryTreeStore
-      }
-    end
   end
 
   defp verify_hits(hits, query) do

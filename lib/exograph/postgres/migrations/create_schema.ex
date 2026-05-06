@@ -84,17 +84,20 @@ defmodule Exograph.Postgres.Migrations.CreateSchema do
       add(:mass, :integer, null: false)
       add(:exact_hash, :binary)
       add(:abstract_hash, :binary)
-      add(:term_hashes, {:array, :bigint}, null: false, default: [])
-      add(:terms_blob, :binary, null: false)
+      add(:terms, {:array, :text}, null: false, default: [])
       add(:sub_hashes, {:array, :bigint}, null: false, default: [])
-      add(:symbols_blob, :binary, null: false)
+      add(:symbols, :map, null: false, default: %{})
       timestamps(type: :utc_datetime_usec)
     end
 
     create_if_not_exists(
-      index(name("fragments"), [:term_hashes],
+      index(name("fragments"), [:terms], using: :gin, name: index_name("fragments", "terms_gin"))
+    )
+
+    create_if_not_exists(
+      index(name("fragments"), [:symbols],
         using: :gin,
-        name: index_name("fragments", "terms_gin")
+        name: index_name("fragments", "symbols_gin")
       )
     )
 

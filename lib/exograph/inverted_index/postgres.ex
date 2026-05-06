@@ -35,8 +35,8 @@ defmodule Exograph.InvertedIndex.Postgres do
   @impl true
   def search(%__MODULE__{} = index, %ExographQuery{} = query, opts \\ []) do
     limit = Keyword.get(opts, :limit, 50)
-    required = term_hashes(query.required_terms)
-    optional = term_hashes(query.optional_terms)
+    required = MapSet.to_list(query.required_terms)
+    optional = MapSet.to_list(query.optional_terms)
 
     records =
       base_query(index)
@@ -59,7 +59,7 @@ defmodule Exograph.InvertedIndex.Postgres do
       from(fragment in {source(index), FragmentRecord},
         join: file in ^files_source,
         on: file.id == fragment.file_id,
-        where: fragment("? ||| ?", file.source, ^literal),
+        where: fragment("?::pdb.source_code ||| ?", file.source, ^literal),
         order_by: [desc: fragment("paradedb.score(?)", file.id)],
         limit: ^limit,
         select: {fragment, file.source, file.path}
@@ -114,15 +114,15 @@ defmodule Exograph.InvertedIndex.Postgres do
   defp where_terms(queryable, [], []), do: queryable
 
   defp where_terms(queryable, required, []) do
-    where(queryable, [fragment], fragment("? @> ?", fragment.term_hashes, ^required))
+    where(queryable, [fragment], fragment("? @> ?", fragment.terms, ^required))
   end
 
   defp where_terms(queryable, [], optional) do
-    where(queryable, [fragment], fragment("? && ?", fragment.term_hashes, ^optional))
+    where(queryable, [fragment], fragment("? && ?", fragment.terms, ^optional))
   end
 
   defp where_terms(queryable, required, _optional) do
-    where(queryable, [fragment], fragment("? @> ?", fragment.term_hashes, ^required))
+    where(queryable, [fragment], fragment("? @> ?", fragment.terms, ^required))
   end
 
   defp hit({%FragmentRecord{} = record, source, path}, query) do
@@ -136,8 +136,6 @@ defmodule Exograph.InvertedIndex.Postgres do
       matched_terms: required_matches |> MapSet.union(optional_matches) |> MapSet.to_list()
     )
   end
-
-  defp term_hashes(terms), do: terms |> MapSet.to_list() |> Enum.map(&FragmentRecord.term_hash/1)
 
   defp files_source(index), do: Options.files_source(index.prefix)
   defp source(index), do: Options.fragments_source(index.prefix)

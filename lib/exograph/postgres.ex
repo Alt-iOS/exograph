@@ -68,9 +68,15 @@ defmodule Exograph.Postgres do
     execute!(
       repo,
       """
-      CREATE INDEX IF NOT EXISTS #{prefix}_fragments_bm25_idx
+      CREATE INDEX IF NOT EXISTS #{prefix}_files_bm25_idx
       ON #{table(prefix, "files")}
-      USING bm25 (id, path, package_id, package_version_id, source)
+      USING bm25 (
+        id,
+        (source::pdb.source_code),
+        (path::pdb.literal),
+        (package_id::pdb.literal),
+        (package_version_id::pdb.literal)
+      )
       WITH (key_field = 'id')
       """,
       []

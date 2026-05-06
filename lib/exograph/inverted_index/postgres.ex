@@ -43,7 +43,7 @@ defmodule Exograph.InvertedIndex.Postgres do
       |> where_terms(required, optional)
       |> where_scope(opts)
       |> limit(^limit)
-      |> with_source(index)
+      |> with_file(index, include_source?(query))
       |> index.repo.all()
 
     hits = Enum.map(records, &hit(&1, query))
@@ -77,11 +77,24 @@ defmodule Exograph.InvertedIndex.Postgres do
     exception in [Postgrex.Error, Ecto.QueryError] -> {:error, exception}
   end
 
-  defp with_source(queryable, index) do
+  defp include_source?(%ExographQuery{verifier: {:selector, _selector}} = query),
+    do: ExographQuery.requires_source?(query)
+
+  defp include_source?(_query), do: true
+
+  defp with_file(queryable, index, true) do
     from(fragment in queryable,
       left_join: file in ^files_source(index),
       on: file.id == fragment.file_id,
       select: {fragment, file.source, file.path}
+    )
+  end
+
+  defp with_file(queryable, index, false) do
+    from(fragment in queryable,
+      left_join: file in ^files_source(index),
+      on: file.id == fragment.file_id,
+      select: {fragment, nil, file.path}
     )
   end
 

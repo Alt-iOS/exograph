@@ -25,6 +25,7 @@ defmodule Exograph.AST.Terms do
 
   @spec high_signal?(String.t()) :: boolean()
   def high_signal?("atom:" <> atom), do: atom not in ["do", "nil", "true", "false", "ok", "error"]
+  def high_signal?("call.local.same_args:" <> _), do: true
   def high_signal?("call.remote:" <> _), do: true
   def high_signal?("call.local:./2"), do: false
   def high_signal?("call.local:" <> _), do: true
@@ -149,7 +150,7 @@ defmodule Exograph.AST.Terms do
          "node:local_call",
          "call.local:#{name}/#{arity}",
          "call.function:#{name}",
-         "call.arity:#{arity}" | terms
+         "call.arity:#{arity}" | same_arg_terms(name, args, terms)
        ]}
     end
   end
@@ -159,6 +160,23 @@ defmodule Exograph.AST.Terms do
   end
 
   defp visit(node, terms, _mode), do: {node, terms}
+
+  defp same_arg_terms(name, [left, right], terms) do
+    if normalized(left) == normalized(right) do
+      ["call.local.same_args:#{name}/2" | terms]
+    else
+      terms
+    end
+  end
+
+  defp same_arg_terms(_name, _args, terms), do: terms
+
+  defp normalized(ast) do
+    Macro.prewalk(ast, fn
+      {form, meta, args} when is_atom(form) and is_list(meta) -> {form, [], args}
+      node -> node
+    end)
+  end
 
   defp collect_into(ast, terms, mode) do
     {_ast, nested} = Macro.prewalk(ast, terms, &visit(&1, &2, mode))

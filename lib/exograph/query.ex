@@ -38,6 +38,7 @@ defmodule Exograph.Query do
   @spec selector(ExAST.Selector.t()) :: t()
   def selector(%ExAST.Selector{} = selector) do
     {positive, negative, candidate_groups} = selector_terms(selector)
+    positive = MapSet.union(positive, inferred_capture_terms(selector))
 
     {required, optional} = partition_terms(positive)
 
@@ -50,6 +51,12 @@ defmodule Exograph.Query do
       verifier: {:selector, selector}
     }
   end
+
+  @spec requires_source?(t()) :: boolean()
+  def requires_source?(%__MODULE__{source: %ExAST.Selector{} = selector}),
+    do: source_required?(selector)
+
+  def requires_source?(_query), do: false
 
   @spec comment_texts(t()) :: [String.t()]
   def comment_texts(%__MODULE__{source: %ExAST.Selector{filters: filters}}) do
@@ -73,22 +80,72 @@ defmodule Exograph.Query do
   end
 
   def verify(%__MODULE__{verifier: {:selector, selector}}, %{source: source, ast: ast}) do
-    selector_input = if source_required?(selector), do: source || ast, else: ast
+    cond do
+      simple_self_capture_selector?(selector) ->
+        verify_simple_self_capture(selector, ast)
 
-    case ExAST.Patcher.find_all(selector_input, selector) do
-      [] -> :error
-      matches -> {:ok, matches}
+      source_required?(selector) ->
+        verify_selector(source || ast, selector)
+
+      true ->
+        verify_selector(ast, selector)
     end
   end
 
   def verify(%__MODULE__{verifier: {:selector, selector}}, ast) do
-    case ExAST.Patcher.find_all(ast, selector) do
+    if simple_self_capture_selector?(selector) do
+      verify_simple_self_capture(selector, ast)
+    else
+      verify_selector(ast, selector)
+    end
+  end
+
+  def verify(%__MODULE__{verifier: nil}, _ast), do: {:ok, []}
+
+  defp verify_selector(input, selector) do
+    case ExAST.Patcher.find_all(input, selector) do
       [] -> :error
       matches -> {:ok, matches}
     end
   end
 
-  def verify(%__MODULE__{verifier: nil}, _ast), do: {:ok, []}
+  defp verify_simple_self_capture(
+         %ExAST.Selector{steps: [self: pattern], filters: filters},
+         ast
+       ) do
+    {_ast, matches} =
+      Macro.prewalk(ast, [], fn node, matches ->
+        case ExAST.Pattern.match(node, pattern) do
+          {:ok, captures} ->
+            if Enum.all?(filters, &capture_predicate?(&1, captures)) do
+              {node, [%{node: node, range: nil, source: nil, captures: captures} | matches]}
+            else
+              {node, matches}
+            end
+
+          :error ->
+            {node, matches}
+        end
+      end)
+
+    case Enum.reverse(matches) do
+      [] -> :error
+      matches -> {:ok, matches}
+    end
+  end
+
+  defp simple_self_capture_selector?(%ExAST.Selector{steps: [self: _pattern], filters: filters}) do
+    Enum.all?(filters, fn
+      %ExAST.Selector.Predicate{relation: :captures, pattern: fun} -> is_function(fun, 1)
+      _predicate -> false
+    end)
+  end
+
+  defp simple_self_capture_selector?(_selector), do: false
+
+  defp capture_predicate?(%ExAST.Selector.Predicate{relation: :captures, pattern: fun}, captures) do
+    fun.(captures)
+  end
 
   defp comment_texts_from_predicate(%ExAST.Selector.Predicate{pattern: predicates})
        when is_list(predicates),
@@ -128,6 +185,45 @@ defmodule Exograph.Query do
        do: Enum.any?(predicates, &source_required_predicate?/1)
 
   defp source_required_predicate?(_predicate), do: false
+
+  defp inferred_capture_terms(%ExAST.Selector{
+         steps: [self: {op, _meta, [left, right]}],
+         filters: filters
+       })
+       when is_atom(op) do
+    if equality_capture_guard?(filters, left, right) do
+      MapSet.new(["call.local.same_args:#{op}/2"])
+    else
+      MapSet.new()
+    end
+  end
+
+  defp inferred_capture_terms(_selector), do: MapSet.new()
+
+  defp equality_capture_guard?(filters, left, right) do
+    left_name = capture_name(left)
+    right_name = capture_name(right)
+
+    left_name && right_name &&
+      Enum.any?(filters, &same_capture_predicate?(&1, left_name, right_name))
+  end
+
+  defp same_capture_predicate?(
+         %ExAST.Selector.Predicate{relation: :captures, pattern: fun},
+         left,
+         right
+       )
+       when is_function(fun, 1) do
+    same = %{left => {:__exograph_same__, [], nil}, right => {:__exograph_same__, [], nil}}
+    different = %{left => {:__exograph_left__, [], nil}, right => {:__exograph_right__, [], nil}}
+
+    fun.(same) == true and fun.(different) == false
+  end
+
+  defp same_capture_predicate?(_predicate, _left, _right), do: false
+
+  defp capture_name({name, _meta, nil}) when is_atom(name), do: name
+  defp capture_name(_ast), do: nil
 
   defp partition_terms(terms) do
     high_signal = Enum.filter(terms, &Terms.high_signal?/1) |> MapSet.new()

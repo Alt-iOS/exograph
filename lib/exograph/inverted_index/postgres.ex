@@ -61,26 +61,31 @@ defmodule Exograph.InvertedIndex.Postgres do
   def search_definitions(%__MODULE__{} = index, literal, opts \\ []) when is_binary(literal) do
     limit = Keyword.get(opts, :limit, 50)
 
+    files_source = files_source(index)
+    definitions_source = definitions_source(index)
+
     query =
       from(fragment in {source(index), FragmentRecord},
-        where: fragment.kind in [:def, :defp, :defmacro, :defmacrop],
+        join: definition in ^definitions_source,
+        on: definition.fragment_id == fragment.id,
+        left_join: file in ^files_source,
+        on: file.id == fragment.file_id,
         where:
           fragment(
             "?::pdb.edge_ngram(2, 32, 'token_chars=letter,digit,punctuation') ||| ?",
-            fragment.name,
+            definition.name,
             ^literal
           ),
-        order_by: [desc: fragment("pdb.score(?)", fragment.id)],
+        order_by: [desc: fragment("pdb.score(?)", definition.id)],
         limit: ^limit,
-        select: {fragment, nil, nil}
+        select: {fragment, nil, file.path}
       )
-      |> where_scope(opts)
-      |> with_path(index)
+      |> where_definition_scope(opts)
 
     hits =
       index.repo.all(query)
-      |> Enum.map(fn {record, path} ->
-        Hit.new(fragment: Options.hydrate_fragment(record, nil, path), score: 1.0)
+      |> Enum.map(fn {record, source, path} ->
+        Hit.new(fragment: Options.hydrate_fragment(record, source, path), score: 1.0)
       end)
 
     {:ok, hits}
@@ -176,14 +181,6 @@ defmodule Exograph.InvertedIndex.Postgres do
     exception in [Postgrex.Error, Ecto.QueryError] -> {:error, exception}
   end
 
-  defp with_path(queryable, index) do
-    from(fragment in queryable,
-      left_join: file in ^files_source(index),
-      on: file.id == fragment.file_id,
-      select: {fragment, file.path}
-    )
-  end
-
   defp with_file(queryable, index, true) do
     from(fragment in queryable,
       left_join: file in ^files_source(index),
@@ -226,6 +223,32 @@ defmodule Exograph.InvertedIndex.Postgres do
   defp maybe_where_package_version(queryable, package_version_id),
     do: where(queryable, [fragment], fragment.package_version_id == ^package_version_id)
 
+  defp where_definition_scope(queryable, opts) do
+    package_id = Keyword.get(opts, :package_id)
+
+    package_version_id =
+      Keyword.get(opts, :package_version_id) || Keyword.get(opts, :package_version)
+
+    queryable
+    |> maybe_where_definition_package(package_id)
+    |> maybe_where_definition_package_version(package_version_id)
+  end
+
+  defp maybe_where_definition_package(queryable, nil), do: queryable
+
+  defp maybe_where_definition_package(queryable, package_id),
+    do: where(queryable, [_fragment, definition], definition.package_id == ^package_id)
+
+  defp maybe_where_definition_package_version(queryable, nil), do: queryable
+
+  defp maybe_where_definition_package_version(queryable, package_version_id),
+    do:
+      where(
+        queryable,
+        [_fragment, definition],
+        definition.package_version_id == ^package_version_id
+      )
+
   defp where_terms(queryable, [], []), do: queryable
 
   defp where_terms(queryable, required, []) do
@@ -253,5 +276,6 @@ defmodule Exograph.InvertedIndex.Postgres do
   end
 
   defp files_source(index), do: Options.files_source(index.prefix)
+  defp definitions_source(index), do: Options.definitions_source(index.prefix)
   defp source(index), do: Options.fragments_source(index.prefix)
 end

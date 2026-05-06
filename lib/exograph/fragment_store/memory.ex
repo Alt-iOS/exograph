@@ -19,12 +19,7 @@ defmodule Exograph.FragmentStore.Memory do
   end
 
   @impl true
-  def get(%__MODULE__{fragments: fragments}, id) do
-    case Map.fetch(fragments, id) do
-      {:ok, fragment} -> {:ok, fragment}
-      :error -> :error
-    end
-  end
+  def get(%__MODULE__{fragments: fragments}, id), do: Map.fetch(fragments, id)
 
   @impl true
   def all(%__MODULE__{fragments: fragments}), do: Map.values(fragments)

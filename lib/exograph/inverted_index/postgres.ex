@@ -11,8 +11,8 @@ defmodule Exograph.InvertedIndex.Postgres do
 
   import Ecto.Query
 
-  alias Exograph.{Package, PackageVersion, Postgres}
-  alias Exograph.Postgres.FragmentRecord
+  alias Exograph.{Package, PackageVersion}
+  alias Exograph.Postgres.{FragmentRecord, Options}
   alias Exograph.Query, as: ExographQuery
 
   defstruct repo: nil, prefix: "exograph", package: nil, package_version: nil
@@ -25,17 +25,7 @@ defmodule Exograph.InvertedIndex.Postgres do
         }
 
   @impl true
-  def new(opts \\ []) do
-    if Keyword.get(opts, :migrate?, false), do: Postgres.migrate!(opts)
-
-    {:ok,
-     %__MODULE__{
-       repo: Postgres.fetch_repo!(opts),
-       prefix: Keyword.get(opts, :prefix, "exograph"),
-       package: package(opts),
-       package_version: package_version(opts)
-     }}
-  end
+  def new(opts \\ []), do: {:ok, Options.store(__MODULE__, opts)}
 
   @impl true
   def add(%__MODULE__{} = index, fragments) when is_list(fragments) do
@@ -131,22 +121,6 @@ defmodule Exograph.InvertedIndex.Postgres do
       score: MapSet.size(required_matches) * 10 + MapSet.size(optional_matches),
       matched_terms: required_matches |> MapSet.union(optional_matches) |> MapSet.to_list()
     }
-  end
-
-  defp package(opts) do
-    case Keyword.get(opts, :package) do
-      nil -> nil
-      %Package{} = package -> package
-      attrs -> Package.new(attrs)
-    end
-  end
-
-  defp package_version(opts) do
-    case Keyword.get(opts, :package_version) do
-      nil -> nil
-      %PackageVersion{} = version -> version
-      attrs -> PackageVersion.new(attrs)
-    end
   end
 
   defp source(index), do: "#{index.prefix}_fragments"

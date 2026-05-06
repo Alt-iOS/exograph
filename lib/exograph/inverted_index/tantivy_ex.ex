@@ -165,20 +165,31 @@ defmodule Exograph.InvertedIndex.TantivyEx do
   end
 
   defp to_hit(result) do
-    document = Map.get(result, :document) || Map.get(result, "document") || result
-    fragment_id = field(document, "fragment_id")
+    normalized_result = normalize_keys(result)
+    document = Map.get(normalized_result, :document) || result
+    fragment_id = field(document, :fragment_id)
 
     %{
       fragment_id: fragment_id,
-      score: Map.get(result, :score) || Map.get(result, "score") || 0.0,
+      score: Map.get(normalized_result, :score, 0.0),
       matched_terms: []
     }
   end
 
   defp field(document, key) when is_map(document) do
-    case Map.get(document, key) || Map.get(document, String.to_atom(key)) do
-      [value | _] -> value
-      value -> value
-    end
+    document
+    |> normalize_keys()
+    |> Map.get(key)
+    |> unwrap_field()
   end
+
+  defp normalize_keys(map) when is_map(map) do
+    Map.new(map, fn
+      {key, value} when is_binary(key) -> {String.to_atom(key), value}
+      entry -> entry
+    end)
+  end
+
+  defp unwrap_field([value | _]), do: value
+  defp unwrap_field(value), do: value
 end

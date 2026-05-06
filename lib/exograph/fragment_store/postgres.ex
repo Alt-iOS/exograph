@@ -7,14 +7,17 @@ defmodule Exograph.FragmentStore.Postgres do
 
   import Ecto.Query
 
-  alias Exograph.{Package, PackageVersion, Postgres}
+  alias Exograph.{Comment, Definition, File, Package, PackageVersion, Postgres, Reference}
 
   alias Exograph.Postgres.{
+    CommentRecord,
+    DefinitionRecord,
     FileRecord,
     FragmentRecord,
     Options,
     PackageRecord,
-    PackageVersionRecord
+    PackageVersionRecord,
+    ReferenceRecord
   }
 
   defstruct repo: nil, prefix: "exograph", package: nil, package_version: nil
@@ -34,7 +37,7 @@ defmodule Exograph.FragmentStore.Postgres do
     now = DateTime.utc_now(:microsecond)
 
     upsert_package_context(store, now)
-    upsert_files(store, fragments, now)
+    files = upsert_files(store, fragments, now)
 
     entries =
       fragments
@@ -53,6 +56,8 @@ defmodule Exograph.FragmentStore.Postgres do
       on_conflict: {:replace_all_except, [:id, :inserted_at]},
       timeout: :infinity
     )
+
+    upsert_code_facts(store, files, fragments, now)
 
     {:ok, store}
   end
@@ -112,19 +117,24 @@ defmodule Exograph.FragmentStore.Postgres do
     |> Map.new(fn [term, count] -> {term, count} end)
   end
 
-  defp upsert_files(_store, [], _now), do: :ok
+  defp upsert_files(_store, [], _now), do: []
 
   defp upsert_files(store, fragments, now) do
-    entries =
+    files =
       fragments
       |> Enum.uniq_by(& &1.file_id)
       |> Enum.reject(&is_nil(&1.file_id))
       |> Enum.map(fn fragment ->
-        Exograph.File.new(fragment.file, fragment.source || "", %{
+        File.new(fragment.file, fragment.source || "", %{
           package_id: fragment.package_id,
           package_version_id: fragment.package_version_id
         })
         |> Map.put(:id, fragment.file_id)
+      end)
+
+    entries =
+      Enum.map(files, fn file ->
+        file
         |> FileRecord.from_file()
         |> Map.merge(%{inserted_at: now, updated_at: now})
       end)
@@ -134,6 +144,121 @@ defmodule Exograph.FragmentStore.Postgres do
       files_source(store),
       entries,
       chunk_size: 500,
+      conflict_target: [:id],
+      on_conflict: {:replace_all_except, [:id, :inserted_at]},
+      timeout: :infinity
+    )
+
+    files
+  end
+
+  defp upsert_code_facts(_store, [], _fragments, _now), do: :ok
+
+  defp upsert_code_facts(store, files, fragments, now) do
+    fragments_by_file = Enum.group_by(fragments, & &1.file_id)
+
+    comments =
+      files
+      |> Enum.flat_map(fn file ->
+        file.source
+        |> extract_comments()
+        |> Enum.map(fn comment ->
+          Comment.new(
+            file,
+            comment,
+            containing_fragment_id(fragments_by_file[file.id], comment.line)
+          )
+        end)
+      end)
+      |> Enum.uniq_by(& &1.id)
+
+    definitions =
+      files
+      |> Enum.flat_map(fn file ->
+        file.source
+        |> ExAST.Symbols.definitions()
+        |> Enum.map(fn definition ->
+          Definition.new(
+            file,
+            definition,
+            containing_fragment_id(fragments_by_file[file.id], definition.line)
+          )
+        end)
+      end)
+      |> Enum.uniq_by(& &1.id)
+
+    references =
+      files
+      |> Enum.flat_map(fn file ->
+        file.source
+        |> ExAST.Symbols.references()
+        |> Enum.map(fn reference ->
+          Reference.new(
+            file,
+            reference,
+            containing_fragment_id(fragments_by_file[file.id], reference.line)
+          )
+        end)
+      end)
+      |> Enum.uniq_by(& &1.id)
+
+    insert_code_facts(store, comments_source(store), comments, CommentRecord, :from_comment, now)
+
+    insert_code_facts(
+      store,
+      definitions_source(store),
+      definitions,
+      DefinitionRecord,
+      :from_definition,
+      now
+    )
+
+    insert_code_facts(
+      store,
+      references_source(store),
+      references,
+      ReferenceRecord,
+      :from_reference,
+      now
+    )
+  end
+
+  defp extract_comments(source) do
+    ExAST.Comments.extract(source)
+  rescue
+    _ -> []
+  end
+
+  defp containing_fragment_id(nil, _line), do: nil
+  defp containing_fragment_id(_fragments, nil), do: nil
+
+  defp containing_fragment_id(fragments, line) do
+    fragments
+    |> Enum.filter(fn fragment ->
+      fragment.line <= line and (is_nil(fragment.end_line) or line <= fragment.end_line)
+    end)
+    |> Enum.min_by(& &1.mass, fn -> nil end)
+    |> case do
+      nil -> nil
+      fragment -> fragment.id
+    end
+  end
+
+  defp insert_code_facts(_store, _source, [], _record, _mapper, _now), do: :ok
+
+  defp insert_code_facts(store, source, facts, record, mapper, now) do
+    entries =
+      Enum.map(facts, fn fact ->
+        record
+        |> apply(mapper, [fact])
+        |> Map.merge(%{inserted_at: now, updated_at: now})
+      end)
+
+    Postgres.bulk_insert_all(
+      store.repo,
+      source,
+      entries,
+      chunk_size: 1_000,
       conflict_target: [:id],
       on_conflict: {:replace_all_except, [:id, :inserted_at]},
       timeout: :infinity
@@ -179,5 +304,8 @@ defmodule Exograph.FragmentStore.Postgres do
   end
 
   defp files_source(store), do: Options.files_source(store.prefix)
+  defp comments_source(store), do: Options.comments_source(store.prefix)
+  defp definitions_source(store), do: Options.definitions_source(store.prefix)
+  defp references_source(store), do: Options.references_source(store.prefix)
   defp source(store), do: Options.fragments_source(store.prefix)
 end

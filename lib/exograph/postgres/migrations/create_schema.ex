@@ -112,6 +112,95 @@ defmodule Exograph.Postgres.Migrations.CreateSchema do
       index(name("fragments"), [:file_id], name: index_name("fragments", "file"))
     )
 
+    create_if_not_exists table(name("comments"), primary_key: false) do
+      add(:id, :text, primary_key: true)
+      add(:package_id, references(name("packages"), type: :text, on_delete: :delete_all))
+
+      add(
+        :package_version_id,
+        references(name("package_versions"), type: :text, on_delete: :delete_all)
+      )
+
+      add(:file_id, references(name("files"), type: :text, on_delete: :delete_all), null: false)
+      add(:fragment_id, references(name("fragments"), type: :text, on_delete: :nilify_all))
+      add(:text, :text, null: false)
+      add(:line, :integer)
+      add(:column, :integer)
+      timestamps(type: :utc_datetime_usec)
+    end
+
+    create_if_not_exists(
+      index(name("comments"), [:file_id], name: index_name("comments", "file"))
+    )
+
+    create_if_not_exists(
+      index(name("comments"), [:fragment_id], name: index_name("comments", "fragment"))
+    )
+
+    create_if_not_exists table(name("definitions"), primary_key: false) do
+      add(:id, :text, primary_key: true)
+      add(:package_id, references(name("packages"), type: :text, on_delete: :delete_all))
+
+      add(
+        :package_version_id,
+        references(name("package_versions"), type: :text, on_delete: :delete_all)
+      )
+
+      add(:file_id, references(name("files"), type: :text, on_delete: :delete_all), null: false)
+      add(:fragment_id, references(name("fragments"), type: :text, on_delete: :nilify_all))
+      add(:kind, :text, null: false)
+      add(:module, :text)
+      add(:name, :text, null: false)
+      add(:arity, :integer)
+      add(:qualified_name, :text, null: false)
+      add(:mfa_module, :text)
+      add(:mfa_name, :text)
+      add(:mfa_arity, :integer)
+      add(:line, :integer)
+      add(:column, :integer)
+      timestamps(type: :utc_datetime_usec)
+    end
+
+    create_if_not_exists(
+      index(name("definitions"), [:qualified_name], name: index_name("definitions", "qualified"))
+    )
+
+    create_if_not_exists(
+      index(name("definitions"), [:fragment_id], name: index_name("definitions", "fragment"))
+    )
+
+    create_if_not_exists table(name("references"), primary_key: false) do
+      add(:id, :text, primary_key: true)
+      add(:package_id, references(name("packages"), type: :text, on_delete: :delete_all))
+
+      add(
+        :package_version_id,
+        references(name("package_versions"), type: :text, on_delete: :delete_all)
+      )
+
+      add(:file_id, references(name("files"), type: :text, on_delete: :delete_all), null: false)
+      add(:fragment_id, references(name("fragments"), type: :text, on_delete: :nilify_all))
+      add(:kind, :text, null: false)
+      add(:module, :text)
+      add(:name, :text, null: false)
+      add(:arity, :integer)
+      add(:qualified_name, :text, null: false)
+      add(:mfa_module, :text)
+      add(:mfa_name, :text)
+      add(:mfa_arity, :integer)
+      add(:line, :integer)
+      add(:column, :integer)
+      timestamps(type: :utc_datetime_usec)
+    end
+
+    create_if_not_exists(
+      index(name("references"), [:qualified_name], name: index_name("references", "qualified"))
+    )
+
+    create_if_not_exists(
+      index(name("references"), [:fragment_id], name: index_name("references", "fragment"))
+    )
+
     create_if_not_exists table(name("tree_nodes"), primary_key: false) do
       add(:fragment_id, references(name("fragments"), type: :text, on_delete: :delete_all),
         null: false,
@@ -137,6 +226,9 @@ defmodule Exograph.Postgres.Migrations.CreateSchema do
 
   def down do
     drop_if_exists(table(name("tree_nodes")))
+    drop_if_exists(table(name("references")))
+    drop_if_exists(table(name("definitions")))
+    drop_if_exists(table(name("comments")))
     drop_if_exists(table(name("fragments")))
     drop_if_exists(table(name("files")))
     drop_if_exists(table(name("package_versions")))

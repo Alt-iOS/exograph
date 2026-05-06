@@ -84,12 +84,38 @@ defmodule Exograph.BackendContract do
     assert repo.aggregate(package_version_query, :count) == 1
   end
 
+  def assert_postgres_code_fact_rows(opts) do
+    repo = Keyword.fetch!(opts, :repo)
+    prefix = Keyword.fetch!(opts, :prefix)
+
+    assert count_rows(repo, prefix, "comments") >= 1
+    assert count_rows(repo, prefix, "definitions") >= 1
+    assert count_rows(repo, prefix, "references") >= 1
+
+    assert count_rows(repo, prefix, "definitions", "qualified_name LIKE '%.get_user/1'") == 1
+    assert count_rows(repo, prefix, "references", "qualified_name = 'Repo.transaction/1'") >= 1
+  end
+
+  defp count_rows(repo, prefix, table, where \\ "true") do
+    %{rows: [[count]]} =
+      Ecto.Adapters.SQL.query!(
+        repo,
+        "SELECT count(*)::bigint FROM #{Exograph.Postgres.table(prefix, table)} WHERE #{where}",
+        []
+      )
+
+    count
+  end
+
   def drop_postgres_prefix(opts) do
     repo = Keyword.fetch!(opts, :repo)
     prefix = Keyword.fetch!(opts, :prefix)
 
     for table <- [
           "tree_nodes",
+          "references",
+          "definitions",
+          "comments",
           "fragments",
           "files",
           "package_versions",

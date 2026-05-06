@@ -102,6 +102,66 @@ defmodule Exograph.Postgres do
       """,
       []
     )
+
+    execute!(
+      repo,
+      """
+      CREATE INDEX IF NOT EXISTS #{prefix}_comments_bm25_idx
+      ON #{table(prefix, "comments")}
+      USING bm25 (
+        id,
+        (text::pdb.unicode),
+        (package_id::pdb.literal),
+        (package_version_id::pdb.literal),
+        (file_id::pdb.literal),
+        (fragment_id::pdb.literal)
+      )
+      WITH (key_field = 'id')
+      """,
+      []
+    )
+
+    execute!(
+      repo,
+      """
+      CREATE INDEX IF NOT EXISTS #{prefix}_definitions_bm25_idx
+      ON #{table(prefix, "definitions")}
+      USING bm25 (
+        id,
+        (name::pdb.edge_ngram(2, 32, 'token_chars=letter,digit,punctuation')),
+        (module::pdb.edge_ngram(2, 64, 'token_chars=letter,digit,punctuation')),
+        (qualified_name::pdb.edge_ngram(2, 96, 'token_chars=letter,digit,punctuation')),
+        (kind::pdb.literal),
+        (package_id::pdb.literal),
+        (package_version_id::pdb.literal),
+        (file_id::pdb.literal),
+        (fragment_id::pdb.literal)
+      )
+      WITH (key_field = 'id')
+      """,
+      []
+    )
+
+    execute!(
+      repo,
+      """
+      CREATE INDEX IF NOT EXISTS #{prefix}_references_bm25_idx
+      ON #{table(prefix, "references")}
+      USING bm25 (
+        id,
+        (name::pdb.edge_ngram(2, 32, 'token_chars=letter,digit,punctuation')),
+        (module::pdb.edge_ngram(2, 64, 'token_chars=letter,digit,punctuation')),
+        (qualified_name::pdb.edge_ngram(2, 96, 'token_chars=letter,digit,punctuation')),
+        (kind::pdb.literal),
+        (package_id::pdb.literal),
+        (package_version_id::pdb.literal),
+        (file_id::pdb.literal),
+        (fragment_id::pdb.literal)
+      )
+      WITH (key_field = 'id')
+      """,
+      []
+    )
   end
 
   @doc false

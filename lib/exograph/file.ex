@@ -3,8 +3,6 @@ defmodule Exograph.File do
   Source file stored once per package version.
   """
 
-  require Sourceror
-
   @type t :: %__MODULE__{
           id: String.t(),
           package_id: String.t() | nil,
@@ -33,13 +31,9 @@ defmodule Exograph.File do
   end
 
   def comments_text(source) do
-    case Sourceror.string_to_quoted(source, []) do
-      {:ok, _quoted, comments} ->
-        Enum.map_join(comments, "\n", & &1.text)
-
-      _error ->
-        ""
-    end
+    ExAST.Comments.text(source)
+  rescue
+    _ -> ""
   end
 
   def id(package_version_id, path, sha256) do

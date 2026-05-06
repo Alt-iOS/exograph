@@ -4,7 +4,6 @@ defmodule Exograph.Indexer do
   """
 
   alias ExDNA.AST.{Fingerprint, Normalizer}
-  alias Exograph.AST.Terms
   alias Exograph.{Fragment, Package, PackageVersion, Symbols}
   alias Exograph.File, as: SourceFile
 
@@ -61,7 +60,7 @@ defmodule Exograph.Indexer do
     abstract_hash =
       ast |> Normalizer.normalize(literal_mode: :abstract) |> Fingerprint.compute_hash()
 
-    terms = Terms.from_source(ast)
+    terms = ExAST.Index.Terms.from_ast(ast)
     symbols = Symbols.extract(ast)
 
     %Fragment{

@@ -155,7 +155,7 @@ defmodule ExographPlannerTest do
     tantivy_path =
       Path.join(
         System.tmp_dir!(),
-        "exograph-planner-any-tantivy-#{System.unique_integer([:positive])}"
+        "exograph-planner-any-tantivy-#{System.unique_integer([:positive, :monotonic])}"
       )
 
     {:ok, tantivy_index} =
@@ -195,7 +195,7 @@ defmodule ExographPlannerTest do
     tantivy_path =
       Path.join(
         System.tmp_dir!(),
-        "exograph-planner-tantivy-#{System.unique_integer([:positive])}"
+        "exograph-planner-tantivy-#{System.unique_integer([:positive, :monotonic])}"
       )
 
     {:ok, tantivy_index} =
@@ -223,7 +223,12 @@ defmodule ExographPlannerTest do
   defp node_line(_node), do: 0
 
   defp fixture(name, source) do
-    dir = Path.join(System.tmp_dir!(), "exograph-planner-#{System.unique_integer([:positive])}")
+    dir =
+      Path.join(
+        System.tmp_dir!(),
+        "exograph-planner-#{System.unique_integer([:positive, :monotonic])}"
+      )
+
     File.mkdir_p!(dir)
     path = Path.join(dir, name)
     File.write!(path, source)

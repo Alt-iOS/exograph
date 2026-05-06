@@ -30,7 +30,7 @@ defmodule Exograph.MixProject do
 
   defp deps do
     [
-      {:ex_ast, "~> 0.10"},
+      {:ex_ast, "~> 0.11"},
       {:ex_dna, "~> 1.5"},
       {:ex_slop, "~> 0.4", only: [:dev, :test], runtime: false},
       {:reach, "~> 2.2", only: [:dev, :test], runtime: false},

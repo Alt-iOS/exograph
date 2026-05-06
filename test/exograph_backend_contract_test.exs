@@ -79,6 +79,7 @@ defmodule ExographBackendContractTest do
         try do
           BackendContract.assert_real_indexing_and_search(@postgres_profile)
           BackendContract.assert_postgres_package_rows(@postgres_profile.opts)
+          BackendContract.assert_postgres_code_fact_rows(@postgres_profile.opts)
         after
           BackendContract.drop_postgres_prefix(@postgres_profile.opts)
         end

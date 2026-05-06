@@ -43,6 +43,12 @@ defmodule Exograph.Postgres.Options do
 
   def files_source(prefix), do: {"#{prefix}_files", Exograph.Postgres.FileRecord}
   def fragments_source(prefix), do: "#{prefix}_fragments"
+  def comments_source(prefix), do: {"#{prefix}_comments", Exograph.Postgres.CommentRecord}
+
+  def definitions_source(prefix),
+    do: {"#{prefix}_definitions", Exograph.Postgres.DefinitionRecord}
+
+  def references_source(prefix), do: {"#{prefix}_references", Exograph.Postgres.ReferenceRecord}
 
   def migrate(opts) do
     if Keyword.get(opts, :migrate?, false), do: Postgres.migrate!(opts)

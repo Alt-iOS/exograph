@@ -3,7 +3,7 @@ defmodule Exograph do
   Structural search and code intelligence for Elixir.
   """
 
-  alias Exograph.{Backend, Index, Indexer, Planner, Query, Similarity, Text}
+  alias Exograph.{Backend, Hit, Index, Indexer, Planner, Query, Similarity, Text}
   alias Exograph.InvertedIndex.Memory, as: MemoryInvertedIndex
 
   @spec index(String.t() | [String.t()], keyword()) :: {:ok, Index.t()} | {:error, term()}
@@ -145,7 +145,7 @@ defmodule Exograph do
 
         scoped?(fragment, opts) and trigram_candidate? and text_match?(source, literal_or_regex)
       end)
-      |> Enum.map(&%{fragment: &1, score: 1.0, matched_terms: []})
+      |> Enum.map(&Hit.new(fragment: &1, score: 1.0))
       |> Enum.take(limit)
 
     {:ok, results}
@@ -164,7 +164,7 @@ defmodule Exograph do
   defp verify_hits(hits, query) do
     Enum.flat_map(hits, fn hit ->
       case Query.verify(query, hit.fragment) do
-        {:ok, matches} -> Enum.map(matches, &Map.merge(hit, %{match: &1}))
+        {:ok, matches} -> Enum.map(matches, &Hit.with_match(hit, &1))
         :error -> []
       end
     end)

@@ -8,7 +8,7 @@ defmodule Exograph.InvertedIndex.TantivyEx do
 
   @behaviour Exograph.InvertedIndex
 
-  alias Exograph.{Fragment, Query}
+  alias Exograph.{Fragment, Hit, Query}
 
   defstruct [:schema, :index, :searcher, :path]
 
@@ -134,7 +134,7 @@ defmodule Exograph.InvertedIndex.TantivyEx do
     |> Enum.join(" ")
   end
 
-  defp join_encoded_terms(terms), do: terms |> Enum.map(&encode_term/1) |> Enum.join(" ")
+  defp join_encoded_terms(terms), do: Enum.map_join(terms, " ", &encode_term/1)
 
   defp encode_term(term) do
     hash = :crypto.hash(:sha256, to_string(term)) |> Base.encode16(case: :lower)
@@ -169,11 +169,7 @@ defmodule Exograph.InvertedIndex.TantivyEx do
     document = Map.get(normalized_result, :document) || result
     fragment_id = field(document, :fragment_id)
 
-    %{
-      fragment_id: fragment_id,
-      score: Map.get(normalized_result, :score, 0.0),
-      matched_terms: []
-    }
+    Hit.new(fragment_id: fragment_id, score: Map.get(normalized_result, :score, 0.0))
   end
 
   defp field(document, key) when is_map(document) do

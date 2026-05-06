@@ -57,7 +57,7 @@ defmodule Exograph.MixProject do
         "test",
         "cmd mix credo --strict",
         "cmd mix ex_dna",
-        "cmd mix reach"
+        "cmd mix reach.check --smells --candidates"
       ]
     ]
   end

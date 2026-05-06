@@ -11,7 +11,7 @@ defmodule Exograph.InvertedIndex.Postgres do
 
   import Ecto.Query
 
-  alias Exograph.{Package, PackageVersion}
+  alias Exograph.{Hit, Package, PackageVersion}
   alias Exograph.Postgres.{FragmentRecord, Options}
   alias Exograph.Query, as: ExographQuery
 
@@ -63,7 +63,7 @@ defmodule Exograph.InvertedIndex.Postgres do
     hits =
       index.repo.all(query)
       |> Enum.map(fn record ->
-        %{fragment: FragmentRecord.to_fragment(record), score: 1.0, matched_terms: []}
+        Hit.new(fragment: FragmentRecord.to_fragment(record), score: 1.0)
       end)
 
     {:ok, hits}
@@ -116,11 +116,11 @@ defmodule Exograph.InvertedIndex.Postgres do
     required_matches = MapSet.intersection(fragment.terms, query.required_terms)
     optional_matches = MapSet.intersection(fragment.terms, query.optional_terms)
 
-    %{
+    Hit.new(
       fragment: fragment,
       score: MapSet.size(required_matches) * 10 + MapSet.size(optional_matches),
       matched_terms: required_matches |> MapSet.union(optional_matches) |> MapSet.to_list()
-    }
+    )
   end
 
   defp source(index), do: "#{index.prefix}_fragments"

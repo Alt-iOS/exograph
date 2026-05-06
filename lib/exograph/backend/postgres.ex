@@ -17,14 +17,15 @@ defmodule Exograph.Backend.Postgres do
   @impl true
   def config(opts) do
     shared = Backend.shared_store_opts(opts)
+    shared_without_migration = Keyword.put(shared, :migrate?, false)
 
     [
       inverted: PostgresInvertedIndex,
       inverted_opts: shared,
       fragment_store: PostgresFragmentStore,
-      fragment_store_opts: Keyword.put(shared, :migrate?, false),
+      fragment_store_opts: shared_without_migration,
       tree_store: PostgresTreeStore,
-      tree_store_opts: Keyword.put(shared, :migrate?, false)
+      tree_store_opts: shared_without_migration
     ]
   end
 end

@@ -32,9 +32,15 @@ defmodule Exograph.Planner.Stats do
     terms = Enum.to_list(terms)
 
     cond do
-      terms == [] -> stats.fragment_count
-      stats.term_doc_freq == %{} -> :unknown
-      true -> terms |> Enum.map(&Map.get(stats.term_doc_freq, &1, 0)) |> Enum.min()
+      terms == [] ->
+        stats.fragment_count
+
+      stats.term_doc_freq == %{} ->
+        :unknown
+
+      true ->
+        least_frequent_term = Enum.min_by(terms, &Map.get(stats.term_doc_freq, &1, 0))
+        Map.get(stats.term_doc_freq, least_frequent_term, 0)
     end
   end
 end

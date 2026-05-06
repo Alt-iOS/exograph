@@ -3,15 +3,10 @@ defmodule Exograph.InvertedIndex do
   Candidate retrieval backend contract.
   """
 
-  alias Exograph.{Fragment, Query}
+  alias Exograph.{Hit, Query}
 
   @type index :: term()
-  @type hit :: %{
-          optional(:fragment) => Fragment.t(),
-          optional(:fragment_id) => Fragment.id(),
-          score: number(),
-          matched_terms: [String.t()]
-        }
+  @type hit :: Hit.t()
 
   @callback new(keyword()) :: {:ok, index()} | {:error, term()}
   @callback add(index(), [Fragment.t()]) :: {:ok, index()} | {:error, term()}

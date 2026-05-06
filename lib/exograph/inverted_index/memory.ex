@@ -5,7 +5,7 @@ defmodule Exograph.InvertedIndex.Memory do
 
   @behaviour Exograph.InvertedIndex
 
-  alias Exograph.Query
+  alias Exograph.{Hit, Query}
 
   defstruct fragments: %{}, postings: %{}, subhash_postings: %{}
 
@@ -94,10 +94,10 @@ defmodule Exograph.InvertedIndex.Memory do
     optional_matches = MapSet.intersection(fragment.terms, query.optional_terms)
     matched_terms = MapSet.union(required_matches, optional_matches) |> MapSet.to_list()
 
-    %{
+    Hit.new(
       fragment: fragment,
       score: MapSet.size(required_matches) * 10 + MapSet.size(optional_matches),
       matched_terms: matched_terms
-    }
+    )
   end
 end

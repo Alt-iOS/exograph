@@ -8,7 +8,7 @@ defmodule Exograph.Planner do
   """
 
   alias Exograph.Planner.{LogicalPlan, PhysicalPlan, Plan, Stats}
-  alias Exograph.{Index, Query}
+  alias Exograph.{Hit, Index, Query}
 
   @spec plan(Index.t(), Query.t(), keyword()) :: Plan.t()
   def plan(%Index{} = index, %Query{} = query, opts \\ []) do
@@ -95,12 +95,11 @@ defmodule Exograph.Planner do
   defp estimate({:term_index_scan, terms}, stats), do: Stats.estimate_terms(stats, terms)
 
   defp estimate({:union_term_index_scan, groups}, stats) do
-    groups
-    |> Enum.map(&Stats.estimate_terms(stats, &1))
-    |> Enum.reduce(0, fn
-      :unknown, _acc -> :unknown
-      _estimate, :unknown -> :unknown
-      estimate, acc -> estimate + acc
+    Enum.reduce_while(groups, 0, fn group, acc ->
+      case Stats.estimate_terms(stats, group) do
+        :unknown -> {:halt, :unknown}
+        estimate -> {:cont, acc + estimate}
+      end
     end)
   end
 
@@ -110,7 +109,7 @@ defmodule Exograph.Planner do
   defp scan(index, %Plan{physical: %PhysicalPlan{scan: :fragment_seq_scan} = physical}, _opts) do
     hits =
       index.fragment_store_backend.all(index.fragment_store)
-      |> Enum.map(&%{fragment: &1, score: 1.0, matched_terms: []})
+      |> Enum.map(&Hit.new(fragment: &1, score: 1.0))
       |> maybe_take_candidates(physical)
 
     {:ok, hits}
@@ -144,13 +143,13 @@ defmodule Exograph.Planner do
       query = %{plan.query | required_terms: MapSet.new(group)}
 
       case index.inverted_backend.search(index.inverted, query, opts) do
-        {:ok, hits} -> {:cont, {:ok, acc ++ hits}}
+        {:ok, hits} -> {:cont, {:ok, [hits | acc]}}
         {:error, reason} -> {:halt, {:error, reason}}
       end
     end)
     |> case do
-      {:ok, hits} ->
-        {:ok, Enum.uniq_by(hits, &hit_key/1)}
+      {:ok, hit_groups} ->
+        {:ok, hit_groups |> List.flatten() |> Enum.uniq_by(&hit_key/1)}
 
       {:error, _reason} ->
         scan(
@@ -195,11 +194,11 @@ defmodule Exograph.Planner do
     end
   end
 
-  defp hydrate_hit(_index, %{fragment: _fragment} = hit), do: {:ok, hit}
+  defp hydrate_hit(_index, %{fragment: fragment} = hit) when not is_nil(fragment), do: {:ok, hit}
 
   defp hydrate_hit(index, %{fragment_id: fragment_id} = hit) do
     case index.fragment_store_backend.get(index.fragment_store, fragment_id) do
-      {:ok, fragment} -> {:ok, Map.put(hit, :fragment, fragment)}
+      {:ok, fragment} -> {:ok, %{hit | fragment: fragment}}
       :error -> :error
     end
   end
@@ -220,7 +219,7 @@ defmodule Exograph.Planner do
     hits
     |> Enum.flat_map(fn hit ->
       case Query.verify(query, hit.fragment) do
-        {:ok, matches} -> Enum.map(matches, &Map.merge(hit, %{match: &1}))
+        {:ok, matches} -> Enum.map(matches, &Hit.with_match(hit, &1))
         :error -> []
       end
     end)

@@ -74,7 +74,6 @@ defmodule Exograph.Postgres.Migrations.CreateSchema do
       )
 
       add(:file_id, references(name("files"), type: :text, on_delete: :delete_all))
-      add(:file, :text, null: false)
       add(:ast, :binary, null: false)
       add(:kind, :text, null: false)
       add(:module, :text)
@@ -83,30 +82,20 @@ defmodule Exograph.Postgres.Migrations.CreateSchema do
       add(:line, :integer, null: false)
       add(:end_line, :integer)
       add(:mass, :integer, null: false)
-      add(:exact_hash, :text)
-      add(:abstract_hash, :text)
-      add(:terms, {:array, :text}, null: false, default: [])
-      add(:terms_text, :text, null: false, default: "")
+      add(:exact_hash, :binary)
+      add(:abstract_hash, :binary)
+      add(:term_hashes, {:array, :bigint}, null: false, default: [])
+      add(:terms_blob, :binary, null: false)
       add(:sub_hashes, {:array, :bigint}, null: false, default: [])
-      add(:defs, {:array, :text}, null: false, default: [])
-      add(:defs_text, :text, null: false, default: "")
-      add(:refs, {:array, :text}, null: false, default: [])
-      add(:refs_text, :text, null: false, default: "")
-      add(:modules, {:array, :text}, null: false, default: [])
-      add(:modules_text, :text, null: false, default: "")
-      add(:functions, {:array, :text}, null: false, default: [])
-      add(:functions_text, :text, null: false, default: "")
-      add(:aliases, {:array, :text}, null: false, default: [])
-      add(:aliases_text, :text, null: false, default: "")
-      add(:structs, {:array, :text}, null: false, default: [])
-      add(:structs_text, :text, null: false, default: "")
-      add(:atoms, {:array, :text}, null: false, default: [])
-      add(:atoms_text, :text, null: false, default: "")
+      add(:symbols_blob, :binary, null: false)
       timestamps(type: :utc_datetime_usec)
     end
 
     create_if_not_exists(
-      index(name("fragments"), [:terms], using: :gin, name: index_name("fragments", "terms_gin"))
+      index(name("fragments"), [:term_hashes],
+        using: :gin,
+        name: index_name("fragments", "terms_gin")
+      )
     )
 
     create_if_not_exists(
@@ -115,7 +104,9 @@ defmodule Exograph.Postgres.Migrations.CreateSchema do
       )
     )
 
-    create_if_not_exists(index(name("fragments"), [:file], name: index_name("fragments", "file")))
+    create_if_not_exists(
+      index(name("fragments"), [:file_id], name: index_name("fragments", "file"))
+    )
 
     create_if_not_exists table(name("tree_nodes"), primary_key: false) do
       add(:fragment_id, references(name("fragments"), type: :text, on_delete: :delete_all),

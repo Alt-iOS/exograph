@@ -35,8 +35,8 @@ defmodule Exograph.InvertedIndex.Postgres do
   @impl true
   def search(%__MODULE__{} = index, %ExographQuery{} = query, opts \\ []) do
     limit = Keyword.get(opts, :limit, 50)
-    required = MapSet.to_list(query.required_terms)
-    optional = MapSet.to_list(query.optional_terms)
+    required = term_hashes(query.required_terms)
+    optional = term_hashes(query.optional_terms)
 
     records =
       base_query(index)
@@ -62,14 +62,14 @@ defmodule Exograph.InvertedIndex.Postgres do
         where: fragment("? ||| ?", file.source, ^literal),
         order_by: [desc: fragment("paradedb.score(?)", file.id)],
         limit: ^limit,
-        select: {fragment, file.source}
+        select: {fragment, file.source, file.path}
       )
       |> where_scope(opts)
 
     hits =
       index.repo.all(query)
-      |> Enum.map(fn {record, source} ->
-        Hit.new(fragment: Options.hydrate_fragment(record, source), score: 1.0)
+      |> Enum.map(fn {record, source, path} ->
+        Hit.new(fragment: Options.hydrate_fragment(record, source, path), score: 1.0)
       end)
 
     {:ok, hits}
@@ -81,13 +81,13 @@ defmodule Exograph.InvertedIndex.Postgres do
     from(fragment in queryable,
       left_join: file in ^files_source(index),
       on: file.id == fragment.file_id,
-      select: {fragment, file.source}
+      select: {fragment, file.source, file.path}
     )
   end
 
   defp base_query(index) do
     from(fragment in {source(index), FragmentRecord},
-      order_by: [desc: fragment.mass, asc: fragment.file, asc: fragment.line]
+      order_by: [desc: fragment.mass, asc: fragment.file_id, asc: fragment.line]
     )
   end
 
@@ -114,19 +114,19 @@ defmodule Exograph.InvertedIndex.Postgres do
   defp where_terms(queryable, [], []), do: queryable
 
   defp where_terms(queryable, required, []) do
-    where(queryable, [fragment], fragment("? @> ?", fragment.terms, ^required))
+    where(queryable, [fragment], fragment("? @> ?", fragment.term_hashes, ^required))
   end
 
   defp where_terms(queryable, [], optional) do
-    where(queryable, [fragment], fragment("? && ?", fragment.terms, ^optional))
+    where(queryable, [fragment], fragment("? && ?", fragment.term_hashes, ^optional))
   end
 
   defp where_terms(queryable, required, _optional) do
-    where(queryable, [fragment], fragment("? @> ?", fragment.terms, ^required))
+    where(queryable, [fragment], fragment("? @> ?", fragment.term_hashes, ^required))
   end
 
-  defp hit({%FragmentRecord{} = record, source}, query) do
-    fragment = Options.hydrate_fragment(record, source)
+  defp hit({%FragmentRecord{} = record, source, path}, query) do
+    fragment = Options.hydrate_fragment(record, source, path)
     required_matches = MapSet.intersection(fragment.terms, query.required_terms)
     optional_matches = MapSet.intersection(fragment.terms, query.optional_terms)
 
@@ -136,6 +136,8 @@ defmodule Exograph.InvertedIndex.Postgres do
       matched_terms: required_matches |> MapSet.union(optional_matches) |> MapSet.to_list()
     )
   end
+
+  defp term_hashes(terms), do: terms |> MapSet.to_list() |> Enum.map(&FragmentRecord.term_hash/1)
 
   defp files_source(index), do: Options.files_source(index.prefix)
   defp source(index), do: Options.fragments_source(index.prefix)

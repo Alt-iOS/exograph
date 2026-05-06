@@ -34,9 +34,10 @@ defmodule Exograph.Postgres.Options do
     )
   end
 
-  def hydrate_fragment(record, source) do
+  def hydrate_fragment(record, source, path) do
     record
     |> Map.put(:source, source)
+    |> Map.put(:file, path)
     |> Exograph.Postgres.FragmentRecord.to_fragment()
   end
 

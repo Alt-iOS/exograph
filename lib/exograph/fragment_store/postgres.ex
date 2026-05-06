@@ -64,12 +64,15 @@ defmodule Exograph.FragmentStore.Postgres do
         left_join: file in ^files_source(store),
         on: file.id == fragment.file_id,
         where: fragment.id == ^fragment_id,
-        select: {fragment, file.source}
+        select: {fragment, file.source, file.path}
       )
 
     case store.repo.one(query) do
-      {%FragmentRecord{} = record, source} -> {:ok, Options.hydrate_fragment(record, source)}
-      nil -> :error
+      {%FragmentRecord{} = record, source, path} ->
+        {:ok, Options.hydrate_fragment(record, source, path)}
+
+      nil ->
+        :error
     end
   end
 
@@ -79,12 +82,12 @@ defmodule Exograph.FragmentStore.Postgres do
       from(fragment in {source(store), FragmentRecord},
         left_join: file in ^files_source(store),
         on: file.id == fragment.file_id,
-        order_by: [asc: fragment.file, asc: fragment.line, asc: fragment.id],
-        select: {fragment, file.source}
+        order_by: [asc: file.path, asc: fragment.line, asc: fragment.id],
+        select: {fragment, file.source, file.path}
       )
 
     store.repo.all(query)
-    |> Enum.map(fn {record, source} -> Options.hydrate_fragment(record, source) end)
+    |> Enum.map(fn {record, source, path} -> Options.hydrate_fragment(record, source, path) end)
   end
 
   defp upsert_files(_store, [], _now), do: :ok

@@ -30,13 +30,18 @@ defmodule Exograph.BackendContract do
   end
 
   def start_postgres_repo(url) do
-    Exograph.TestRepo.start_link(
-      url: url,
-      pool_size: 2,
-      ssl: false,
-      stacktrace: true,
-      show_sensitive_data_on_connection_error: true
-    )
+    case Exograph.TestRepo.start_link(
+           url: url,
+           pool_size: 2,
+           ssl: false,
+           stacktrace: true,
+           show_sensitive_data_on_connection_error: true,
+           log: false
+         ) do
+      {:ok, pid} -> {:ok, pid}
+      {:error, {:already_started, pid}} -> {:ok, pid}
+      {:error, reason} -> {:error, reason}
+    end
   end
 
   def postgres_available?(url) when is_binary(url) do
@@ -54,6 +59,21 @@ defmodule Exograph.BackendContract do
   end
 
   def postgres_available?(_url), do: false
+
+  def drop_postgres_prefix(opts) do
+    repo = Keyword.fetch!(opts, :repo)
+    prefix = Keyword.fetch!(opts, :prefix)
+
+    for table <- ["tree_nodes", "fragments", "schema_migrations"] do
+      Ecto.Adapters.SQL.query!(
+        repo,
+        "DROP TABLE IF EXISTS #{Exograph.Postgres.table(prefix, table)} CASCADE",
+        []
+      )
+    end
+
+    :ok
+  end
 
   defp assert_profile_modules(index, expected) do
     assert index.inverted_backend == expected.inverted

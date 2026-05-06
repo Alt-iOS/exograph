@@ -69,11 +69,16 @@ defmodule ExographBackendContractTest do
   test "postgres backend satisfies real indexing and search contract when database is available" do
     url = System.get_env("EXOGRAPH_DATABASE_URL")
 
-    if BackendContract.postgres_available?(url) do
-      {:ok, _pid} = BackendContract.start_postgres_repo(url)
-      BackendContract.assert_real_indexing_and_search(@postgres_profile)
-    else
-      flunk("set EXOGRAPH_DATABASE_URL to run the Postgres backend contract")
+    case BackendContract.start_postgres_repo(url) do
+      {:ok, _pid} ->
+        try do
+          BackendContract.assert_real_indexing_and_search(@postgres_profile)
+        after
+          BackendContract.drop_postgres_prefix(@postgres_profile.opts)
+        end
+
+      {:error, _reason} ->
+        flunk("set EXOGRAPH_DATABASE_URL to run the Postgres backend contract")
     end
   end
 end

@@ -66,8 +66,8 @@ defmodule Exograph.Postgres.FragmentRecord do
       line: fragment.line,
       end_line: fragment.end_line,
       mass: fragment.mass,
-      exact_hash: fragment.exact_hash,
-      abstract_hash: fragment.abstract_hash,
+      exact_hash: encode_hash(fragment.exact_hash),
+      abstract_hash: encode_hash(fragment.abstract_hash),
       terms: strings(fragment.terms),
       terms_text: joined(fragment.terms),
       sub_hashes: MapSet.to_list(fragment.sub_hashes),
@@ -114,6 +114,10 @@ defmodule Exograph.Postgres.FragmentRecord do
       atoms: mapset(record.atoms)
     }
   end
+
+  defp encode_hash(nil), do: nil
+  defp encode_hash(hash) when is_binary(hash), do: Base.encode16(hash, case: :lower)
+  defp encode_hash(hash), do: to_string(hash)
 
   defp strings(set), do: set |> MapSet.to_list() |> Enum.sort()
   defp joined(set), do: set |> strings() |> Enum.join(" ")

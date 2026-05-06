@@ -67,6 +67,8 @@ defmodule Exograph.InvertedIndex.Postgres do
       end)
 
     {:ok, hits}
+  rescue
+    exception in [Postgrex.Error, Ecto.QueryError] -> {:error, exception}
   end
 
   defp base_query(index) do

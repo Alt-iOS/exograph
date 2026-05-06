@@ -30,6 +30,7 @@ defmodule Exograph.BackendContract do
     assert_capture_guard_search(index, path)
     assert_comment_search(index, path)
     assert_text_search(index, path)
+    assert_reference_search(index, path)
     assert_similarity(index, path)
   end
 
@@ -220,6 +221,13 @@ defmodule Exograph.BackendContract do
   defp assert_text_search(index, path) do
     assert {:ok, [%{fragment: text_fragment} | _]} = Exograph.search_text(index, "Repo.get!")
     assert text_fragment.file == path
+  end
+
+  defp assert_reference_search(index, path) do
+    assert {:ok, [%{fragment: reference_fragment} | _]} =
+             Exograph.search_references(index, "Repo.transaction")
+
+    assert reference_fragment.file == path
   end
 
   defp assert_similarity(index, path) do

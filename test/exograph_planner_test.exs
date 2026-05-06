@@ -158,6 +158,8 @@ defmodule ExographPlannerTest do
         "exograph-planner-any-tantivy-#{System.unique_integer([:positive, :monotonic])}"
       )
 
+    File.rm_rf!(tantivy_path)
+
     {:ok, tantivy_index} =
       Exograph.index(path,
         min_mass: 4,
@@ -197,6 +199,8 @@ defmodule ExographPlannerTest do
         System.tmp_dir!(),
         "exograph-planner-tantivy-#{System.unique_integer([:positive, :monotonic])}"
       )
+
+    File.rm_rf!(tantivy_path)
 
     {:ok, tantivy_index} =
       Exograph.index(path,

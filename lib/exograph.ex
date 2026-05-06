@@ -78,9 +78,12 @@ defmodule Exograph do
   @spec search_text(Index.t(), String.t() | Regex.t(), keyword()) :: {:ok, [map()]}
   def search_text(%Index{} = index, literal_or_regex, opts \\ []) do
     if is_binary(literal_or_regex) and function_exported?(index.inverted_backend, :search_text, 3) do
-      with {:ok, hits} <-
-             index.inverted_backend.search_text(index.inverted, literal_or_regex, opts) do
-        {:ok, Enum.filter(hits, &text_match?(&1.fragment.source || "", literal_or_regex))}
+      case index.inverted_backend.search_text(index.inverted, literal_or_regex, opts) do
+        {:ok, hits} ->
+          {:ok, Enum.filter(hits, &text_match?(&1.fragment.source || "", literal_or_regex))}
+
+        {:error, _reason} ->
+          search_text_seq(index, literal_or_regex, opts)
       end
     else
       search_text_seq(index, literal_or_regex, opts)

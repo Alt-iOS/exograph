@@ -8,7 +8,8 @@ defmodule Exograph.MixProject do
       elixir: "~> 1.19",
       start_permanent: Mix.env() == :prod,
       deps: deps(),
-      docs: docs()
+      docs: docs(),
+      elixirc_paths: elixirc_paths(Mix.env())
     ]
   end
 
@@ -18,6 +19,9 @@ defmodule Exograph.MixProject do
       mod: {Exograph.Application, []}
     ]
   end
+
+  defp elixirc_paths(:test), do: ["lib", "test/support"]
+  defp elixirc_paths(_env), do: ["lib"]
 
   defp deps do
     [

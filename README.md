@@ -161,6 +161,15 @@ mix exograph.search 'Repo.get!(_, _)' --backend postgres --repo MyApp.Repo lib
 mix exograph.search 'running shoes' --text --backend postgres --repo MyApp.Repo lib
 ```
 
+The shared backend contract tests run real indexing, structural search, selector
+search, text search, tree-node lookup, and similarity search for each runnable
+backend. Generic Postgres tests are tagged and need a database URL:
+
+```bash
+EXOGRAPH_DATABASE_URL=postgres://postgres:postgres@localhost:5432/exograph_test \
+  mix test --include postgres
+```
+
 ## TantivyEx backend
 
 ```elixir

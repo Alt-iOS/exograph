@@ -8,7 +8,7 @@ defmodule Exograph.Postgres do
   """
 
   alias Ecto.Migration.Runner
-  alias Exograph.Postgres.Migrations.{AddSearchFields, CreateSchema}
+  alias Exograph.Postgres.Migrations.CreateSchema
 
   defmodule SchemaMigration do
     @moduledoc false
@@ -43,25 +43,24 @@ defmodule Exograph.Postgres do
     execute!(repo, "CREATE EXTENSION IF NOT EXISTS pgcrypto", [])
     if bm25?, do: execute!(repo, "CREATE EXTENSION IF NOT EXISTS pg_search", [])
 
-    run_migration!(repo, prefix, 1, CreateSchema)
-    run_migration!(repo, prefix, 2, AddSearchFields)
+    run_migration!(repo, prefix, CreateSchema)
 
     if bm25?, do: create_bm25_indexes!(repo, prefix)
 
     :ok
   end
 
-  defp run_migration!(repo, prefix, version, module) do
+  defp run_migration!(repo, prefix, module) do
     Application.put_env(:exograph, module, prefix: prefix)
 
-    Runner.run(repo, repo.config(), version, module, :forward, :up, :up,
+    Runner.run(repo, repo.config(), 1, module, :forward, :up, :up,
       log: false,
       log_migrations_sql: false
     )
 
     repo.insert_all(
       {"#{prefix}_schema_migrations", SchemaMigration},
-      [%{version: version}],
+      [%{version: 1}],
       conflict_target: [:version],
       on_conflict: :nothing
     )
@@ -71,7 +70,7 @@ defmodule Exograph.Postgres do
     execute!(
       repo,
       """
-      CREATE INDEX IF NOT EXISTS #{prefix}_files_bm25_v2_idx
+      CREATE INDEX IF NOT EXISTS #{prefix}_files_bm25_idx
       ON #{table(prefix, "files")}
       USING bm25 (
         id,

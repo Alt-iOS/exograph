@@ -32,13 +32,21 @@ query =
 {:ok, results} = Exograph.search(index, query)
 ```
 
-Selector alternatives and sibling/position predicates are compiled into
-candidate terms too:
+Selector alternatives, sibling/position predicates, comment predicates, and
+capture guards are supported. Index terms stay advisory and ExAST performs exact
+verification against the original source when selector features need comments or
+source ranges.
 
 ```elixir
 from(["def _ do ... end", "defp _ do ... end"])
 |> where(follows("@doc _"))
 |> where(first())
+
+from("left == right")
+|> where(^left == ^right)
+
+from("def _ do ... end")
+|> where(comment_before(text("transaction wrapper")))
 ```
 
 ## Query planning and explanations

@@ -153,7 +153,7 @@ defmodule Exograph do
 
   defp verify_hits(hits, query) do
     Enum.flat_map(hits, fn hit ->
-      case Query.verify(query, hit.fragment.ast) do
+      case Query.verify(query, hit.fragment) do
         {:ok, matches} -> Enum.map(matches, &Map.merge(hit, %{match: &1}))
         :error -> []
       end

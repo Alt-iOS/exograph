@@ -23,6 +23,8 @@ defmodule Exograph.BackendContract do
     assert_fragments(index, path)
     assert_structural_search(index, path)
     assert_selector_search(index, path)
+    assert_capture_guard_search(index, path)
+    assert_comment_search(index, path)
     assert_text_search(index, path)
     assert_similarity(index, path)
   end
@@ -86,6 +88,35 @@ defmodule Exograph.BackendContract do
            end)
   end
 
+  defp assert_capture_guard_search(index, path) do
+    import ExAST.Query
+
+    query = from("left == right") |> where(^left == ^right)
+
+    assert {:ok, results} = Exograph.search(index, query)
+
+    assert Enum.any?(results, fn result ->
+             result.fragment.file == path and Macro.to_string(result.match.node) == "same == same"
+           end)
+
+    refute Enum.any?(results, fn result ->
+             result.fragment.file == path and
+               Macro.to_string(result.match.node) == "left == right"
+           end)
+  end
+
+  defp assert_comment_search(index, path) do
+    import ExAST.Query
+
+    query = from("def _ do ... end") |> where(comment_before(text("transaction wrapper")))
+
+    assert {:ok, results} = Exograph.search(index, query)
+
+    assert Enum.any?(results, fn result ->
+             result.fragment.file == path and Macro.to_string(result.match.node) =~ "update_user"
+           end)
+  end
+
   defp assert_text_search(index, path) do
     assert {:ok, [%{fragment: text_fragment} | _]} = Exograph.search_text(index, "Repo.get!")
     assert text_fragment.file == path
@@ -139,6 +170,14 @@ defmodule Exograph.BackendContract do
           end)
         end
 
+        def compare_same(same) do
+          same == same
+        end
+
+        def compare_different(left, right) do
+          left == right
+        end
+
         def update_account(account, params) do
           account
           |> cast(params, [:name])
@@ -147,5 +186,6 @@ defmodule Exograph.BackendContract do
       end
     end
     |> Macro.to_string()
+    |> String.replace("def update_user", "# transaction wrapper\n  def update_user")
   end
 end

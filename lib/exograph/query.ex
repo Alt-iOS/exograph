@@ -51,11 +51,24 @@ defmodule Exograph.Query do
     }
   end
 
-  @spec verify(t(), Macro.t()) :: {:ok, [map()]} | :error
+  @spec verify(t(), Macro.t() | Exograph.Fragment.t()) :: {:ok, [map()]} | :error
+  def verify(%__MODULE__{verifier: {:pattern, pattern}}, %{ast: ast}) do
+    verify(%__MODULE__{verifier: {:pattern, pattern}}, ast)
+  end
+
   def verify(%__MODULE__{verifier: {:pattern, pattern}}, ast) do
     case ExAST.Pattern.match(ast, pattern) do
       {:ok, captures} -> {:ok, [%{node: ast, captures: captures}]}
       :error -> :error
+    end
+  end
+
+  def verify(%__MODULE__{verifier: {:selector, selector}}, %{source: source, ast: ast}) do
+    selector_input = source || ast
+
+    case ExAST.Patcher.find_all(selector_input, selector) do
+      [] -> :error
+      matches -> {:ok, matches}
     end
   end
 
@@ -116,7 +129,17 @@ defmodule Exograph.Query do
   end
 
   defp predicate_terms(%ExAST.Selector.Predicate{relation: relation})
-       when relation in [:first, :last, :nth],
+       when relation in [
+              :first,
+              :last,
+              :nth,
+              :captures,
+              :comment,
+              :comment_before,
+              :comment_after,
+              :comment_inside,
+              :comment_inline
+            ],
        do: MapSet.new()
 
   defp predicate_terms(%ExAST.Selector.Predicate{pattern: pattern}),

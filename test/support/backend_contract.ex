@@ -130,7 +130,15 @@ defmodule Exograph.BackendContract do
     assert {:ok, [%{fragment: fragment} | _]} = Exograph.search(index, "Repo.get!(_, _)")
     assert fragment.file == path
     assert {:ok, ^fragment} = index.fragment_store_backend.get(index.fragment_store, fragment.id)
-    assert [_ | _] = Exograph.tree_nodes(index, fragment.id)
+
+    tree_fragment =
+      index.fragment_store_backend.all(index.fragment_store)
+      |> Enum.find(
+        &(&1.file == path and &1.kind in [:module, :def, :defp, :defmacro, :defmacrop])
+      )
+
+    assert tree_fragment
+    assert [_ | _] = Exograph.tree_nodes(index, tree_fragment.id)
   end
 
   defp assert_selector_search(index, path) do

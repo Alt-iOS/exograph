@@ -7,7 +7,6 @@ defmodule Exograph.TreeStore.Postgres do
 
   import Ecto.Query
 
-  alias Ecto.Multi
   alias Exograph.Postgres
   alias Exograph.Postgres.TreeNodeRecord
   alias Exograph.Tree
@@ -26,20 +25,29 @@ defmodule Exograph.TreeStore.Postgres do
 
   @impl true
   def put_fragments(%__MODULE__{} = store, fragments) do
+    fragments = fragments |> Enum.uniq_by(& &1.id) |> Enum.filter(&tree_indexed?/1)
     fragment_ids = Enum.map(fragments, & &1.id)
     records = fragments |> Tree.nodes() |> Enum.map(&TreeNodeRecord.from_node/1)
 
-    multi =
-      Multi.new()
-      |> Multi.delete_all(
-        :delete_existing,
-        from(node in {source(store), TreeNodeRecord}, where: node.fragment_id in ^fragment_ids)
-      )
-      |> Multi.insert_all(:insert_nodes, {source(store), TreeNodeRecord}, records)
+    case store.repo.transaction(
+           fn ->
+             store.repo.delete_all(
+               from(node in {source(store), TreeNodeRecord},
+                 where: node.fragment_id in ^fragment_ids
+               ),
+               timeout: :infinity
+             )
 
-    case store.repo.transaction(multi) do
-      {:ok, _changes} -> {:ok, store}
-      {:error, _operation, reason, _changes} -> {:error, reason}
+             records
+             |> Enum.chunk_every(4_000)
+             |> Enum.each(fn chunk ->
+               store.repo.insert_all({source(store), TreeNodeRecord}, chunk, timeout: :infinity)
+             end)
+           end,
+           timeout: :infinity
+         ) do
+      {:ok, _result} -> {:ok, store}
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -54,6 +62,9 @@ defmodule Exograph.TreeStore.Postgres do
     store.repo.all(query)
     |> Enum.map(&TreeNodeRecord.to_node/1)
   end
+
+  defp tree_indexed?(fragment),
+    do: fragment.kind in [:module, :def, :defp, :defmacro, :defmacrop]
 
   defp source(store), do: "#{store.prefix}_tree_nodes"
 end

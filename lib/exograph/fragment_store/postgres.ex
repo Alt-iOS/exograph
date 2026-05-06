@@ -39,18 +39,25 @@ defmodule Exograph.FragmentStore.Postgres do
     upsert_package_context(store, now)
 
     entries =
-      Enum.map(fragments, fn fragment ->
+      fragments
+      |> Enum.map(fn fragment ->
         fragment
         |> FragmentRecord.from_fragment()
         |> Map.merge(%{inserted_at: now, updated_at: now})
       end)
+      |> Enum.uniq_by(& &1.id)
 
-    store.repo.insert_all(
-      {source(store), FragmentRecord},
-      entries,
-      conflict_target: [:id],
-      on_conflict: {:replace_all_except, [:id, :inserted_at]}
-    )
+    entries
+    |> Enum.chunk_every(1_000)
+    |> Enum.each(fn chunk ->
+      store.repo.insert_all(
+        {source(store), FragmentRecord},
+        chunk,
+        conflict_target: [:id],
+        on_conflict: {:replace_all_except, [:id, :inserted_at]},
+        timeout: :infinity
+      )
+    end)
 
     {:ok, store}
   end
@@ -83,7 +90,8 @@ defmodule Exograph.FragmentStore.Postgres do
       {"#{store.prefix}_packages", PackageRecord},
       [PackageRecord.from_package(package) |> Map.merge(%{inserted_at: now, updated_at: now})],
       conflict_target: [:id],
-      on_conflict: {:replace_all_except, [:id, :inserted_at]}
+      on_conflict: {:replace_all_except, [:id, :inserted_at]},
+      timeout: :infinity
     )
 
     if store.package_version do
@@ -94,7 +102,8 @@ defmodule Exograph.FragmentStore.Postgres do
           |> Map.merge(%{inserted_at: now, updated_at: now})
         ],
         conflict_target: [:id],
-        on_conflict: {:replace_all_except, [:id, :inserted_at]}
+        on_conflict: {:replace_all_except, [:id, :inserted_at]},
+        timeout: :infinity
       )
     end
 

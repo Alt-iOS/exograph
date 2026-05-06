@@ -39,15 +39,6 @@ defmodule Exograph.InvertedIndex.Postgres do
 
   @impl true
   def add(%__MODULE__{} = index, fragments) when is_list(fragments) do
-    {:ok, store} =
-      Exograph.FragmentStore.Postgres.new(
-        repo: index.repo,
-        prefix: index.prefix,
-        package: index.package,
-        package_version: index.package_version
-      )
-
-    {:ok, _store} = Exograph.FragmentStore.Postgres.put(store, fragments)
     {:ok, index}
   end
 

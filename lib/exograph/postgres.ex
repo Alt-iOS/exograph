@@ -10,6 +10,17 @@ defmodule Exograph.Postgres do
   alias Ecto.Migration.Runner
   alias Exograph.Postgres.Migrations.CreateSchema
 
+  defmodule SchemaMigration do
+    @moduledoc false
+
+    use Ecto.Schema
+
+    @primary_key false
+    schema "schema_migrations" do
+      field(:version, :integer, primary_key: true)
+    end
+  end
+
   @schema_version 1
 
   @type repo :: module()
@@ -41,10 +52,11 @@ defmodule Exograph.Postgres do
       log_migrations_sql: false
     )
 
-    execute!(
-      repo,
-      "INSERT INTO #{table(prefix, "schema_migrations")} (version) VALUES ($1) ON CONFLICT DO NOTHING",
-      [@schema_version]
+    repo.insert_all(
+      {"#{prefix}_schema_migrations", SchemaMigration},
+      [%{version: @schema_version}],
+      conflict_target: [:version],
+      on_conflict: :nothing
     )
 
     if bm25?, do: create_bm25_index!(repo, prefix)

@@ -2,6 +2,9 @@ defmodule Exograph.BackendContract do
   @moduledoc false
 
   import ExUnit.Assertions
+  import Ecto.Query, only: [from: 2]
+
+  alias Exograph.Postgres.{PackageRecord, PackageVersionRecord}
 
   def assert_profile(profile, expected) do
     config = Exograph.Backend.config(profile.opts)
@@ -66,19 +69,19 @@ defmodule Exograph.BackendContract do
     prefix = Keyword.fetch!(opts, :prefix)
     version = Exograph.PackageVersion.new(Keyword.fetch!(opts, :package_version))
 
-    assert %{rows: [[1]]} =
-             Ecto.Adapters.SQL.query!(
-               repo,
-               "SELECT count(*) FROM #{Exograph.Postgres.table(prefix, "packages")} WHERE id = $1",
-               [version.package_id]
-             )
+    packages = {"#{prefix}_packages", PackageRecord}
+    package_versions = {"#{prefix}_package_versions", PackageVersionRecord}
 
-    assert %{rows: [[1]]} =
-             Ecto.Adapters.SQL.query!(
-               repo,
-               "SELECT count(*) FROM #{Exograph.Postgres.table(prefix, "package_versions")} WHERE id = $1 AND package_id = $2",
-               [version.id, version.package_id]
-             )
+    package_query = from(package in packages, where: package.id == ^version.package_id)
+
+    package_version_query =
+      from(package_version in package_versions,
+        where:
+          package_version.id == ^version.id and package_version.package_id == ^version.package_id
+      )
+
+    assert repo.aggregate(package_query, :count) == 1
+    assert repo.aggregate(package_version_query, :count) == 1
   end
 
   def drop_postgres_prefix(opts) do

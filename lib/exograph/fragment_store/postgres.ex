@@ -90,6 +90,11 @@ defmodule Exograph.FragmentStore.Postgres do
     |> Enum.map(fn {record, source, path} -> Options.hydrate_fragment(record, source, path) end)
   end
 
+  @impl true
+  def count(%__MODULE__{} = store) do
+    store.repo.aggregate({source(store), FragmentRecord}, :count)
+  end
+
   defp upsert_files(_store, [], _now), do: :ok
 
   defp upsert_files(store, fragments, now) do

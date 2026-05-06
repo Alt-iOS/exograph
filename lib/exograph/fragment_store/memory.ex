@@ -23,4 +23,7 @@ defmodule Exograph.FragmentStore.Memory do
 
   @impl true
   def all(%__MODULE__{fragments: fragments}), do: Map.values(fragments)
+
+  @impl true
+  def count(%__MODULE__{fragments: fragments}), do: map_size(fragments)
 end

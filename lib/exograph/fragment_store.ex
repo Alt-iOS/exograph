@@ -11,4 +11,5 @@ defmodule Exograph.FragmentStore do
   @callback put(store(), [Fragment.t()]) :: {:ok, store()} | {:error, term()}
   @callback get(store(), Fragment.id()) :: {:ok, Fragment.t()} | :error
   @callback all(store()) :: [Fragment.t()]
+  @callback count(store()) :: non_neg_integer()
 end

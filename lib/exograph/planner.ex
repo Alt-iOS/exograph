@@ -165,7 +165,8 @@ defmodule Exograph.Planner do
   end
 
   defp candidate_opts(index, %Plan{physical: %PhysicalPlan{verify?: true}}, opts) do
-    Keyword.put(opts, :limit, candidate_count(index))
+    candidate_limit = Keyword.get_lazy(opts, :candidate_limit, fn -> candidate_count(index) end)
+    Keyword.put(opts, :limit, candidate_limit)
   end
 
   defp maybe_take_candidates(hits, %PhysicalPlan{verify?: true}), do: hits
@@ -174,7 +175,7 @@ defmodule Exograph.Planner do
     do: Enum.take(hits, limit)
 
   defp candidate_count(index) do
-    index.fragment_store_backend.all(index.fragment_store) |> length()
+    index.fragment_store_backend.count(index.fragment_store)
   end
 
   defp hit_key(%{fragment_id: fragment_id}), do: fragment_id

@@ -120,9 +120,10 @@ mix exograph.search 'Repo\\.get!\\(' lib --regex
 
 ## Postgres + ParadeDB backend
 
-Postgres is the primary durable backend. Exograph uses Ecto schemas, `Repo`
-operations, and transactions for fragments and AST tree nodes. Raw SQL is kept to
-DDL and ParadeDB-specific BM25 operators/index creation.
+Postgres is the primary durable backend. Exograph uses Ecto migrations, schemas,
+`Repo` operations, and transactions for packages, package versions, fragments,
+and AST tree nodes. Raw SQL is kept to Postgres extensions and ParadeDB-specific
+BM25 operators/index creation.
 
 ```elixir
 {:ok, index} =
@@ -139,9 +140,19 @@ Backends are high-level behaviour profiles. Built-in profiles are
 can implement `Exograph.Backend` to wire an inverted index, fragment store, and
 tree store together.
 
-This creates Ecto-backed tables named `exograph_fragments` and
-`exograph_tree_nodes`. When ParadeDB's `pg_search` extension is available,
-`migrate?: true` also creates a Tantivy-powered BM25 covering index:
+This creates normalized Ecto-backed tables:
+
+- `exograph_packages`
+- `exograph_package_versions`
+- `exograph_fragments`
+- `exograph_tree_nodes`
+
+Fragments store `package_id` and `package_version_id`; package name, ecosystem,
+release metadata, source refs, and checksums live in the package/version tables
+and are joined when needed.
+
+When ParadeDB's `pg_search` extension is available, `migrate?: true` also
+creates a Tantivy-powered BM25 covering index:
 
 ```sql
 CREATE INDEX exograph_fragments_bm25_idx
@@ -149,6 +160,33 @@ ON exograph_fragments
 USING bm25 (id, source, file, kind, name, terms_text, defs_text, refs_text,
             modules_text, functions_text, aliases_text, structs_text, atoms_text)
 WITH (key_field = 'id');
+```
+
+Index multiple package versions into the same backend by passing package release
+identity:
+
+```elixir
+Exograph.index("sources/req_llm-1.11.0",
+  backend: :postgres,
+  repo: MyApp.Repo,
+  migrate?: true,
+  package_version: [
+    ecosystem: :hex,
+    name: "req_llm",
+    version: "1.11.0",
+    source_ref: "hex:req_llm:1.11.0"
+  ]
+)
+
+Exograph.index("sources/req_llm-1.12.0",
+  backend: :postgres,
+  repo: MyApp.Repo,
+  package_version: [ecosystem: :hex, name: "req_llm", version: "1.12.0"]
+)
+
+Exograph.search(index, "Repo.get!(_, _)",
+  package_version_id: "hex:req_llm@1.11.0"
+)
 ```
 
 ParadeDB notes from the docs:

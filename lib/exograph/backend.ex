@@ -88,7 +88,8 @@ defmodule Exograph.Backend do
   defp merge_opts(_config_key, _config, value), do: value
 
   @doc false
-  def shared_store_opts(opts), do: Keyword.take(opts, [:repo, :prefix, :migrate?, :bm25?])
+  def shared_store_opts(opts),
+    do: Keyword.take(opts, [:repo, :prefix, :migrate?, :bm25?, :package, :package_version])
 
   @doc false
   def memory_config do

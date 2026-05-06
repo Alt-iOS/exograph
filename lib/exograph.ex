@@ -143,12 +143,22 @@ defmodule Exograph do
           MapSet.size(query_trigrams) == 0 or
             MapSet.subset?(query_trigrams, Text.trigrams(source))
 
-        trigram_candidate? and text_match?(source, literal_or_regex)
+        scoped?(fragment, opts) and trigram_candidate? and text_match?(source, literal_or_regex)
       end)
       |> Enum.map(&%{fragment: &1, score: 1.0, matched_terms: []})
       |> Enum.take(limit)
 
     {:ok, results}
+  end
+
+  defp scoped?(fragment, opts) do
+    package_id = Keyword.get(opts, :package_id)
+    package_version_id = Keyword.get(opts, :package_version_id)
+    package_version = Keyword.get(opts, :package_version)
+
+    (is_nil(package_id) or fragment.package_id == package_id) and
+      (is_nil(package_version_id) or fragment.package_version_id == package_version_id) and
+      (is_nil(package_version) or fragment.package_version_id == package_version)
   end
 
   defp verify_hits(hits, query) do

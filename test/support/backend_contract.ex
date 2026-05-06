@@ -21,6 +21,7 @@ defmodule Exograph.BackendContract do
 
     assert_profile_modules(index, profile.expected)
     assert_fragments(index, path)
+    assert_package_scope(index, profile)
     assert_structural_search(index, path)
     assert_selector_search(index, path)
     assert_capture_guard_search(index, path)
@@ -60,11 +61,31 @@ defmodule Exograph.BackendContract do
 
   def postgres_available?(_url), do: false
 
+  def assert_postgres_package_rows(opts) do
+    repo = Keyword.fetch!(opts, :repo)
+    prefix = Keyword.fetch!(opts, :prefix)
+    version = Exograph.PackageVersion.new(Keyword.fetch!(opts, :package_version))
+
+    assert %{rows: [[1]]} =
+             Ecto.Adapters.SQL.query!(
+               repo,
+               "SELECT count(*) FROM #{Exograph.Postgres.table(prefix, "packages")} WHERE id = $1",
+               [version.package_id]
+             )
+
+    assert %{rows: [[1]]} =
+             Ecto.Adapters.SQL.query!(
+               repo,
+               "SELECT count(*) FROM #{Exograph.Postgres.table(prefix, "package_versions")} WHERE id = $1 AND package_id = $2",
+               [version.id, version.package_id]
+             )
+  end
+
   def drop_postgres_prefix(opts) do
     repo = Keyword.fetch!(opts, :repo)
     prefix = Keyword.fetch!(opts, :prefix)
 
-    for table <- ["tree_nodes", "fragments", "schema_migrations"] do
+    for table <- ["tree_nodes", "fragments", "package_versions", "packages", "schema_migrations"] do
       Ecto.Adapters.SQL.query!(
         repo,
         "DROP TABLE IF EXISTS #{Exograph.Postgres.table(prefix, table)} CASCADE",
@@ -85,6 +106,21 @@ defmodule Exograph.BackendContract do
     assert [_ | _] = fragments = index.fragment_store_backend.all(index.fragment_store)
     assert Enum.any?(fragments, &(&1.file == path and &1.name == "get_user"))
     assert Enum.any?(fragments, &(&1.file == path and &1.name == "update_user"))
+  end
+
+  defp assert_package_scope(index, profile) do
+    package_version = Exograph.PackageVersion.new(Keyword.fetch!(profile.opts, :package_version))
+
+    assert Enum.all?(index.fragment_store_backend.all(index.fragment_store), fn fragment ->
+             fragment.package_id == package_version.package_id and
+               fragment.package_version_id == package_version.id
+           end)
+
+    assert {:ok, [_ | _]} =
+             Exograph.search(index, "Repo.get!(_, _)", package_version_id: package_version.id)
+
+    assert {:ok, []} =
+             Exograph.search(index, "Repo.get!(_, _)", package_version_id: "hex:other@0.1.0")
   end
 
   defp assert_structural_search(index, path) do

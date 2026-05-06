@@ -2,11 +2,13 @@ defmodule Exograph.Postgres do
   @moduledoc """
   Ecto/Postgres helpers for the durable Exograph backend.
 
-  The backend stores fragments, structural terms, symbols, and AST tree nodes in
-  normal Postgres tables. When `pg_search` from ParadeDB is installed, the
-  fragment table also gets a BM25 covering index over source and candidate term
-  fields.
+  Relational storage is created through Ecto migrations. Raw SQL is reserved for
+  Postgres extensions and ParadeDB's BM25 index, which Ecto migrations do not
+  model directly.
   """
+
+  alias Ecto.Migration.Runner
+  alias Exograph.Postgres.Migrations.CreateSchema
 
   @schema_version 1
 
@@ -14,12 +16,12 @@ defmodule Exograph.Postgres do
   @type backend_opts :: [repo: repo(), prefix: String.t(), bm25?: boolean()]
 
   @doc """
-  Creates or upgrades the Exograph Postgres schema through `Ecto.Adapters.SQL`.
+  Creates or upgrades the Exograph Postgres schema.
 
   Options:
 
     * `:repo` - an Ecto repo module (required)
-    * `:prefix` - table prefix, defaults to `"exograph"`
+    * `:prefix` - table-name prefix, defaults to `"exograph"`
     * `:bm25?` - create a ParadeDB BM25 index when `pg_search` is available,
       defaults to `true`
   """
@@ -30,114 +32,14 @@ defmodule Exograph.Postgres do
     bm25? = Keyword.get(opts, :bm25?, true)
 
     execute!(repo, "CREATE EXTENSION IF NOT EXISTS pgcrypto", [])
+    if bm25?, do: execute!(repo, "CREATE EXTENSION IF NOT EXISTS pg_search", [])
 
-    if bm25? do
-      execute!(repo, "CREATE EXTENSION IF NOT EXISTS pg_search", [])
-    end
+    Application.put_env(:exograph, CreateSchema, prefix: prefix)
 
-    execute!(
-      repo,
-      """
-      CREATE TABLE IF NOT EXISTS #{table(prefix, "schema_migrations")} (
-        version integer PRIMARY KEY,
-        inserted_at timestamptz NOT NULL DEFAULT now()
-      )
-      """,
-      []
+    Runner.run(repo, repo.config(), @schema_version, CreateSchema, :forward, :up, :up,
+      log: false,
+      log_migrations_sql: false
     )
-
-    execute!(
-      repo,
-      """
-      CREATE TABLE IF NOT EXISTS #{table(prefix, "fragments")} (
-        id text PRIMARY KEY,
-        file text NOT NULL,
-        source text,
-        ast bytea NOT NULL,
-        kind text NOT NULL,
-        module text,
-        name text,
-        arity integer,
-        line integer NOT NULL,
-        end_line integer,
-        mass integer NOT NULL,
-        exact_hash text,
-        abstract_hash text,
-        terms text[] NOT NULL DEFAULT '{}',
-        terms_text text NOT NULL DEFAULT '',
-        sub_hashes bigint[] NOT NULL DEFAULT '{}',
-        defs text[] NOT NULL DEFAULT '{}',
-        defs_text text NOT NULL DEFAULT '',
-        refs text[] NOT NULL DEFAULT '{}',
-        refs_text text NOT NULL DEFAULT '',
-        modules text[] NOT NULL DEFAULT '{}',
-        modules_text text NOT NULL DEFAULT '',
-        functions text[] NOT NULL DEFAULT '{}',
-        functions_text text NOT NULL DEFAULT '',
-        aliases text[] NOT NULL DEFAULT '{}',
-        aliases_text text NOT NULL DEFAULT '',
-        structs text[] NOT NULL DEFAULT '{}',
-        structs_text text NOT NULL DEFAULT '',
-        atoms text[] NOT NULL DEFAULT '{}',
-        atoms_text text NOT NULL DEFAULT '',
-        inserted_at timestamptz NOT NULL DEFAULT now(),
-        updated_at timestamptz NOT NULL DEFAULT now()
-      )
-      """,
-      []
-    )
-
-    execute!(
-      repo,
-      """
-      CREATE TABLE IF NOT EXISTS #{table(prefix, "tree_nodes")} (
-        fragment_id text NOT NULL REFERENCES #{table(prefix, "fragments")}(id) ON DELETE CASCADE,
-        id integer NOT NULL,
-        parent_id integer,
-        ordinal integer NOT NULL,
-        role text,
-        kind text NOT NULL,
-        label text,
-        line integer NOT NULL,
-        preorder integer NOT NULL,
-        postorder integer NOT NULL,
-        depth integer NOT NULL,
-        PRIMARY KEY (fragment_id, id)
-      )
-      """,
-      []
-    )
-
-    execute!(
-      repo,
-      "CREATE INDEX IF NOT EXISTS #{prefix}_fragments_terms_gin ON #{table(prefix, "fragments")} USING gin (terms)",
-      []
-    )
-
-    execute!(
-      repo,
-      "CREATE INDEX IF NOT EXISTS #{prefix}_fragments_file_idx ON #{table(prefix, "fragments")} (file)",
-      []
-    )
-
-    execute!(
-      repo,
-      "CREATE INDEX IF NOT EXISTS #{prefix}_tree_nodes_fragment_idx ON #{table(prefix, "tree_nodes")} (fragment_id)",
-      []
-    )
-
-    if bm25? do
-      execute!(
-        repo,
-        """
-        CREATE INDEX IF NOT EXISTS #{prefix}_fragments_bm25_idx
-        ON #{table(prefix, "fragments")}
-        USING bm25 (id, source, file, kind, name, terms_text, defs_text, refs_text, modules_text, functions_text, aliases_text, structs_text, atoms_text)
-        WITH (key_field = 'id')
-        """,
-        []
-      )
-    end
 
     execute!(
       repo,
@@ -145,13 +47,26 @@ defmodule Exograph.Postgres do
       [@schema_version]
     )
 
+    if bm25?, do: create_bm25_index!(repo, prefix)
+
     :ok
   end
 
-  @doc false
-  def fetch_repo!(opts) do
-    Keyword.fetch!(opts, :repo)
+  defp create_bm25_index!(repo, prefix) do
+    execute!(
+      repo,
+      """
+      CREATE INDEX IF NOT EXISTS #{prefix}_fragments_bm25_idx
+      ON #{table(prefix, "fragments")}
+      USING bm25 (id, source, file, kind, name, package_id, package_version_id, terms_text, defs_text, refs_text, modules_text, functions_text, aliases_text, structs_text, atoms_text)
+      WITH (key_field = 'id')
+      """,
+      []
+    )
   end
+
+  @doc false
+  def fetch_repo!(opts), do: Keyword.fetch!(opts, :repo)
 
   @doc false
   def table(prefix, name), do: ~s("#{prefix}_#{name}")
@@ -163,7 +78,5 @@ defmodule Exograph.Postgres do
   end
 
   @doc false
-  def query(repo, sql, params \\ []) do
-    Ecto.Adapters.SQL.query(repo, sql, params)
-  end
+  def query(repo, sql, params \\ []), do: Ecto.Adapters.SQL.query(repo, sql, params)
 end

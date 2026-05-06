@@ -10,6 +10,8 @@ defmodule Exograph.Postgres.FragmentRecord do
   @primary_key {:id, :string, autogenerate: false}
   @schema_prefix nil
   schema "exograph_fragments" do
+    field(:package_id, :string)
+    field(:package_version_id, :string)
     field(:file, :string)
     field(:source, :string)
     field(:ast, :binary)
@@ -56,6 +58,8 @@ defmodule Exograph.Postgres.FragmentRecord do
   def from_fragment(%Fragment{} = fragment) do
     %{
       id: fragment.id,
+      package_id: fragment.package_id,
+      package_version_id: fragment.package_version_id,
       file: fragment.file,
       source: fragment.source,
       ast: :erlang.term_to_binary(fragment.ast),
@@ -91,6 +95,8 @@ defmodule Exograph.Postgres.FragmentRecord do
   def to_fragment(%__MODULE__{} = record) do
     %Fragment{
       id: record.id,
+      package_id: record.package_id,
+      package_version_id: record.package_version_id,
       file: record.file,
       source: record.source,
       ast: :erlang.binary_to_term(record.ast),

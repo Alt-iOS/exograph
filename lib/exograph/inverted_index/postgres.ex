@@ -11,25 +11,42 @@ defmodule Exograph.InvertedIndex.Postgres do
 
   import Ecto.Query
 
-  alias Exograph.Postgres
+  alias Exograph.{Package, PackageVersion, Postgres}
   alias Exograph.Postgres.FragmentRecord
   alias Exograph.Query, as: ExographQuery
 
-  defstruct repo: nil, prefix: "exograph"
+  defstruct repo: nil, prefix: "exograph", package: nil, package_version: nil
 
-  @type t :: %__MODULE__{repo: module(), prefix: String.t()}
+  @type t :: %__MODULE__{
+          repo: module(),
+          prefix: String.t(),
+          package: Package.t() | nil,
+          package_version: PackageVersion.t() | nil
+        }
 
   @impl true
   def new(opts \\ []) do
     if Keyword.get(opts, :migrate?, false), do: Postgres.migrate!(opts)
 
     {:ok,
-     %__MODULE__{repo: Postgres.fetch_repo!(opts), prefix: Keyword.get(opts, :prefix, "exograph")}}
+     %__MODULE__{
+       repo: Postgres.fetch_repo!(opts),
+       prefix: Keyword.get(opts, :prefix, "exograph"),
+       package: package(opts),
+       package_version: package_version(opts)
+     }}
   end
 
   @impl true
   def add(%__MODULE__{} = index, fragments) when is_list(fragments) do
-    {:ok, store} = Exograph.FragmentStore.Postgres.new(repo: index.repo, prefix: index.prefix)
+    {:ok, store} =
+      Exograph.FragmentStore.Postgres.new(
+        repo: index.repo,
+        prefix: index.prefix,
+        package: index.package,
+        package_version: index.package_version
+      )
+
     {:ok, _store} = Exograph.FragmentStore.Postgres.put(store, fragments)
     {:ok, index}
   end
@@ -43,6 +60,7 @@ defmodule Exograph.InvertedIndex.Postgres do
     records =
       base_query(index)
       |> where_terms(required, optional)
+      |> where_scope(opts)
       |> limit(^limit)
       |> index.repo.all()
 
@@ -59,6 +77,7 @@ defmodule Exograph.InvertedIndex.Postgres do
         order_by: [desc: fragment("paradedb.score(?)", fragment.id)],
         limit: ^limit
       )
+      |> where_scope(opts)
 
     hits =
       index.repo.all(query)
@@ -76,6 +95,26 @@ defmodule Exograph.InvertedIndex.Postgres do
       order_by: [desc: fragment.mass, asc: fragment.file, asc: fragment.line]
     )
   end
+
+  defp where_scope(queryable, opts) do
+    package_id = Keyword.get(opts, :package_id)
+    package_version_id = Keyword.get(opts, :package_version_id)
+    package_version = Keyword.get(opts, :package_version)
+
+    queryable
+    |> maybe_where_package(package_id)
+    |> maybe_where_package_version(package_version_id || package_version)
+  end
+
+  defp maybe_where_package(queryable, nil), do: queryable
+
+  defp maybe_where_package(queryable, package_id),
+    do: where(queryable, [fragment], fragment.package_id == ^package_id)
+
+  defp maybe_where_package_version(queryable, nil), do: queryable
+
+  defp maybe_where_package_version(queryable, package_version_id),
+    do: where(queryable, [fragment], fragment.package_version_id == ^package_version_id)
 
   defp where_terms(queryable, [], []), do: queryable
 
@@ -101,6 +140,22 @@ defmodule Exograph.InvertedIndex.Postgres do
       score: MapSet.size(required_matches) * 10 + MapSet.size(optional_matches),
       matched_terms: required_matches |> MapSet.union(optional_matches) |> MapSet.to_list()
     }
+  end
+
+  defp package(opts) do
+    case Keyword.get(opts, :package) do
+      nil -> nil
+      %Package{} = package -> package
+      attrs -> Package.new(attrs)
+    end
+  end
+
+  defp package_version(opts) do
+    case Keyword.get(opts, :package_version) do
+      nil -> nil
+      %PackageVersion{} = version -> version
+      attrs -> PackageVersion.new(attrs)
+    end
   end
 
   defp source(index), do: "#{index.prefix}_fragments"

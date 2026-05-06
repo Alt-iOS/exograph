@@ -49,7 +49,7 @@ defmodule Exograph.Planner do
           hits
         end
 
-      {:ok, Enum.take(results, plan.physical.limit)}
+      {:ok, results |> filter_scope(opts) |> Enum.take(plan.physical.limit)}
     end
   end
 
@@ -202,6 +202,18 @@ defmodule Exograph.Planner do
       {:ok, fragment} -> {:ok, Map.put(hit, :fragment, fragment)}
       :error -> :error
     end
+  end
+
+  defp filter_scope(results, opts) do
+    package_id = Keyword.get(opts, :package_id)
+    package_version_id = Keyword.get(opts, :package_version_id)
+    package_version = Keyword.get(opts, :package_version)
+
+    Enum.filter(results, fn %{fragment: fragment} ->
+      (is_nil(package_id) or fragment.package_id == package_id) and
+        (is_nil(package_version_id) or fragment.package_version_id == package_version_id) and
+        (is_nil(package_version) or fragment.package_version_id == package_version)
+    end)
   end
 
   defp verify_hits(hits, query) do

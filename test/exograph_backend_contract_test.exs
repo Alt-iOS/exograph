@@ -6,7 +6,10 @@ defmodule ExographBackendContractTest do
   @memory_profile %{
     name: :memory,
     module: Demo.BackendContract.Memory,
-    opts: [backend: :memory],
+    opts: [
+      backend: :memory,
+      package_version: [ecosystem: :hex, name: "demo_memory", version: "1.0.0"]
+    ],
     expected: %{
       inverted: Exograph.InvertedIndex.Memory,
       fragment_store: Exograph.FragmentStore.Memory,
@@ -23,7 +26,8 @@ defmodule ExographBackendContractTest do
         Path.join(
           System.tmp_dir!(),
           "exograph-contract-tantivy-#{System.unique_integer([:positive])}"
-        )
+        ),
+      package_version: [ecosystem: :hex, name: "demo_tantivy", version: "1.0.0"]
     ],
     expected: %{
       inverted: Exograph.InvertedIndex.TantivyEx,
@@ -40,7 +44,8 @@ defmodule ExographBackendContractTest do
       repo: Exograph.TestRepo,
       prefix: "exograph_contract_#{System.unique_integer([:positive])}",
       migrate?: true,
-      bm25?: false
+      bm25?: false,
+      package_version: [ecosystem: :hex, name: "demo_postgres", version: "1.0.0"]
     ],
     expected: %{
       inverted: Exograph.InvertedIndex.Postgres,
@@ -73,6 +78,7 @@ defmodule ExographBackendContractTest do
       {:ok, _pid} ->
         try do
           BackendContract.assert_real_indexing_and_search(@postgres_profile)
+          BackendContract.assert_postgres_package_rows(@postgres_profile.opts)
         after
           BackendContract.drop_postgres_prefix(@postgres_profile.opts)
         end

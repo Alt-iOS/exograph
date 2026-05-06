@@ -5,7 +5,7 @@ defmodule Exograph.Indexer do
 
   alias ExDNA.AST.{Fingerprint, Normalizer}
   alias Exograph.AST.Terms
-  alias Exograph.{Fragment, Symbols}
+  alias Exograph.{Fragment, Package, PackageVersion, Symbols}
 
   @default_opts [min_mass: 15, literal_mode: :keep, normalize_pipes: true]
 
@@ -32,15 +32,17 @@ defmodule Exograph.Indexer do
 
     with {:ok, source} <- File.read(file),
          {:ok, ast} <- Code.string_to_quoted(source, line: 1, columns: true, file: file) do
+      package_context = package_context(opts)
+
       ast
       |> Fingerprint.fragments(file, Keyword.fetch!(opts, :min_mass), opts)
-      |> Enum.map(&to_fragment(&1, source))
+      |> Enum.map(&to_fragment(&1, source, package_context))
     else
       _ -> []
     end
   end
 
-  defp to_fragment(fingerprint, source) do
+  defp to_fragment(fingerprint, source, package_context) do
     ast = fingerprint.ast
     {kind, name, arity} = classify(ast)
     line = Map.get(fingerprint, :line, line(ast))
@@ -53,9 +55,11 @@ defmodule Exograph.Indexer do
     symbols = Symbols.extract(ast)
 
     %Fragment{
-      id: fragment_id(fingerprint.file, line, exact_hash),
+      id: fragment_id(package_context.package_version_id, fingerprint.file, line, exact_hash),
       file: fingerprint.file,
       source: source,
+      package_id: package_context.package_id,
+      package_version_id: package_context.package_version_id,
       ast: ast,
       kind: kind,
       name: name,
@@ -104,8 +108,34 @@ defmodule Exograph.Indexer do
   defp line({_form, meta, _args}), do: Keyword.get(meta, :line, 0)
   defp line(_), do: 0
 
-  defp fragment_id(file, line, hash) do
-    :crypto.hash(:blake2b, :erlang.term_to_binary({file, line, hash}))
+  defp package_context(opts) do
+    cond do
+      version_attrs = Keyword.get(opts, :package_version) ->
+        version = PackageVersion.new(version_attrs)
+
+        %{
+          package_id: version.package_id,
+          package_version_id: version.id
+        }
+
+      package_attrs = Keyword.get(opts, :package) ->
+        package = Package.new(package_attrs)
+
+        %{
+          package_id: package.id,
+          package_version_id: nil
+        }
+
+      true ->
+        %{
+          package_id: nil,
+          package_version_id: nil
+        }
+    end
+  end
+
+  defp fragment_id(package_version_id, file, line, hash) do
+    :crypto.hash(:blake2b, :erlang.term_to_binary({package_version_id, file, line, hash}))
     |> Base.encode16(case: :lower)
   end
 

@@ -70,7 +70,7 @@ defmodule Exograph.InvertedIndex.Postgres do
             fragment.name,
             ^literal
           ),
-        order_by: [desc: fragment("paradedb.score(?)", fragment.id)],
+        order_by: [desc: fragment("pdb.score(?)", fragment.id)],
         limit: ^limit,
         select: {fragment, nil, nil}
       )
@@ -95,28 +95,65 @@ defmodule Exograph.InvertedIndex.Postgres do
 
   defp search_file_field(index, literal, :source, opts) do
     file_search(index, literal, opts, fn files_source, limit ->
-      from(fragment in {source(index), FragmentRecord},
-        join: file in ^files_source,
-        on: file.id == fragment.file_id,
-        where: fragment("?::pdb.source_code ||| ?", file.source, ^literal),
-        order_by: [desc: fragment("paradedb.score(?)", file.id)],
-        limit: ^limit,
-        select: {fragment, file.source, file.path}
-      )
+      source_search_query(index, files_source, literal, limit, match_operator(opts))
     end)
   end
 
   defp search_file_field(index, literal, :comments_text, opts) do
     file_search(index, literal, opts, fn files_source, limit ->
-      from(fragment in {source(index), FragmentRecord},
-        join: file in ^files_source,
-        on: file.id == fragment.file_id,
-        where: fragment("?::pdb.unicode ||| ?", file.comments_text, ^literal),
-        order_by: [desc: fragment("paradedb.score(?)", file.id)],
-        limit: ^limit,
-        select: {fragment, file.source, file.path}
-      )
+      comments_search_query(index, files_source, literal, limit, match_operator(opts))
     end)
+  end
+
+  defp source_search_query(index, files_source, literal, limit, :all) do
+    from(fragment in {source(index), FragmentRecord},
+      join: file in ^files_source,
+      on: file.id == fragment.file_id,
+      where: fragment("?::pdb.source_code &&& ?", file.source, ^literal),
+      order_by: [desc: fragment("pdb.score(?)", file.id)],
+      limit: ^limit,
+      select: {fragment, file.source, file.path}
+    )
+  end
+
+  defp source_search_query(index, files_source, literal, limit, :any) do
+    from(fragment in {source(index), FragmentRecord},
+      join: file in ^files_source,
+      on: file.id == fragment.file_id,
+      where: fragment("?::pdb.source_code ||| ?", file.source, ^literal),
+      order_by: [desc: fragment("pdb.score(?)", file.id)],
+      limit: ^limit,
+      select: {fragment, file.source, file.path}
+    )
+  end
+
+  defp comments_search_query(index, files_source, literal, limit, :all) do
+    from(fragment in {source(index), FragmentRecord},
+      join: file in ^files_source,
+      on: file.id == fragment.file_id,
+      where: fragment("?::pdb.unicode &&& ?", file.comments_text, ^literal),
+      order_by: [desc: fragment("pdb.score(?)", file.id)],
+      limit: ^limit,
+      select: {fragment, file.source, file.path}
+    )
+  end
+
+  defp comments_search_query(index, files_source, literal, limit, :any) do
+    from(fragment in {source(index), FragmentRecord},
+      join: file in ^files_source,
+      on: file.id == fragment.file_id,
+      where: fragment("?::pdb.unicode ||| ?", file.comments_text, ^literal),
+      order_by: [desc: fragment("pdb.score(?)", file.id)],
+      limit: ^limit,
+      select: {fragment, file.source, file.path}
+    )
+  end
+
+  defp match_operator(opts) do
+    case Keyword.get(opts, :match, :any) do
+      :all -> :all
+      _other -> :any
+    end
   end
 
   defp file_search(index, _literal, opts, query_fun) do

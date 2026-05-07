@@ -91,6 +91,13 @@ references =
   )
 
 {:ok, references} = Exograph.all(index, references)
+
+calls =
+  from(e in CallEdge,
+    where: e.callee_qualified_name == "Repo.transaction/1"
+  )
+
+{:ok, call_edges} = Exograph.all(index, calls)
 ```
 
 ## Query planning and explanations

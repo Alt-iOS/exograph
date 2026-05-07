@@ -3,10 +3,11 @@ defmodule Exograph.DSL.Executor do
 
   import Ecto.Query
 
-  alias Exograph.{DefinitionHit, ReferenceHit}
+  alias Exograph.{CallEdgeHit, DefinitionHit, ReferenceHit}
   alias Exograph.DSL.Query
 
   alias Exograph.Postgres.{
+    CallEdgeRecord,
     DefinitionRecord,
     FragmentRecord,
     Options,
@@ -31,12 +32,30 @@ defmodule Exograph.DSL.Executor do
                         :column
                       ])
 
+  @call_edge_fields MapSet.new([
+                      :id,
+                      :package_id,
+                      :package_version_id,
+                      :file_id,
+                      :caller_node_id,
+                      :callee_node_id,
+                      :call_site_fragment_id,
+                      :caller_qualified_name,
+                      :callee_qualified_name,
+                      :line,
+                      :column
+                    ])
+
   def all(index, %Query{source: :definition, predicates: predicates}, opts) do
     symbol_fact_all(index, predicates, opts, Options.definitions_source(index.inverted.prefix))
   end
 
   def all(index, %Query{source: :reference, predicates: predicates}, opts) do
     symbol_fact_all(index, predicates, opts, Options.references_source(index.inverted.prefix))
+  end
+
+  def all(index, %Query{source: :call_edge, predicates: predicates}, opts) do
+    call_edge_all(index, predicates, opts)
   end
 
   defp symbol_fact_all(index, predicates, opts, source) do
@@ -54,12 +73,33 @@ defmodule Exograph.DSL.Executor do
         limit: ^limit,
         select: {fact, fragment, nil, file.path}
       )
-      |> where_predicates(predicates)
+      |> where_symbol_fact_predicates(predicates)
       |> where_scope(opts)
 
     results =
       index.inverted.repo.all(query)
       |> Enum.map(&hit(&1, source))
+
+    {:ok, results}
+  end
+
+  defp call_edge_all(index, predicates, opts) do
+    limit = Keyword.get(opts, :limit, 50)
+
+    query =
+      from(edge in Options.call_edges_source(index.inverted.prefix),
+        order_by: [asc: edge.caller_qualified_name, asc: edge.callee_qualified_name, asc: edge.id],
+        limit: ^limit,
+        select: edge
+      )
+      |> where_call_edge_predicates(predicates)
+      |> where_scope(opts)
+
+    results =
+      index.inverted.repo.all(query)
+      |> Enum.map(fn edge ->
+        CallEdgeHit.new(call_edge: CallEdgeRecord.to_call_edge(edge), score: 1.0)
+      end)
 
     {:ok, results}
   end
@@ -80,7 +120,7 @@ defmodule Exograph.DSL.Executor do
     )
   end
 
-  defp where_predicates(query, predicates) do
+  defp where_symbol_fact_predicates(query, predicates) do
     Enum.reduce(predicates, query, fn
       {:prefix_search, _binding, field, value}, query ->
         assert_symbol_fact_field!(field)
@@ -89,6 +129,18 @@ defmodule Exograph.DSL.Executor do
       {:eq, _binding, field, value}, query ->
         assert_symbol_fact_field!(field)
         where(query, [fact], field(fact, ^field) == ^value)
+    end)
+  end
+
+  defp where_call_edge_predicates(query, predicates) do
+    Enum.reduce(predicates, query, fn
+      {:prefix_search, _binding, field, value}, query ->
+        assert_call_edge_field!(field)
+        where(query, [edge], ilike(field(edge, ^field), ^"#{value}%"))
+
+      {:eq, _binding, field, value}, query ->
+        assert_call_edge_field!(field)
+        where(query, [edge], field(edge, ^field) == ^value)
     end)
   end
 
@@ -106,16 +158,22 @@ defmodule Exograph.DSL.Executor do
   defp maybe_where_package(queryable, nil), do: queryable
 
   defp maybe_where_package(queryable, package_id),
-    do: where(queryable, [fact], fact.package_id == ^package_id)
+    do: where(queryable, [row], row.package_id == ^package_id)
 
   defp maybe_where_package_version(queryable, nil), do: queryable
 
   defp maybe_where_package_version(queryable, package_version_id),
-    do: where(queryable, [fact], fact.package_version_id == ^package_version_id)
+    do: where(queryable, [row], row.package_version_id == ^package_version_id)
 
   defp assert_symbol_fact_field!(field) do
     unless MapSet.member?(@symbol_fact_fields, field) do
       raise ArgumentError, "unsupported symbol fact field in Exograph DSL: #{field}"
+    end
+  end
+
+  defp assert_call_edge_field!(field) do
+    unless MapSet.member?(@call_edge_fields, field) do
+      raise ArgumentError, "unsupported CallEdge field in Exograph DSL: #{field}"
     end
   end
 

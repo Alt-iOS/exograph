@@ -3,7 +3,7 @@ defmodule Exograph.DSL do
   Ecto-shaped query DSL for Exograph.
 
   The DSL currently supports structural `Fragment` queries and relational
-  `Definition` / `Reference` queries:
+  `Definition` / `Reference` / `CallEdge` queries:
 
       import Exograph.DSL
 
@@ -48,6 +48,8 @@ defmodule Exograph.DSL do
       Definition -> :definition
       Exograph.Reference -> :reference
       Reference -> :reference
+      Exograph.CallEdge -> :call_edge
+      CallEdge -> :call_edge
       other -> raise ArgumentError, "unsupported Exograph source: #{inspect(other)}"
     end
   end

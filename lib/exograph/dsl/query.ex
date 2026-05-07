@@ -13,12 +13,15 @@ defmodule Exograph.DSL.Query do
 
   @type join :: {:assoc, atom(), atom(), atom()}
 
+  @type select :: nil | atom() | {:tuple, [atom()]}
+
   @type t :: %__MODULE__{
           source: source(),
           binding: atom(),
           predicates: [predicate()],
-          joins: [join()]
+          joins: [join()],
+          select: select()
         }
 
-  defstruct [:source, :binding, predicates: [], joins: []]
+  defstruct [:source, :binding, :select, predicates: [], joins: []]
 end

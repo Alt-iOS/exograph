@@ -76,7 +76,11 @@ defmodule Exograph.DSL.Executor do
     hits =
       index
       |> joined_fragments(query.predicates, join_binding, assoc, query_opts)
-      |> Enum.flat_map(&verify_fragment(&1, compiled_query))
+      |> Enum.flat_map(fn {fragment, joined} ->
+        fragment
+        |> verify_fragment(compiled_query)
+        |> Enum.map(&select_fragment_join(query, &1, join_binding, joined))
+      end)
       |> Enum.take(limit)
 
     {:ok, hits}
@@ -116,13 +120,13 @@ defmodule Exograph.DSL.Executor do
       distinct: fragment.id,
       order_by: [asc: file.path, asc: fragment.line, asc: fragment.id],
       limit: ^candidate_limit,
-      select: {fragment, file.source, file.path}
+      select: {fragment, file.source, file.path, joined}
     )
     |> where_join_predicates(predicates, join_binding, assoc)
     |> where_fragment_scope(opts)
     |> index.inverted.repo.all()
-    |> Enum.map(fn {fragment, source, path} ->
-      Options.hydrate_fragment(fragment, source, path)
+    |> Enum.map(fn {fragment, source, path, joined} ->
+      {Options.hydrate_fragment(fragment, source, path), joined_value(assoc, joined)}
     end)
   end
 
@@ -153,6 +157,36 @@ defmodule Exograph.DSL.Executor do
 
     {:ok, results}
   end
+
+  defp select_fragment_join(%Query{select: nil}, hit, _join_binding, _joined), do: hit
+
+  defp select_fragment_join(
+         %Query{binding: binding, select: binding},
+         hit,
+         _join_binding,
+         _joined
+       ),
+       do: hit
+
+  defp select_fragment_join(%Query{select: join_binding}, _hit, join_binding, joined), do: joined
+
+  defp select_fragment_join(
+         %Query{binding: binding, select: {:tuple, bindings}},
+         hit,
+         join_binding,
+         joined
+       ) do
+    bindings
+    |> Enum.map(fn
+      ^binding -> hit
+      ^join_binding -> joined
+    end)
+    |> List.to_tuple()
+  end
+
+  defp joined_value(:definitions, joined), do: DefinitionRecord.to_definition(joined)
+  defp joined_value(:references, joined), do: ReferenceRecord.to_reference(joined)
+  defp joined_value(:calls, joined), do: CallEdgeRecord.to_call_edge(joined)
 
   defp verify_fragment(fragment, compiled_query) do
     case StructuralQuery.verify(compiled_query, fragment) do

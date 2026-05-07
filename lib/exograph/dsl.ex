@@ -23,8 +23,15 @@ defmodule Exograph.DSL do
       MapSet.new([binding | Enum.map(joins, fn {:assoc, _parent, join, _assoc} -> join end)])
 
     predicates = predicates!(clauses, binding, bindings)
+    select = select!(Keyword.get(clauses, :select), bindings)
 
-    Macro.escape(%Query{source: source, binding: binding, predicates: predicates, joins: joins})
+    Macro.escape(%Query{
+      source: source,
+      binding: binding,
+      predicates: predicates,
+      joins: joins,
+      select: select
+    })
   end
 
   defmacro matches(_binding, _pattern) do
@@ -82,6 +89,26 @@ defmodule Exograph.DSL do
   defp join!(ast, _binding) do
     raise ArgumentError,
           "unsupported Exograph join, expected `j in assoc(binding, :name)`, got: #{Macro.to_string(ast)}"
+  end
+
+  defp select!(nil, _bindings), do: nil
+
+  defp select!({left, right}, bindings),
+    do: {:tuple, [select_binding!(left, bindings), select_binding!(right, bindings)]}
+
+  defp select!({:{}, _meta, items}, bindings),
+    do: {:tuple, Enum.map(items, &select_binding!(&1, bindings))}
+
+  defp select!(ast, bindings), do: select_binding!(ast, bindings)
+
+  defp select_binding!(ast, bindings) do
+    binding = binding_name!(ast)
+
+    unless MapSet.member?(bindings, binding) do
+      raise ArgumentError, "unknown Exograph binding `#{binding}` in select"
+    end
+
+    binding
   end
 
   defp predicates!(clauses, binding, bindings) do

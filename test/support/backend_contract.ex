@@ -19,6 +19,7 @@ defmodule Exograph.BackendContract do
     assert_comment_search(index, path)
     assert_text_search(index, path)
     assert_reference_search(index, path)
+    assert_call_graph_search(index)
     assert_similarity(index, path)
   end
 
@@ -80,9 +81,14 @@ defmodule Exograph.BackendContract do
     assert count_rows(repo, prefix, "comments") >= 1
     assert count_rows(repo, prefix, "definitions") >= 1
     assert count_rows(repo, prefix, "references") >= 1
+    assert count_rows(repo, prefix, "graph_nodes") >= 1
+    assert count_rows(repo, prefix, "call_edges") >= 1
 
     assert count_rows(repo, prefix, "definitions", "qualified_name LIKE '%.get_user/1'") == 1
     assert count_rows(repo, prefix, "references", "qualified_name = 'Repo.transaction/1'") >= 1
+
+    assert count_rows(repo, prefix, "call_edges", "callee_qualified_name = 'Repo.transaction/1'") >=
+             1
   end
 
   defp count_rows(repo, prefix, table, where \\ "true") do
@@ -102,6 +108,8 @@ defmodule Exograph.BackendContract do
 
     for table <- [
           "tree_nodes",
+          "call_edges",
+          "graph_nodes",
           "references",
           "definitions",
           "comments",
@@ -216,6 +224,15 @@ defmodule Exograph.BackendContract do
              Exograph.search_references(index, "Repo.transaction")
 
     assert reference_fragment.file == path
+  end
+
+  defp assert_call_graph_search(index) do
+    assert {:ok, [edge | _]} = Exograph.search_callers(index, "Repo.transaction/1")
+    assert edge.callee_qualified_name == "Repo.transaction/1"
+    assert edge.caller_qualified_name =~ ".update_user/2"
+
+    assert {:ok, [edge | _]} = Exograph.search_callees(index, edge.caller_qualified_name)
+    assert edge.callee_qualified_name == "Repo.transaction/1"
   end
 
   defp assert_similarity(index, path) do

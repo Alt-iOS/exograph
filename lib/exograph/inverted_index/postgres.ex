@@ -12,7 +12,7 @@ defmodule Exograph.InvertedIndex.Postgres do
   import Ecto.Query
 
   alias Exograph.{CodeFactQuery, Hit, Package, PackageVersion}
-  alias Exograph.Postgres.{FragmentRecord, Options}
+  alias Exograph.Postgres.{CallEdgeRecord, FragmentRecord, Options}
   alias Exograph.Query, as: ExographQuery
 
   defstruct repo: nil, prefix: "exograph", package: nil, package_version: nil
@@ -64,6 +64,29 @@ defmodule Exograph.InvertedIndex.Postgres do
 
   def search_references(%__MODULE__{} = index, literal, opts \\ []) when is_binary(literal) do
     CodeFactQuery.search(index, references_source(index), literal, opts)
+  end
+
+  def search_callers(%__MODULE__{} = index, callee, opts \\ []) when is_binary(callee) do
+    search_call_edges(index, :callee_qualified_name, callee, opts)
+  end
+
+  def search_callees(%__MODULE__{} = index, caller, opts \\ []) when is_binary(caller) do
+    search_call_edges(index, :caller_qualified_name, caller, opts)
+  end
+
+  defp search_call_edges(index, field, literal, opts) do
+    limit = Keyword.get(opts, :limit, 50)
+
+    records =
+      from(edge in call_edges_source(index),
+        where: field(edge, ^field) == ^literal or ilike(field(edge, ^field), ^"%#{literal}%"),
+        order_by: [asc: edge.file_id, asc: edge.line, asc: edge.id],
+        limit: ^limit
+      )
+      |> where_scope(opts)
+      |> index.repo.all()
+
+    {:ok, Enum.map(records, &CallEdgeRecord.to_call_edge/1)}
   end
 
   defp include_source?(%ExographQuery{verifier: {:selector, _selector}} = query),
@@ -225,5 +248,6 @@ defmodule Exograph.InvertedIndex.Postgres do
   defp files_source(index), do: Options.files_source(index.prefix)
   defp definitions_source(index), do: Options.definitions_source(index.prefix)
   defp references_source(index), do: Options.references_source(index.prefix)
+  defp call_edges_source(index), do: Options.call_edges_source(index.prefix)
   defp source(index), do: Options.fragments_source(index.prefix)
 end

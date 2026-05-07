@@ -8,6 +8,7 @@ Exograph combines:
 - `ex_dna` fingerprints for structural fragments and near-duplicate search
 - normalized Ecto/Postgres storage for packages, files, fragments, comments, definitions, and references
 - optional ParadeDB (`pg_search`) BM25 retrieval for source text and code facts
+- Reach-derived call graph facts for caller/callee search
 - lazy tree access derived from stored AST fragments
 
 ## Prototype
@@ -103,6 +104,17 @@ Exograph.search_text(index, ~r/Repo\.get!\(/)
 Exograph.search_comments(index, "streaming chunks")
 Exograph.search_definitions(index, "parse_resp")
 Exograph.search_references(index, "Repo.transaction")
+```
+
+## Call graph search
+
+Exograph persists Reach-derived call graph facts during indexing. Reach is used
+as a library analysis engine; Exograph owns the stable IDs, package/file scope,
+and Postgres persistence.
+
+```elixir
+Exograph.search_callers(index, "Repo.transaction/1")
+Exograph.search_callees(index, "MyApp.Accounts.update_user/2")
 ```
 
 ## Mix tasks
@@ -226,7 +238,7 @@ EXOGRAPH_DATABASE_URL=postgres://postgres:postgres@localhost:5432/exograph_test 
 - Postgres inverted index: structural term candidate retrieval from fragment rows
 - fragment store: AST blobs, ExDNA hashes, symbols, and file joins
 - source files: source text and aggregated comment text stored once per file
-- code facts: normalized comments, definitions, and references
+- code facts: normalized comments, definitions, references, graph nodes, and call edges
 - tree access: derived lazily from stored AST fragments
 - verifier: `ExAST.Pattern` / `ExAST.Query`
 - similarity: ExDNA structural reranking

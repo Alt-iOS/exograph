@@ -101,6 +101,16 @@ defmodule Exograph do
     search_code_facts(index, partial_name, opts, :search_references, &reference_match?/2)
   end
 
+  @spec search_callers(Index.t(), String.t(), keyword()) :: {:ok, [Exograph.CallEdge.t()]}
+  def search_callers(%Index{} = index, callee, opts \\ []) when is_binary(callee) do
+    PostgresInvertedIndex.search_callers(index.inverted, callee, opts)
+  end
+
+  @spec search_callees(Index.t(), String.t(), keyword()) :: {:ok, [Exograph.CallEdge.t()]}
+  def search_callees(%Index{} = index, caller, opts \\ []) when is_binary(caller) do
+    PostgresInvertedIndex.search_callees(index.inverted, caller, opts)
+  end
+
   @spec compile(ExAST.Pattern.pattern() | ExAST.Selector.t()) :: Query.t()
   def compile(%ExAST.Selector{} = selector), do: Query.selector(selector)
   def compile(pattern), do: Query.pattern(pattern)

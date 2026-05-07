@@ -7,13 +7,26 @@ defmodule Exograph.FragmentStore.Postgres do
 
   import Ecto.Query
 
-  alias Exograph.{Comment, Definition, File, Package, PackageVersion, Postgres, Reference}
+  alias Exograph.{
+    Comment,
+    Definition,
+    File,
+    FragmentLocator,
+    Package,
+    PackageVersion,
+    Postgres,
+    Reference
+  }
+
+  alias Exograph.Extractor.Reach, as: ReachExtractor
 
   alias Exograph.Postgres.{
+    CallEdgeRecord,
     CommentRecord,
     DefinitionRecord,
     FileRecord,
     FragmentRecord,
+    GraphNodeRecord,
     Options,
     PackageRecord,
     PackageVersionRecord,
@@ -166,7 +179,7 @@ defmodule Exograph.FragmentStore.Postgres do
           Comment.new(
             file,
             comment,
-            containing_fragment_id(fragments_by_file[file.id], comment.line)
+            FragmentLocator.containing_fragment_id(fragments_by_file[file.id], comment.line)
           )
         end)
       end)
@@ -181,7 +194,7 @@ defmodule Exograph.FragmentStore.Postgres do
           Definition.new(
             file,
             definition,
-            containing_fragment_id(fragments_by_file[file.id], definition.line)
+            FragmentLocator.containing_fragment_id(fragments_by_file[file.id], definition.line)
           )
         end)
       end)
@@ -196,7 +209,7 @@ defmodule Exograph.FragmentStore.Postgres do
           Reference.new(
             file,
             reference,
-            containing_fragment_id(fragments_by_file[file.id], reference.line)
+            FragmentLocator.containing_fragment_id(fragments_by_file[file.id], reference.line)
           )
         end)
       end)
@@ -221,27 +234,33 @@ defmodule Exograph.FragmentStore.Postgres do
       :from_reference,
       now
     )
+
+    %{graph_nodes: graph_nodes, call_edges: call_edges} =
+      ReachExtractor.extract_files(files, fragments_by_file)
+
+    insert_code_facts(
+      store,
+      graph_nodes_source(store),
+      graph_nodes,
+      GraphNodeRecord,
+      :from_graph_node,
+      now
+    )
+
+    insert_code_facts(
+      store,
+      call_edges_source(store),
+      call_edges,
+      CallEdgeRecord,
+      :from_call_edge,
+      now
+    )
   end
 
   defp extract_comments(source) do
     ExAST.Comments.extract(source)
   rescue
     _ -> []
-  end
-
-  defp containing_fragment_id(nil, _line), do: nil
-  defp containing_fragment_id(_fragments, nil), do: nil
-
-  defp containing_fragment_id(fragments, line) do
-    fragments
-    |> Enum.filter(fn fragment ->
-      fragment.line <= line and (is_nil(fragment.end_line) or line <= fragment.end_line)
-    end)
-    |> Enum.min_by(& &1.mass, fn -> nil end)
-    |> case do
-      nil -> nil
-      fragment -> fragment.id
-    end
   end
 
   defp insert_code_facts(_store, _source, [], _record, _mapper, _now), do: :ok
@@ -307,5 +326,7 @@ defmodule Exograph.FragmentStore.Postgres do
   defp comments_source(store), do: Options.comments_source(store.prefix)
   defp definitions_source(store), do: Options.definitions_source(store.prefix)
   defp references_source(store), do: Options.references_source(store.prefix)
+  defp graph_nodes_source(store), do: Options.graph_nodes_source(store.prefix)
+  defp call_edges_source(store), do: Options.call_edges_source(store.prefix)
   defp source(store), do: Options.fragments_source(store.prefix)
 end

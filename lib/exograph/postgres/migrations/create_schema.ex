@@ -201,6 +201,86 @@ defmodule Exograph.Postgres.Migrations.CreateSchema do
       index(name("references"), [:fragment_id], name: index_name("references", "fragment"))
     )
 
+    create_if_not_exists table(name("graph_nodes"), primary_key: false) do
+      add(:id, :text, primary_key: true)
+      add(:package_id, references(name("packages"), type: :text, on_delete: :delete_all))
+
+      add(
+        :package_version_id,
+        references(name("package_versions"), type: :text, on_delete: :delete_all)
+      )
+
+      add(:file_id, references(name("files"), type: :text, on_delete: :delete_all))
+      add(:fragment_id, references(name("fragments"), type: :text, on_delete: :nilify_all))
+      add(:engine, :text, null: false)
+      add(:external_id, :text)
+      add(:kind, :text, null: false)
+      add(:module, :text)
+      add(:name, :text)
+      add(:arity, :integer)
+      add(:qualified_name, :text, null: false)
+      add(:line, :integer)
+      add(:column, :integer)
+      add(:metadata, :map, null: false, default: %{})
+      timestamps(type: :utc_datetime_usec)
+    end
+
+    create_if_not_exists(
+      index(name("graph_nodes"), [:qualified_name], name: index_name("graph_nodes", "qualified"))
+    )
+
+    create_if_not_exists(
+      index(name("graph_nodes"), [:file_id], name: index_name("graph_nodes", "file"))
+    )
+
+    create_if_not_exists table(name("call_edges"), primary_key: false) do
+      add(:id, :text, primary_key: true)
+      add(:package_id, references(name("packages"), type: :text, on_delete: :delete_all))
+
+      add(
+        :package_version_id,
+        references(name("package_versions"), type: :text, on_delete: :delete_all)
+      )
+
+      add(:file_id, references(name("files"), type: :text, on_delete: :delete_all))
+
+      add(:caller_node_id, references(name("graph_nodes"), type: :text, on_delete: :delete_all),
+        null: false
+      )
+
+      add(:callee_node_id, references(name("graph_nodes"), type: :text, on_delete: :delete_all),
+        null: false
+      )
+
+      add(
+        :call_site_fragment_id,
+        references(name("fragments"), type: :text, on_delete: :nilify_all)
+      )
+
+      add(:caller_qualified_name, :text, null: false)
+      add(:callee_qualified_name, :text, null: false)
+      add(:line, :integer)
+      add(:column, :integer)
+      add(:metadata, :map, null: false, default: %{})
+      timestamps(type: :utc_datetime_usec)
+    end
+
+    create_if_not_exists(
+      index(name("call_edges"), [:caller_qualified_name],
+        name: index_name("call_edges", "caller")
+      )
+    )
+
+    create_if_not_exists(
+      index(name("call_edges"), [:callee_qualified_name],
+        name: index_name("call_edges", "callee")
+      )
+    )
+
+    create_if_not_exists(
+      index(name("call_edges"), [:file_id], name: index_name("call_edges", "file"))
+    )
+
     create_if_not_exists table(name("tree_nodes"), primary_key: false) do
       add(:fragment_id, references(name("fragments"), type: :text, on_delete: :delete_all),
         null: false,
@@ -226,6 +306,8 @@ defmodule Exograph.Postgres.Migrations.CreateSchema do
 
   def down do
     drop_if_exists(table(name("tree_nodes")))
+    drop_if_exists(table(name("call_edges")))
+    drop_if_exists(table(name("graph_nodes")))
     drop_if_exists(table(name("references")))
     drop_if_exists(table(name("definitions")))
     drop_if_exists(table(name("comments")))

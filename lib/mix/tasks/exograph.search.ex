@@ -6,23 +6,20 @@ defmodule Mix.Tasks.Exograph.Search do
   @moduledoc """
   Searches Elixir source files with Exograph.
 
-      mix exograph.search 'Repo.get!(_, _)'
-      mix exograph.search 'def _ do ... end' lib --contains 'Repo.transaction(_)'
-      mix exograph.search 'def _ do ... end' lib --contains 'Repo.transaction(_)' --not-contains 'IO.inspect(_)'
-      mix exograph.search 'Repo.get!(_, _)' lib --backend postgres --repo MyApp.Repo --migrate
-      mix exograph.search 'Repo.get!(_, _)' lib --backend tantivy --index-path .exograph/search
+      mix exograph.search 'Repo.get!(_, _)' --repo MyApp.Repo --migrate
+      mix exograph.search 'def _ do ... end' lib --repo MyApp.Repo --contains 'Repo.transaction(_)'
+      mix exograph.search 'def _ do ... end' lib --repo MyApp.Repo --contains 'Repo.transaction(_)' --not-contains 'IO.inspect(_)'
       mix exograph.search 'Repo.get!(_, _)' lib --explain
       mix exograph.search '/users/:id' lib --text
       mix exograph.search 'Repo\\.get!\\(' lib --regex
 
   ## Options
 
-    * `--backend` - `memory`, `postgres`, or `tantivy` (default: `memory`)
+    * `--backend` - only `postgres` is supported (default: `postgres`)
     * `--repo` - Ecto repo module for the Postgres backend
     * `--prefix` - Exograph table prefix for the Postgres backend (default: `exograph`)
     * `--migrate` - create/upgrade Postgres tables and ParadeDB BM25 index
     * `--no-bm25` - skip ParadeDB `pg_search` extension/index creation during migration
-    * `--index-path` - Tantivy index directory (default: `.exograph/search`)
     * `--min-mass` - minimum AST fragment mass (default: `8`)
     * `--limit` - maximum results (default: `20`)
     * `--contains` - require descendant pattern, can be repeated
@@ -42,7 +39,6 @@ defmodule Mix.Tasks.Exograph.Search do
       OptionParser.parse(args,
         strict: [
           backend: :string,
-          index_path: :string,
           repo: :string,
           prefix: :string,
           migrate: :boolean,
@@ -57,7 +53,7 @@ defmodule Mix.Tasks.Exograph.Search do
           text: :boolean,
           regex: :boolean
         ],
-        aliases: [b: :backend, o: :index_path, n: :limit]
+        aliases: [b: :backend, n: :limit]
       )
 
     if invalid != [] do
@@ -74,7 +70,7 @@ defmodule Mix.Tasks.Exograph.Search do
   end
 
   defp run_search(query_text, paths, opts) do
-    backend_name = Keyword.get(opts, :backend, "memory")
+    backend_name = Keyword.get(opts, :backend, "postgres")
     min_mass = Keyword.get(opts, :min_mass, 8)
     limit = Keyword.get(opts, :limit, 20)
     backend_opts = backend_opts(backend_name, opts)
@@ -141,31 +137,7 @@ defmodule Mix.Tasks.Exograph.Search do
     end
   end
 
-  defp backend_opts("memory", _opts), do: []
-
-  defp backend_opts("postgres", opts) do
-    [
-      repo: repo!(opts),
-      prefix: Keyword.get(opts, :prefix, "exograph"),
-      migrate?: Keyword.get(opts, :migrate, false),
-      bm25?: !Keyword.get(opts, :no_bm25, false)
-    ]
-  end
-
-  defp backend_opts("tantivy", opts) do
-    [index_path: Keyword.get(opts, :index_path, ".exograph/search")]
-  end
-
-  defp backend_opts(other, _opts) do
-    Mix.raise("Unknown backend #{inspect(other)}. Expected: memory, postgres, or tantivy")
-  end
-
-  defp repo!(opts) do
-    opts
-    |> Keyword.fetch!(:repo)
-    |> String.split(".")
-    |> Module.concat()
-  end
+  defp backend_opts(backend, opts), do: Mix.Exograph.PostgresOptions.backend_opts(backend, opts)
 
   defp print_explain(plan, opts) do
     explain = Exograph.explain(plan)

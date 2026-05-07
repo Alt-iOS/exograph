@@ -6,16 +6,21 @@ Exograph combines:
 
 - `ex_ast` patterns and SQL-like queries for exact AST matching
 - `ex_dna` fingerprints for structural fragments and near-duplicate search
-- OpenGrok-style fields (`full`, `defs`, `refs`, `path`, `type`) in an inverted-index boundary
-- a fragment store for AST/source truth
-- a tree store with preorder/postorder AST node metadata
-- primary Ecto/Postgres storage with optional ParadeDB (`pg_search`) BM25 retrieval
-- optional TantivyEx-backed local candidate retrieval
+- normalized Ecto/Postgres storage for packages, files, fragments, comments, definitions, and references
+- optional ParadeDB (`pg_search`) BM25 retrieval for source text and code facts
+- lazy tree access derived from stored AST fragments
 
 ## Prototype
 
 ```elixir
-{:ok, index} = Exograph.index("lib/", min_mass: 8)
+{:ok, index} =
+  Exograph.index("lib/",
+    repo: MyApp.Repo,
+    migrate?: true,
+    bm25?: true,
+    min_mass: 8
+  )
+
 {:ok, results} = Exograph.search(index, "Repo.get!(_, _)")
 ```
 
@@ -86,88 +91,86 @@ Exograph.explain("Repo.get!(User, id)")
   """, min_similarity: 0.8)
 ```
 
-## Text search
+## Text and code-fact search
 
-Literal search uses trigram candidate checks before source verification. Regex
-search verifies directly against fragment source.
+Literal source search uses ParadeDB when available, falling back to Postgres-backed
+candidate retrieval plus source verification. Regex search verifies against
+fragment source.
 
 ```elixir
 Exograph.search_text(index, "/users/:id")
 Exograph.search_text(index, ~r/Repo\.get!\(/)
+Exograph.search_comments(index, "streaming chunks")
+Exograph.search_definitions(index, "parse_resp")
+Exograph.search_references(index, "Repo.transaction")
 ```
 
-## Mix task
+## Mix tasks
 
 Index the current project:
 
 ```bash
-mix exograph.index
-mix exograph.index lib test --stats
-mix exograph.index --backend tantivy --index-path .exograph/tantivy lib
-mix exograph.index --json lib
+mix exograph.index --repo MyApp.Repo --migrate lib test
+mix exograph.index --repo MyApp.Repo --migrate lib test --stats
+mix exograph.index --repo MyApp.Repo --migrate --no-bm25 lib
+mix exograph.index --repo MyApp.Repo --migrate --json lib
 ```
 
 Search from the command line:
 
 ```bash
-mix exograph.search 'Repo.get!(_, _)' lib
-mix exograph.search 'def _ do ... end' lib --contains 'Repo.transaction(_)'
-mix exograph.search 'def _ do ... end' lib --contains 'Repo.transaction(_)' --not-contains 'IO.inspect(_)'
-mix exograph.search 'Repo.get!(_, _)' lib --explain
-mix exograph.search '/users/:id' lib --text
-mix exograph.search 'Repo\\.get!\\(' lib --regex
+mix exograph.search 'Repo.get!(_, _)' --repo MyApp.Repo --migrate lib
+mix exograph.search 'def _ do ... end' --repo MyApp.Repo --migrate lib --contains 'Repo.transaction(_)'
+mix exograph.search 'def _ do ... end' --repo MyApp.Repo --migrate lib --contains 'Repo.transaction(_)' --not-contains 'IO.inspect(_)'
+mix exograph.search 'Repo.get!(_, _)' --repo MyApp.Repo --migrate lib --explain
+mix exograph.search '/users/:id' --repo MyApp.Repo --migrate lib --text
+mix exograph.search 'Repo\.get!\(' --repo MyApp.Repo --migrate lib --regex
 ```
 
 ## Postgres + ParadeDB backend
 
-Postgres is the primary durable backend. Exograph uses Ecto migrations, schemas,
-`Repo` operations, and transactions for packages, package versions, fragments,
-and AST tree nodes. Raw SQL is kept to Postgres extensions and ParadeDB-specific
-BM25 operators/index creation.
+Postgres is the production backend. Exograph uses Ecto migrations, schemas,
+`Repo` operations, and transactions for packages, package versions, source files,
+fragments, comments, definitions, references, and related code facts. Raw SQL is
+kept to Postgres extensions and ParadeDB-specific BM25 operators/index creation.
 
 ```elixir
 {:ok, index} =
   Exograph.index("lib/",
-    backend: :postgres,
     repo: MyApp.Repo,
     migrate?: true,
     bm25?: true
   )
 ```
 
-Backends are high-level behaviour profiles. Built-in profiles are
-`backend: :postgres`, `backend: :memory`, and `backend: :tantivy`; custom profiles
-can implement `Exograph.Backend` to wire an inverted index, fragment store, and
-tree store together.
+`backend: :postgres` is still accepted explicitly, but Postgres is the default.
+Custom profiles can implement `Exograph.Backend` for experiments, while public
+behavior and tests are validated against the real Postgres backend.
 
 This creates normalized Ecto-backed tables:
 
 - `exograph_packages`
 - `exograph_package_versions`
+- `exograph_files`
 - `exograph_fragments`
-- `exograph_tree_nodes`
+- `exograph_comments`
+- `exograph_definitions`
+- `exograph_references`
 
-Fragments store `package_id` and `package_version_id`; package name, ecosystem,
-release metadata, source refs, and checksums live in the package/version tables
-and are joined when needed.
+Fragments store `package_id`, `package_version_id`, and `file_id`; package name,
+ecosystem, release metadata, source refs, and checksums live in package/version
+tables and are joined when needed. Source text is stored once in `exograph_files`.
 
 When ParadeDB's `pg_search` extension is available, `migrate?: true` also
-creates a Tantivy-powered BM25 covering index:
-
-```sql
-CREATE INDEX exograph_fragments_bm25_idx
-ON exograph_fragments
-USING bm25 (id, source, file, kind, name, terms_text, defs_text, refs_text,
-            modules_text, functions_text, aliases_text, structs_text, atoms_text)
-WITH (key_field = 'id');
-```
+creates BM25 indexes over source files, comments, definitions, and references.
+Source files use ParadeDB's `pdb.source_code` tokenizer; symbol names use
+`pdb.edge_ngram` for prefix/partial matching.
 
 Index multiple package versions into the same backend by passing package release
 identity:
 
 ```elixir
 Exograph.index("sources/req_llm-1.11.0",
-  backend: :postgres,
   repo: MyApp.Repo,
   migrate?: true,
   package_version: [
@@ -179,7 +182,6 @@ Exograph.index("sources/req_llm-1.11.0",
 )
 
 Exograph.index("sources/req_llm-1.12.0",
-  backend: :postgres,
   repo: MyApp.Repo,
   package_version: [ecosystem: :hex, name: "req_llm", version: "1.12.0"]
 )
@@ -195,54 +197,36 @@ ParadeDB notes from the docs:
 - BM25 indexes require a `key_field`, and that field must be first.
 - Include columns used for filtering, grouping, ordering, or scoring in the BM25
   covering index.
-- `|||` is match disjunction, `&&&` is match conjunction, and
-  `paradedb.score(id)` exposes BM25 relevance.
+- `|||` is match disjunction, `&&&` is match conjunction, and `pdb.score(id)`
+  exposes BM25 relevance.
 - ParadeDB updates its BM25 index transactionally with Postgres writes and WAL.
 
 CLI usage:
 
 ```bash
 mix exograph.index --backend postgres --repo MyApp.Repo --migrate lib test
-mix exograph.search 'Repo.get!(_, _)' --backend postgres --repo MyApp.Repo lib
-mix exograph.search 'running shoes' --text --backend postgres --repo MyApp.Repo lib
+mix exograph.search 'Repo.get!(_, _)' --backend postgres --repo MyApp.Repo --migrate lib
+mix exograph.search 'running shoes' --text --backend postgres --repo MyApp.Repo --migrate lib
 ```
 
-The shared backend contract tests run real indexing, structural search, selector
-search, text search, tree-node lookup, and similarity search for each runnable
-backend. Generic Postgres tests are tagged and need a database URL:
+The test suite runs real indexing, structural search, selector search, text
+search, tree-node lookup, code-fact lookup, and similarity search against
+Postgres. Set a database URL when the default local Postgres database is not
+available:
 
 ```bash
 EXOGRAPH_DATABASE_URL=postgres://postgres:postgres@localhost:5432/exograph_test \
-  mix test --include postgres
+  mix test
 ```
-
-## TantivyEx backend
-
-```elixir
-{:ok, index} =
-  Exograph.index("lib/",
-    backend: :tantivy,
-    index_path: ".exograph/tantivy"
-  )
-```
-
-The TantivyEx backend stores candidate fields such as:
-
-- `full`
-- `file` / `path_text`
-- `defs`, `refs`, `modules`, `functions`, `aliases`, `structs`, `atoms`
-- `terms` for AST query candidate retrieval
-- `subhashes` for future near-duplicate candidate retrieval
-- `trigrams` for future indexed substring/regex candidate retrieval
-
-AST/source are still verified from the fragment store.
 
 ## Storage layout
 
-`Exograph.Index` separates storage by concern:
+`Exograph.Index` separates execution by concern:
 
-- inverted index: candidate retrieval (`Postgres`, `Memory`, or `TantivyEx`)
-- fragment store: source snippets, AST blobs, ExDNA hashes, symbols
-- tree store: AST nodes with parent/child and preorder/postorder metadata
+- Postgres inverted index: structural term candidate retrieval from fragment rows
+- fragment store: AST blobs, ExDNA hashes, symbols, and file joins
+- source files: source text and aggregated comment text stored once per file
+- code facts: normalized comments, definitions, and references
+- tree access: derived lazily from stored AST fragments
 - verifier: `ExAST.Pattern` / `ExAST.Query`
 - similarity: ExDNA structural reranking

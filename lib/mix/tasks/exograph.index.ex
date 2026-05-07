@@ -6,28 +6,23 @@ defmodule Mix.Tasks.Exograph.Index do
   @moduledoc """
   Indexes Elixir source files with Exograph.
 
-      mix exograph.index
-      mix exograph.index lib test
-      mix exograph.index --backend memory lib
-      mix exograph.index --backend postgres --repo MyApp.Repo --migrate lib
-      mix exograph.index --backend tantivy --index-path .exograph/tantivy lib
-      mix exograph.index --min-mass 8 --stats lib
+      mix exograph.index --repo MyApp.Repo --migrate
+      mix exograph.index --repo MyApp.Repo --migrate lib test
+      mix exograph.index --repo MyApp.Repo --min-mass 8 --stats lib
 
   ## Options
 
-    * `--backend` - `memory`, `postgres`, or `tantivy` (default: `memory`)
+    * `--backend` - only `postgres` is supported (default: `postgres`)
     * `--repo` - Ecto repo module for the Postgres backend
     * `--prefix` - Exograph table prefix for the Postgres backend (default: `exograph`)
     * `--migrate` - create/upgrade Postgres tables and ParadeDB BM25 index
     * `--no-bm25` - skip ParadeDB `pg_search` extension/index creation during migration
-    * `--index-path` - Tantivy index directory (default: `.exograph/tantivy`)
     * `--min-mass` - minimum AST fragment mass (default: `8`)
     * `--stats` - print indexed fragment statistics
     * `--json` - print summary as JSON
 
-  The memory backend is useful for smoke-testing indexing. Postgres is the
-  primary durable backend; with ParadeDB `pg_search` installed, `--migrate`
-  creates a Tantivy-powered BM25 covering index inside Postgres.
+  Postgres is the durable backend. With ParadeDB `pg_search` installed,
+  `--migrate` creates BM25 covering indexes inside Postgres.
   """
 
   @impl true
@@ -38,7 +33,6 @@ defmodule Mix.Tasks.Exograph.Index do
       OptionParser.parse(args,
         strict: [
           backend: :string,
-          index_path: :string,
           repo: :string,
           prefix: :string,
           migrate: :boolean,
@@ -47,7 +41,7 @@ defmodule Mix.Tasks.Exograph.Index do
           stats: :boolean,
           json: :boolean
         ],
-        aliases: [b: :backend, o: :index_path]
+        aliases: [b: :backend]
       )
 
     if invalid != [] do
@@ -55,7 +49,7 @@ defmodule Mix.Tasks.Exograph.Index do
     end
 
     paths = if paths == [], do: ["lib"], else: paths
-    backend_name = Keyword.get(opts, :backend, "memory")
+    backend_name = Keyword.get(opts, :backend, "postgres")
     min_mass = Keyword.get(opts, :min_mass, 8)
 
     backend_opts = backend_opts(backend_name, opts)
@@ -74,7 +68,7 @@ defmodule Mix.Tasks.Exograph.Index do
           System.convert_time_unit(System.monotonic_time() - started_at, :native, :millisecond)
 
         fragments = index.fragment_store_backend.all(index.fragment_store)
-        summary = summary(paths, backend_name, backend_opts, fragments, elapsed_ms)
+        summary = summary(paths, backend_name, fragments, elapsed_ms)
 
         if Keyword.get(opts, :json, false) do
           Mix.shell().info(json(summary))
@@ -88,39 +82,14 @@ defmodule Mix.Tasks.Exograph.Index do
     end
   end
 
-  defp backend_opts("memory", _opts), do: []
+  defp backend_opts(backend, opts), do: Mix.Exograph.PostgresOptions.backend_opts(backend, opts)
 
-  defp backend_opts("postgres", opts) do
-    [
-      repo: repo!(opts),
-      prefix: Keyword.get(opts, :prefix, "exograph"),
-      migrate?: Keyword.get(opts, :migrate, false),
-      bm25?: !Keyword.get(opts, :no_bm25, false)
-    ]
-  end
-
-  defp backend_opts("tantivy", opts) do
-    [index_path: Keyword.get(opts, :index_path, ".exograph/tantivy")]
-  end
-
-  defp backend_opts(other, _opts) do
-    Mix.raise("Unknown backend #{inspect(other)}. Expected: memory, postgres, or tantivy")
-  end
-
-  defp repo!(opts) do
-    opts
-    |> Keyword.fetch!(:repo)
-    |> String.split(".")
-    |> Module.concat()
-  end
-
-  defp summary(paths, backend_name, backend_opts, fragments, elapsed_ms) do
+  defp summary(paths, backend_name, fragments, elapsed_ms) do
     files = fragments |> Enum.map(& &1.file) |> Enum.uniq()
 
     %{
       paths: paths,
       backend: backend_name,
-      index_path: Keyword.get(backend_opts, :index_path),
       files: length(files),
       fragments: length(fragments),
       elapsed_ms: elapsed_ms,
@@ -134,10 +103,6 @@ defmodule Mix.Tasks.Exograph.Index do
     )
 
     Mix.shell().info("Backend: #{summary.backend}")
-
-    if summary.index_path do
-      Mix.shell().info("Index path: #{summary.index_path}")
-    end
   end
 
   defp print_stats(fragments) do

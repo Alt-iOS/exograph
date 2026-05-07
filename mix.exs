@@ -37,7 +37,6 @@ defmodule Exograph.MixProject do
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
       {:ecto_sql, "~> 3.13"},
       {:postgrex, "~> 0.22"},
-      {:tantivy_ex, "~> 0.4.1", optional: true},
       {:ex_doc, "~> 0.38", only: :dev, runtime: false}
     ]
   end
@@ -54,7 +53,7 @@ defmodule Exograph.MixProject do
       ci: [
         "compile --warnings-as-errors",
         "format --check-formatted",
-        "test",
+        "test --include postgres",
         "cmd mix credo --strict",
         "cmd mix ex_dna",
         "cmd mix reach.check --smells --candidates"

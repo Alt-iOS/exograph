@@ -1,13 +1,25 @@
 defmodule Mix.Tasks.Exograph.SearchTest do
   use ExUnit.Case, async: false
 
+  alias Exograph.PostgresSupport
+
+  @moduletag :postgres
+
   setup do
+    PostgresSupport.start_repo!()
     Mix.shell(Mix.Shell.Process)
-    on_exit(fn -> Mix.shell(Mix.Shell.IO) end)
-    :ok
+    prefix = "exograph_search_task_#{System.unique_integer([:positive])}"
+    opts = [repo: Exograph.TestRepo, prefix: prefix]
+
+    on_exit(fn ->
+      Exograph.BackendContract.drop_postgres_prefix(opts)
+      Mix.shell(Mix.Shell.IO)
+    end)
+
+    {:ok, prefix: prefix}
   end
 
-  test "searches AST patterns" do
+  test "searches AST patterns", %{prefix: prefix} do
     path =
       fixture("sample.ex", """
       defmodule Demo.SearchTask do
@@ -15,7 +27,9 @@ defmodule Mix.Tasks.Exograph.SearchTest do
       end
       """)
 
-    Mix.Tasks.Exograph.Search.run(["Repo.get!(_, _)", "--min-mass", "4", path])
+    Mix.Tasks.Exograph.Search.run(
+      base_args(prefix) ++ ["Repo.get!(_, _)", "--min-mass", "4", path]
+    )
 
     assert_receive {:mix_shell, :info, [summary]}
     assert summary =~ "result(s)"
@@ -23,7 +37,7 @@ defmodule Mix.Tasks.Exograph.SearchTest do
     assert result =~ path
   end
 
-  test "searches selector contains and not contains" do
+  test "searches selector contains and not contains", %{prefix: prefix} do
     path =
       fixture("selector.ex", """
       defmodule Demo.SearchSelectorTask do
@@ -37,16 +51,19 @@ defmodule Mix.Tasks.Exograph.SearchTest do
       end
       """)
 
-    Mix.Tasks.Exograph.Search.run([
-      "def _ do ... end",
-      "--contains",
-      "Repo.transaction(_)",
-      "--not-contains",
-      "IO.inspect(_)",
-      "--min-mass",
-      "4",
-      path
-    ])
+    Mix.Tasks.Exograph.Search.run(
+      base_args(prefix) ++
+        [
+          "def _ do ... end",
+          "--contains",
+          "Repo.transaction(_)",
+          "--not-contains",
+          "IO.inspect(_)",
+          "--min-mass",
+          "4",
+          path
+        ]
+    )
 
     assert_receive {:mix_shell, :info, [summary]}
     assert summary =~ "result(s)"
@@ -55,7 +72,7 @@ defmodule Mix.Tasks.Exograph.SearchTest do
     refute result =~ "noisy"
   end
 
-  test "prints explain plan" do
+  test "prints explain plan", %{prefix: prefix} do
     path =
       fixture("explain.ex", """
       defmodule Demo.ExplainTask do
@@ -63,13 +80,15 @@ defmodule Mix.Tasks.Exograph.SearchTest do
       end
       """)
 
-    Mix.Tasks.Exograph.Search.run(["Repo.get!(_, _)", "--explain", "--min-mass", "4", path])
+    Mix.Tasks.Exograph.Search.run(
+      base_args(prefix) ++ ["Repo.get!(_, _)", "--explain", "--min-mass", "4", path]
+    )
 
     assert_receive {:mix_shell, :info, [plan]}
     assert plan =~ "term_index_scan"
   end
 
-  test "searches literal text" do
+  test "searches literal text", %{prefix: prefix} do
     path =
       fixture("text.ex", """
       defmodule Demo.TextTask do
@@ -77,12 +96,18 @@ defmodule Mix.Tasks.Exograph.SearchTest do
       end
       """)
 
-    Mix.Tasks.Exograph.Search.run(["/users/:id", "--text", "--min-mass", "4", path])
+    Mix.Tasks.Exograph.Search.run(
+      base_args(prefix) ++ ["/users/:id", "--text", "--min-mass", "4", path]
+    )
 
     assert_receive {:mix_shell, :info, [summary]}
     assert summary =~ "result(s)"
     assert_receive {:mix_shell, :info, [result]}
     assert result =~ path
+  end
+
+  defp base_args(prefix) do
+    ["--repo", "Exograph.TestRepo", "--prefix", prefix, "--migrate", "--no-bm25"]
   end
 
   defp fixture(name, source) do

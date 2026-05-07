@@ -4,7 +4,6 @@ defmodule Exograph do
   """
 
   alias Exograph.{Backend, Hit, Index, Indexer, Planner, Query, Scope, Similarity, Text}
-  alias Exograph.InvertedIndex.Memory, as: MemoryInvertedIndex
 
   @spec index(String.t() | [String.t()], keyword()) :: {:ok, Index.t()} | {:error, term()}
   def index(paths, opts \\ []) do
@@ -64,14 +63,8 @@ defmodule Exograph do
     Planner.execute(index, plan, opts)
   end
 
-  def search(index, pattern_or_selector, opts) do
-    backend = Keyword.get(opts, :backend, MemoryInvertedIndex)
-    query = compile(pattern_or_selector)
-    verify? = Keyword.get(opts, :verify, true)
-
-    with {:ok, hits} <- backend.search(index, query, opts) do
-      if verify?, do: {:ok, verify_hits(hits, query)}, else: {:ok, hits}
-    end
+  def search(_index, _pattern_or_selector, _opts) do
+    {:error, :invalid_index}
   end
 
   @spec similar(Index.t(), String.t() | Macro.t(), keyword()) :: {:ok, [map()]} | {:error, term()}
@@ -285,15 +278,6 @@ defmodule Exograph do
       |> Enum.take(limit)
 
     {:ok, results}
-  end
-
-  defp verify_hits(hits, query) do
-    Enum.flat_map(hits, fn hit ->
-      case Query.verify(query, hit.fragment) do
-        {:ok, matches} -> Enum.map(matches, &Hit.with_match(hit, &1))
-        :error -> []
-      end
-    end)
   end
 
   defp text_match?(source, literal) when is_binary(literal),

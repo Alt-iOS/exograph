@@ -1,9 +1,23 @@
 defmodule ExographTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
 
   import ExAST.Query
 
-  test "indexes Elixir fragments and verifies pattern queries" do
+  alias Exograph.PostgresSupport
+
+  @moduletag :postgres
+
+  setup do
+    PostgresSupport.start_repo!()
+    prefix = "exograph_test_#{System.unique_integer([:positive])}"
+    opts = PostgresSupport.opts(prefix)
+
+    on_exit(fn -> Exograph.BackendContract.drop_postgres_prefix(opts) end)
+
+    {:ok, opts: opts}
+  end
+
+  test "indexes Elixir fragments and verifies pattern queries", %{opts: opts} do
     path =
       fixture("sample.ex", """
       defmodule Demo.Accounts do
@@ -17,14 +31,14 @@ defmodule ExographTest do
       end
       """)
 
-    {:ok, index} = Exograph.index(path, min_mass: 4)
+    {:ok, index} = Exograph.index(path, Keyword.merge(opts, min_mass: 4))
     {:ok, results} = Exograph.search(index, "Repo.get!(_, _)")
 
     assert [%{fragment: fragment}] = results
     assert fragment.file == path
   end
 
-  test "compiles selector predicates into candidate terms and verifies exact match" do
+  test "compiles selector predicates into candidate terms and verifies exact match", %{opts: opts} do
     path =
       fixture("selector.ex", """
       defmodule Demo.Workers do
@@ -43,7 +57,7 @@ defmodule ExographTest do
       |> where(contains("Repo.transaction(_)"))
       |> where(not contains("IO.inspect(_)"))
 
-    {:ok, index} = Exograph.index(path, min_mass: 4)
+    {:ok, index} = Exograph.index(path, Keyword.merge(opts, min_mass: 4))
     {:ok, results} = Exograph.search(index, selector)
 
     assert Enum.any?(results, fn %{match: %{node: node}} ->
@@ -72,7 +86,7 @@ defmodule ExographTest do
     assert Kernel.not("atom:id" in query.required_terms)
   end
 
-  test "searches comment text and partial definition names" do
+  test "searches comment text and partial definition names", %{opts: opts} do
     path =
       fixture("github_style_search.ex", """
       defmodule Demo.Searchable do
@@ -87,7 +101,7 @@ defmodule ExographTest do
       end
       """)
 
-    {:ok, index} = Exograph.index(path, min_mass: 4)
+    {:ok, index} = Exograph.index(path, Keyword.merge(opts, min_mass: 4))
 
     assert {:ok, comment_results} = Exograph.search_comments(index, "streaming chunks")
     assert Enum.any?(comment_results, &(&1.fragment.file == path))

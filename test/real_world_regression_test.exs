@@ -1,7 +1,21 @@
 defmodule Exograph.RealWorldRegressionTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
 
-  test "indexes dynamic aliases such as __MODULE__ without crashing" do
+  alias Exograph.PostgresSupport
+
+  @moduletag :postgres
+
+  setup do
+    PostgresSupport.start_repo!()
+    prefix = "exograph_regression_#{System.unique_integer([:positive])}"
+    opts = PostgresSupport.opts(prefix)
+
+    on_exit(fn -> Exograph.BackendContract.drop_postgres_prefix(opts) end)
+
+    {:ok, opts: opts}
+  end
+
+  test "indexes dynamic aliases such as __MODULE__ without crashing", %{opts: opts} do
     path =
       fixture("dynamic_alias.ex", """
       defmodule Demo.DynamicAlias do
@@ -15,7 +29,7 @@ defmodule Exograph.RealWorldRegressionTest do
       end
       """)
 
-    assert {:ok, index} = Exograph.index(path, min_mass: 4)
+    assert {:ok, index} = Exograph.index(path, Keyword.merge(opts, min_mass: 4))
     assert [_ | _] = index.fragment_store_backend.all(index.fragment_store)
   end
 

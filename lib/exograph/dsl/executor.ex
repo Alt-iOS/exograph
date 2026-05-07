@@ -4,7 +4,8 @@ defmodule Exograph.DSL.Executor do
   import Ecto.Query
 
   alias Exograph.{CallEdgeHit, DefinitionHit, Hit, ReferenceHit}
-  alias Exograph.DSL.{Query, Sources}
+  alias Exograph.DSL.{Plan, Planner, Query, Sources}
+  alias Exograph.DSL.Plan.Join
   alias Exograph.Query, as: StructuralQuery
 
   alias Exograph.Postgres.{
@@ -15,86 +16,90 @@ defmodule Exograph.DSL.Executor do
     ReferenceRecord
   }
 
-  def all(index, %Query{source: :fragment, joins: []} = query, opts) do
-    fragment_all(index, query, opts)
+  def all(index, %Query{} = query, opts) do
+    execute(index, Planner.plan(query), opts)
   end
 
-  def all(
-        index,
-        %Query{
-          source: :fragment,
-          binding: binding,
-          joins: [
-            {:assoc, binding, definition_binding, :definitions},
-            {:assoc, binding, call_binding, :calls}
-          ]
-        } = query,
-        opts
-      ) do
-    fragment_definition_call_join_all(index, query, definition_binding, call_binding, opts)
+  defp execute(index, %Plan{source: :fragment, joins: []} = plan, opts) do
+    fragment_all(index, plan, opts)
   end
 
-  def all(
-        index,
-        %Query{
-          source: :fragment,
-          binding: binding,
-          joins: [{:assoc, binding, join_binding, assoc}]
-        } = query,
-        opts
-      )
-      when assoc in [:definitions, :references, :calls] do
-    fragment_join_all(index, query, join_binding, assoc, opts)
+  defp execute(
+         index,
+         %Plan{
+           source: :fragment,
+           binding: binding,
+           joins: [
+             %Join{parent: binding, binding: definition_binding, assoc: :definitions},
+             %Join{parent: binding, binding: call_binding, assoc: :calls}
+           ]
+         } = plan,
+         opts
+       ) do
+    fragment_definition_call_join_all(index, plan, definition_binding, call_binding, opts)
   end
 
-  def all(
-        index,
-        %Query{
-          source: :definition,
-          binding: binding,
-          joins: [{:assoc, binding, join_binding, :calls}]
-        } = query,
-        opts
-      ) do
-    definition_calls_join_all(index, query, join_binding, opts)
+  defp execute(
+         index,
+         %Plan{
+           source: :fragment,
+           binding: binding,
+           joins: [%Join{parent: binding, binding: join_binding, assoc: assoc}]
+         } = plan,
+         opts
+       )
+       when assoc in [:definitions, :references, :calls] do
+    fragment_join_all(index, plan, join_binding, assoc, opts)
   end
 
-  def all(index, %Query{source: :definition, predicates: predicates}, opts) do
-    symbol_fact_all(index, predicates, opts, :definition)
+  defp execute(
+         index,
+         %Plan{
+           source: :definition,
+           binding: binding,
+           joins: [%Join{parent: binding, binding: join_binding, assoc: :calls}]
+         } = plan,
+         opts
+       ) do
+    definition_calls_join_all(index, plan, join_binding, opts)
   end
 
-  def all(index, %Query{source: :reference, predicates: predicates}, opts) do
-    symbol_fact_all(index, predicates, opts, :reference)
+  defp execute(index, %Plan{source: :definition} = plan, opts) do
+    symbol_fact_all(index, plan, opts, :definition)
   end
 
-  def all(index, %Query{source: :call_edge, predicates: predicates}, opts) do
-    call_edge_all(index, predicates, opts)
+  defp execute(index, %Plan{source: :reference} = plan, opts) do
+    symbol_fact_all(index, plan, opts, :reference)
   end
 
-  defp fragment_all(index, query, opts) do
+  defp execute(index, %Plan{source: :call_edge} = plan, opts) do
+    call_edge_all(index, plan, opts)
+  end
+
+  defp fragment_all(index, plan, opts) do
     limit = Keyword.get(opts, :limit, 50)
-    compiled_query = query |> Exograph.DSL.Compiler.compile() |> StructuralQuery.selector()
+    compiled_query = plan.query |> Exograph.DSL.Compiler.compile() |> StructuralQuery.selector()
 
     hits =
       index
-      |> filtered_fragments(query.predicates, query.binding, opts)
+      |> filtered_fragments(predicates(plan, plan.binding), plan.binding, opts)
       |> Enum.flat_map(&verify_fragment(&1, compiled_query))
       |> Enum.take(limit)
 
     {:ok, hits}
   end
 
-  defp fragment_join_all(index, query, join_binding, assoc, opts) do
+  defp fragment_join_all(index, plan, join_binding, assoc, opts) do
     limit = Keyword.get(query_opts = opts, :limit, 50)
-    compiled_query = query |> Exograph.DSL.Compiler.compile() |> StructuralQuery.selector()
+    compiled_query = plan.query |> Exograph.DSL.Compiler.compile() |> StructuralQuery.selector()
 
     hits =
       index
-      |> joined_fragments(query.predicates, join_binding, assoc, query_opts)
+      |> joined_fragments(plan.query.predicates, join_binding, assoc, query_opts)
       |> Enum.flat_map(fn {fragment, joined} ->
         fragment
         |> verify_fragment(compiled_query)
-        |> Enum.map(&select_fragment_join(query, &1, join_binding, joined))
+        |> Enum.map(&select_fragment_join(plan, &1, join_binding, joined))
       end)
       |> Enum.take(limit)
 
@@ -121,15 +126,15 @@ defmodule Exograph.DSL.Executor do
     end)
   end
 
-  defp fragment_definition_call_join_all(index, query, definition_binding, call_binding, opts) do
+  defp fragment_definition_call_join_all(index, plan, definition_binding, call_binding, opts) do
     limit = Keyword.get(opts, :limit, 50)
-    compiled_query = query |> Exograph.DSL.Compiler.compile() |> StructuralQuery.selector()
+    compiled_query = plan.query |> Exograph.DSL.Compiler.compile() |> StructuralQuery.selector()
 
     hits =
       index
       |> definition_call_joined_fragments(
-        query.predicates,
-        query.binding,
+        plan.query.predicates,
+        plan.binding,
         definition_binding,
         call_binding,
         opts
@@ -138,7 +143,7 @@ defmodule Exograph.DSL.Executor do
         fragment
         |> verify_fragment(compiled_query)
         |> Enum.map(
-          &select_multi_fragment_join(query, &1, %{
+          &select_multi_fragment_join(plan, &1, %{
             definition_binding => definition,
             call_binding => call_edge
           })
@@ -212,7 +217,7 @@ defmodule Exograph.DSL.Executor do
     end)
   end
 
-  defp definition_calls_join_all(index, query, call_edge_binding, opts) do
+  defp definition_calls_join_all(index, plan, call_edge_binding, opts) do
     limit = Keyword.get(opts, :limit, 50)
     files_source = Options.files_source(index.inverted.prefix)
     fragments_source = Options.fragments_source(index.inverted.prefix)
@@ -229,8 +234,11 @@ defmodule Exograph.DSL.Executor do
         limit: ^limit,
         select: {definition, fragment, nil, file.path}
       )
-      |> where_source_predicates(query.predicates, query.binding, :definition)
-      |> where_second_binding_call_edge_predicates(query.predicates, call_edge_binding)
+      |> where_source_predicates(predicates(plan, plan.binding), nil, :definition)
+      |> where_second_binding_call_edge_predicates(
+        predicates(plan, call_edge_binding),
+        call_edge_binding
+      )
       |> where_scope(opts)
 
     results =
@@ -240,17 +248,17 @@ defmodule Exograph.DSL.Executor do
     {:ok, results}
   end
 
-  defp select_multi_fragment_join(%Query{select: nil}, hit, _joined_by_binding), do: hit
+  defp select_multi_fragment_join(%Plan{select: nil}, hit, _joined_by_binding), do: hit
 
   defp select_multi_fragment_join(
-         %Query{binding: binding, select: binding},
+         %Plan{binding: binding, select: binding},
          hit,
          _joined_by_binding
        ),
        do: hit
 
   defp select_multi_fragment_join(
-         %Query{binding: binding, select: {:tuple, bindings}},
+         %Plan{binding: binding, select: {:tuple, bindings}},
          hit,
          joined_by_binding
        ) do
@@ -263,20 +271,20 @@ defmodule Exograph.DSL.Executor do
     |> List.to_tuple()
   end
 
-  defp select_fragment_join(%Query{select: nil}, hit, _join_binding, _joined), do: hit
+  defp select_fragment_join(%Plan{select: nil}, hit, _join_binding, _joined), do: hit
 
   defp select_fragment_join(
-         %Query{binding: binding, select: binding},
+         %Plan{binding: binding, select: binding},
          hit,
          _join_binding,
          _joined
        ),
        do: hit
 
-  defp select_fragment_join(%Query{select: join_binding}, _hit, join_binding, joined), do: joined
+  defp select_fragment_join(%Plan{select: join_binding}, _hit, join_binding, joined), do: joined
 
   defp select_fragment_join(
-         %Query{binding: binding, select: {:tuple, bindings}},
+         %Plan{binding: binding, select: {:tuple, bindings}},
          hit,
          join_binding,
          joined
@@ -309,7 +317,7 @@ defmodule Exograph.DSL.Executor do
     end)
   end
 
-  defp symbol_fact_all(index, predicates, opts, source_name) do
+  defp symbol_fact_all(index, plan, opts, source_name) do
     source = Sources.source(source_name, index.inverted.prefix)
     limit = Keyword.get(opts, :limit, 50)
     files_source = Options.files_source(index.inverted.prefix)
@@ -325,7 +333,7 @@ defmodule Exograph.DSL.Executor do
         limit: ^limit,
         select: {fact, fragment, nil, file.path}
       )
-      |> where_source_predicates(predicates, nil, source_name)
+      |> where_source_predicates(predicates(plan, plan.binding), nil, source_name)
       |> where_scope(opts)
 
     results =
@@ -335,7 +343,7 @@ defmodule Exograph.DSL.Executor do
     {:ok, results}
   end
 
-  defp call_edge_all(index, predicates, opts) do
+  defp call_edge_all(index, plan, opts) do
     limit = Keyword.get(opts, :limit, 50)
 
     query =
@@ -344,7 +352,7 @@ defmodule Exograph.DSL.Executor do
         limit: ^limit,
         select: edge
       )
-      |> where_call_edge_predicates(predicates)
+      |> where_call_edge_predicates(predicates(plan, plan.binding))
       |> where_scope(opts)
 
     results =
@@ -370,6 +378,10 @@ defmodule Exograph.DSL.Executor do
       fragment: hydrate_fragment(fragment, source, path),
       score: 1.0
     )
+  end
+
+  defp predicates(%Plan{predicates_by_binding: predicates_by_binding}, binding) do
+    Map.get(predicates_by_binding, binding, [])
   end
 
   defp where_join_predicates(query, predicates, join_binding, assoc) do

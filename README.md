@@ -55,6 +55,24 @@ from("def _ do ... end")
 |> where(comment_before(text("transaction wrapper")))
 ```
 
+## Unified query DSL
+
+`Exograph.DSL` provides an Ecto-shaped query entry point. The first supported
+source is `Fragment`, with structural predicates compiled back to ExAST selectors
+and executed through the normal Postgres planner/verifier pipeline.
+
+```elixir
+import Exograph.DSL
+
+query =
+  from(f in Fragment,
+    where: matches(f, "def _ do ... end"),
+    where: contains(f, "Repo.transaction(_)")
+  )
+
+{:ok, results} = Exograph.all(index, query)
+```
+
 ## Query planning and explanations
 
 Exograph treats indexes like an RDBMS treats access paths: advisory only. The

@@ -6,6 +6,7 @@ defmodule Exograph do
   alias Exograph.{
     CommentHit,
     DefinitionHit,
+    DSL,
     Index,
     Planner,
     Query,
@@ -139,6 +140,11 @@ defmodule Exograph do
   @spec search_callees(Index.t(), String.t(), keyword()) :: {:ok, [Exograph.CallEdge.t()]}
   def search_callees(%Index{} = index, caller, opts \\ []) when is_binary(caller) do
     PostgresInvertedIndex.search_callees(index.inverted, caller, opts)
+  end
+
+  @spec all(Index.t(), DSL.Query.t(), keyword()) :: {:ok, [map()]} | {:error, term()}
+  def all(%Index{} = index, %DSL.Query{} = query, opts \\ []) do
+    search(index, DSL.Compiler.compile(query), opts)
   end
 
   @spec compile(ExAST.Pattern.pattern() | ExAST.Selector.t()) :: Query.t()

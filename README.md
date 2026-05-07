@@ -170,6 +170,20 @@ query =
 {:ok, [{hit, definition, call_edge}]} = Exograph.all(index, query)
 ```
 
+Fragment queries can combine definitions, references, and calls in one plan:
+
+```elixir
+from(f in Fragment,
+  join: d in assoc(f, :definitions),
+  join: r in assoc(f, :references),
+  join: e in assoc(f, :calls),
+  where: d.kind == :defp,
+  where: r.qualified_name == "Repo.transaction/1",
+  where: e.callee_qualified_name == "Repo.transaction/1",
+  select: {f, d, r, e}
+)
+```
+
 ## Query planning and explanations
 
 DSL queries are normalized through an internal `Exograph.DSL.Plan` before

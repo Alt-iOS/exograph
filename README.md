@@ -154,6 +154,22 @@ query =
 {:ok, [{hit, call_edge}]} = Exograph.all(index, query)
 ```
 
+Multiple joins are supported for fragment queries:
+
+```elixir
+query =
+  from(f in Fragment,
+    join: d in assoc(f, :definitions),
+    join: e in assoc(f, :calls),
+    where: d.kind == :defp,
+    where: e.callee_qualified_name == "Repo.transaction/1",
+    where: matches(f, "defp _ do ... end"),
+    select: {f, d, e}
+  )
+
+{:ok, [{hit, definition, call_edge}]} = Exograph.all(index, query)
+```
+
 ## Query planning and explanations
 
 Exograph treats indexes like an RDBMS treats access paths: advisory only. The

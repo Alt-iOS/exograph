@@ -24,6 +24,21 @@ defmodule Exograph.DSL.Executor do
         %Query{
           source: :fragment,
           binding: binding,
+          joins: [
+            {:assoc, binding, definition_binding, :definitions},
+            {:assoc, binding, call_binding, :calls}
+          ]
+        } = query,
+        opts
+      ) do
+    fragment_definition_call_join_all(index, query, definition_binding, call_binding, opts)
+  end
+
+  def all(
+        index,
+        %Query{
+          source: :fragment,
+          binding: binding,
           joins: [{:assoc, binding, join_binding, assoc}]
         } = query,
         opts
@@ -106,6 +121,34 @@ defmodule Exograph.DSL.Executor do
     end)
   end
 
+  defp fragment_definition_call_join_all(index, query, definition_binding, call_binding, opts) do
+    limit = Keyword.get(opts, :limit, 50)
+    compiled_query = query |> Exograph.DSL.Compiler.compile() |> StructuralQuery.selector()
+
+    hits =
+      index
+      |> definition_call_joined_fragments(
+        query.predicates,
+        query.binding,
+        definition_binding,
+        call_binding,
+        opts
+      )
+      |> Enum.flat_map(fn {fragment, definition, call_edge} ->
+        fragment
+        |> verify_fragment(compiled_query)
+        |> Enum.map(
+          &select_multi_fragment_join(query, &1, %{
+            definition_binding => definition,
+            call_binding => call_edge
+          })
+        )
+      end)
+      |> Enum.take(limit)
+
+    {:ok, hits}
+  end
+
   defp joined_fragments(index, predicates, join_binding, assoc, opts) do
     candidate_limit = candidate_limit(index, opts)
     files_source = Options.files_source(index.inverted.prefix)
@@ -127,6 +170,45 @@ defmodule Exograph.DSL.Executor do
     |> index.inverted.repo.all()
     |> Enum.map(fn {fragment, source, path, joined} ->
       {Options.hydrate_fragment(fragment, source, path), joined_value(assoc, joined)}
+    end)
+  end
+
+  defp definition_call_joined_fragments(
+         index,
+         predicates,
+         fragment_binding,
+         definition_binding,
+         call_binding,
+         opts
+       ) do
+    candidate_limit = candidate_limit(index, opts)
+    files_source = Options.files_source(index.inverted.prefix)
+    fragments_source = Options.fragments_source(index.inverted.prefix)
+
+    from(fragment in {fragments_source, FragmentRecord},
+      join: definition in ^Sources.join_source(:definitions, index.inverted.prefix),
+      on: definition.file_id == fragment.file_id and fragment.line <= definition.line,
+      join: edge in ^Sources.join_source(:calls, index.inverted.prefix),
+      on: edge.caller_qualified_name == definition.qualified_name,
+      left_join: file in ^files_source,
+      on: file.id == fragment.file_id,
+      where: fragment.kind in [:def, :defp, :defmacro, :defmacrop],
+      distinct: fragment.id,
+      order_by: [asc: file.path, asc: fragment.line, asc: fragment.id],
+      limit: ^candidate_limit,
+      select: {fragment, file.source, file.path, definition, edge}
+    )
+    |> where_source_predicates(predicates, fragment_binding, :fragment)
+    |> where_second_binding_predicates(predicates, definition_binding, :definitions)
+    |> where_third_binding_predicates(predicates, call_binding, :calls)
+    |> where_fragment_scope(opts)
+    |> index.inverted.repo.all()
+    |> Enum.map(fn {fragment, source, path, definition, edge} ->
+      {
+        Options.hydrate_fragment(fragment, source, path),
+        DefinitionRecord.to_definition(definition),
+        CallEdgeRecord.to_call_edge(edge)
+      }
     end)
   end
 
@@ -156,6 +238,29 @@ defmodule Exograph.DSL.Executor do
       |> Enum.map(&hit(&1, Options.definitions_source(index.inverted.prefix)))
 
     {:ok, results}
+  end
+
+  defp select_multi_fragment_join(%Query{select: nil}, hit, _joined_by_binding), do: hit
+
+  defp select_multi_fragment_join(
+         %Query{binding: binding, select: binding},
+         hit,
+         _joined_by_binding
+       ),
+       do: hit
+
+  defp select_multi_fragment_join(
+         %Query{binding: binding, select: {:tuple, bindings}},
+         hit,
+         joined_by_binding
+       ) do
+    bindings
+    |> Enum.map(fn selected_binding ->
+      if selected_binding == binding,
+        do: hit,
+        else: Map.fetch!(joined_by_binding, selected_binding)
+    end)
+    |> List.to_tuple()
   end
 
   defp select_fragment_join(%Query{select: nil}, hit, _join_binding, _joined), do: hit
@@ -284,10 +389,22 @@ defmodule Exograph.DSL.Executor do
   end
 
   defp where_second_binding_call_edge_predicates(query, predicates, call_edge_binding) do
+    where_second_binding_predicates(query, predicates, call_edge_binding, :calls)
+  end
+
+  defp where_second_binding_predicates(query, predicates, binding, source) do
     predicates
-    |> predicates_for(call_edge_binding)
+    |> predicates_for(binding)
     |> Enum.reduce(query, fn predicate, query ->
-      where_second_binding_predicate(query, predicate, :calls)
+      where_second_binding_predicate(query, predicate, source)
+    end)
+  end
+
+  defp where_third_binding_predicates(query, predicates, binding, source) do
+    predicates
+    |> predicates_for(binding)
+    |> Enum.reduce(query, fn predicate, query ->
+      where_third_binding_predicate(query, predicate, source)
     end)
   end
 
@@ -337,6 +454,26 @@ defmodule Exograph.DSL.Executor do
     where(query, [_first, row], field(row, ^field) in ^values)
   end
 
+  defp where_third_binding_predicate(query, {:prefix_search, _binding, field, value}, source) do
+    Sources.assert_field!(source, field)
+    where(query, [_first, _second, row], ilike(field(row, ^field), ^"#{value}%"))
+  end
+
+  defp where_third_binding_predicate(query, {:eq, _binding, field, value}, source) do
+    Sources.assert_field!(source, field)
+    where(query, [_first, _second, row], field(row, ^field) == ^value)
+  end
+
+  defp where_third_binding_predicate(query, {:cmp, _binding, field, op, value}, source) do
+    Sources.assert_field!(source, field)
+    where_third_cmp(query, field, op, value)
+  end
+
+  defp where_third_binding_predicate(query, {:in, _binding, field, values}, source) do
+    Sources.assert_field!(source, field)
+    where(query, [_first, _second, row], field(row, ^field) in ^values)
+  end
+
   defp where_first_cmp(query, field, :>, value),
     do: where(query, [row], field(row, ^field) > ^value)
 
@@ -360,6 +497,18 @@ defmodule Exograph.DSL.Executor do
 
   defp where_second_cmp(query, field, :<=, value),
     do: where(query, [_first, row], field(row, ^field) <= ^value)
+
+  defp where_third_cmp(query, field, :>, value),
+    do: where(query, [_first, _second, row], field(row, ^field) > ^value)
+
+  defp where_third_cmp(query, field, :<, value),
+    do: where(query, [_first, _second, row], field(row, ^field) < ^value)
+
+  defp where_third_cmp(query, field, :>=, value),
+    do: where(query, [_first, _second, row], field(row, ^field) >= ^value)
+
+  defp where_third_cmp(query, field, :<=, value),
+    do: where(query, [_first, _second, row], field(row, ^field) <= ^value)
 
   defp predicates_for(predicates, nil), do: Enum.filter(predicates, &field_predicate?/1)
 

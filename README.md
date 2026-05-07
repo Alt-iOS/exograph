@@ -189,9 +189,10 @@ from(f in Fragment,
 DSL queries are normalized through an internal `Exograph.DSL.Plan` before
 execution. The plan groups predicates by binding, records join sources, and keeps
 structural predicates separate so relational candidates can be fetched before
-ExAST verification. Fragment joins use containing-function semantics so facts
-from later functions do not accidentally satisfy predicates on an earlier
-fragment.
+ExAST verification. The planner validates unsupported sources, joins, duplicate
+bindings, unbound predicates, and invalid selects before execution. Fragment
+joins use containing-function semantics so facts from later functions do not
+accidentally satisfy predicates on an earlier fragment.
 
 Exograph treats indexes like an RDBMS treats access paths: advisory only. The
 logical query remains the source of truth and every physical plan ends in exact

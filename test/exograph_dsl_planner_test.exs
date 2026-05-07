@@ -39,4 +39,79 @@ defmodule ExographDSLPlannerTest do
     assert {:eq, :d, :kind, :defp} in plan.predicates_by_binding.d
     assert {:eq, :e, :callee_qualified_name, "Repo.transaction/1"} in plan.predicates_by_binding.e
   end
+
+  test "rejects duplicate bindings" do
+    query = %Exograph.DSL.Query{
+      source: :fragment,
+      binding: :f,
+      joins: [{:assoc, :f, :f, :references}]
+    }
+
+    assert_raise ArgumentError, ~r/duplicate Exograph bindings/, fn ->
+      Planner.plan(query)
+    end
+  end
+
+  test "rejects predicates for unbound bindings" do
+    query = %Exograph.DSL.Query{
+      source: :fragment,
+      binding: :f,
+      predicates: [{:eq, :missing, :name, "value"}]
+    }
+
+    assert_raise ArgumentError, ~r/unknown Exograph binding `missing` in predicate/, fn ->
+      Planner.plan(query)
+    end
+  end
+
+  test "rejects unsupported associations for a source" do
+    query = %Exograph.DSL.Query{
+      source: :reference,
+      binding: :r,
+      joins: [{:assoc, :r, :e, :calls}]
+    }
+
+    assert_raise ArgumentError, ~r/reference queries do not support joins/, fn ->
+      Planner.plan(query)
+    end
+  end
+
+  test "rejects too many fragment joins" do
+    query = %Exograph.DSL.Query{
+      source: :fragment,
+      binding: :f,
+      joins: [
+        {:assoc, :f, :d, :definitions},
+        {:assoc, :f, :r, :references},
+        {:assoc, :f, :e, :calls},
+        {:assoc, :f, :other, :references}
+      ]
+    }
+
+    assert_raise ArgumentError, ~r/fragment queries support at most 3 joins/, fn ->
+      Planner.plan(query)
+    end
+  end
+
+  test "rejects select bindings that are not in the plan" do
+    query = %Exograph.DSL.Query{source: :fragment, binding: :f, select: {:tuple, [:f, :missing]}}
+
+    assert_raise ArgumentError, ~r/unknown Exograph binding `missing` in select/, fn ->
+      Planner.plan(query)
+    end
+  end
+
+  test "rejects structural predicates outside fragment queries" do
+    query = %Exograph.DSL.Query{
+      source: :definition,
+      binding: :d,
+      predicates: [{:matches, :d, "def _ do ... end"}]
+    }
+
+    assert_raise ArgumentError,
+                 ~r/structural predicates are only supported for fragment queries/,
+                 fn ->
+                   Planner.plan(query)
+                 end
+  end
 end

@@ -4,11 +4,9 @@ defmodule Exograph.DSL.Executor do
   import Ecto.Query
 
   alias Exograph.{CallEdgeHit, DefinitionHit, Hit, ReferenceHit}
-  alias Exograph.DSL.{Plan, Planner, Query, Sources}
+  alias Exograph.DSL.{JoinSemantics, Plan, Planner, Query, Sources}
   alias Exograph.DSL.Plan.Join
   alias Exograph.Query, as: StructuralQuery
-
-  @function_fragment_kinds [:def, :defp, :defmacro, :defmacrop]
 
   alias Exograph.Postgres.{
     CallEdgeRecord,
@@ -108,15 +106,16 @@ defmodule Exograph.DSL.Executor do
     candidate_limit = candidate_limit(index, opts)
     files_source = Options.files_source(index.inverted.prefix)
     fragments_source = Options.fragments_source(index.inverted.prefix)
+    function_fragment_kinds = JoinSemantics.function_fragment_kinds()
 
     from(fragment in {fragments_source, FragmentRecord},
       as: :fragment,
       join: joined in ^Sources.join_source(join.assoc, index.inverted.prefix),
       on: joined.file_id == fragment.file_id,
-      where: fragment.kind in ^@function_fragment_kinds,
+      where: fragment.kind in ^function_fragment_kinds,
       left_join: later in ^{fragments_source, FragmentRecord},
       on:
-        later.file_id == fragment.file_id and later.kind in ^@function_fragment_kinds and
+        later.file_id == fragment.file_id and later.kind in ^function_fragment_kinds and
           later.line > fragment.line and later.line <= joined.line,
       left_join: file in ^files_source,
       on: file.id == fragment.file_id,
@@ -125,7 +124,10 @@ defmodule Exograph.DSL.Executor do
       limit: ^candidate_limit,
       select: {fragment, file.source, file.path, joined}
     )
-    |> where_containing_fragment_binding(containing_assoc(plan, join.assoc), :one)
+    |> JoinSemantics.where_containing_fragment_binding(
+      JoinSemantics.containing_assoc(plan, join.assoc),
+      :one
+    )
     |> where_source_predicates(predicates(plan, plan.binding), nil, :fragment)
     |> where_second_binding_predicates(predicates(plan, join.binding), join.binding, join.assoc)
     |> where_fragment_scope(opts)
@@ -142,6 +144,7 @@ defmodule Exograph.DSL.Executor do
     candidate_limit = candidate_limit(index, opts)
     files_source = Options.files_source(index.inverted.prefix)
     fragments_source = Options.fragments_source(index.inverted.prefix)
+    function_fragment_kinds = JoinSemantics.function_fragment_kinds()
 
     from(fragment in {fragments_source, FragmentRecord},
       as: :fragment,
@@ -151,24 +154,30 @@ defmodule Exograph.DSL.Executor do
       on: second.file_id == fragment.file_id,
       left_join: first_later in ^{fragments_source, FragmentRecord},
       on:
-        first_later.file_id == fragment.file_id and first_later.kind in ^@function_fragment_kinds and
+        first_later.file_id == fragment.file_id and first_later.kind in ^function_fragment_kinds and
           first_later.line > fragment.line and first_later.line <= first.line,
       left_join: second_later in ^{fragments_source, FragmentRecord},
       on:
         second_later.file_id == fragment.file_id and
-          second_later.kind in ^@function_fragment_kinds and
+          second_later.kind in ^function_fragment_kinds and
           second_later.line > fragment.line and second_later.line <= second.line,
       left_join: file in ^files_source,
       on: file.id == fragment.file_id,
-      where: fragment.kind in ^@function_fragment_kinds,
+      where: fragment.kind in ^function_fragment_kinds,
       distinct: fragment.id,
       order_by: [asc: file.path, asc: fragment.line, asc: fragment.id],
       limit: ^candidate_limit,
       select: {fragment, file.source, file.path, first, second}
     )
-    |> where_containing_fragment_binding(containing_assoc(plan, first_join.assoc), :two_first)
-    |> where_containing_fragment_binding(containing_assoc(plan, second_join.assoc), :two_second)
-    |> where_call_definition_pairs(plan)
+    |> JoinSemantics.where_containing_fragment_binding(
+      JoinSemantics.containing_assoc(plan, first_join.assoc),
+      :two_first
+    )
+    |> JoinSemantics.where_containing_fragment_binding(
+      JoinSemantics.containing_assoc(plan, second_join.assoc),
+      :two_second
+    )
+    |> JoinSemantics.where_call_definition_pairs(plan)
     |> where_source_predicates(predicates(plan, plan.binding), nil, :fragment)
     |> where_second_binding_predicates(
       predicates(plan, first_join.binding),
@@ -197,6 +206,7 @@ defmodule Exograph.DSL.Executor do
     candidate_limit = candidate_limit(index, opts)
     files_source = Options.files_source(index.inverted.prefix)
     fragments_source = Options.fragments_source(index.inverted.prefix)
+    function_fragment_kinds = JoinSemantics.function_fragment_kinds()
 
     from(fragment in {fragments_source, FragmentRecord},
       as: :fragment,
@@ -208,29 +218,38 @@ defmodule Exograph.DSL.Executor do
       on: third.file_id == fragment.file_id,
       left_join: first_later in ^{fragments_source, FragmentRecord},
       on:
-        first_later.file_id == fragment.file_id and first_later.kind in ^@function_fragment_kinds and
+        first_later.file_id == fragment.file_id and first_later.kind in ^function_fragment_kinds and
           first_later.line > fragment.line and first_later.line <= first.line,
       left_join: second_later in ^{fragments_source, FragmentRecord},
       on:
         second_later.file_id == fragment.file_id and
-          second_later.kind in ^@function_fragment_kinds and
+          second_later.kind in ^function_fragment_kinds and
           second_later.line > fragment.line and second_later.line <= second.line,
       left_join: third_later in ^{fragments_source, FragmentRecord},
       on:
-        third_later.file_id == fragment.file_id and third_later.kind in ^@function_fragment_kinds and
+        third_later.file_id == fragment.file_id and third_later.kind in ^function_fragment_kinds and
           third_later.line > fragment.line and third_later.line <= third.line,
       left_join: file in ^files_source,
       on: file.id == fragment.file_id,
-      where: fragment.kind in ^@function_fragment_kinds,
+      where: fragment.kind in ^function_fragment_kinds,
       distinct: fragment.id,
       order_by: [asc: file.path, asc: fragment.line, asc: fragment.id],
       limit: ^candidate_limit,
       select: {fragment, file.source, file.path, first, second, third}
     )
-    |> where_containing_fragment_binding(containing_assoc(plan, first_join.assoc), :three_first)
-    |> where_containing_fragment_binding(containing_assoc(plan, second_join.assoc), :three_second)
-    |> where_containing_fragment_binding(containing_assoc(plan, third_join.assoc), :three_third)
-    |> where_call_definition_pairs(plan)
+    |> JoinSemantics.where_containing_fragment_binding(
+      JoinSemantics.containing_assoc(plan, first_join.assoc),
+      :three_first
+    )
+    |> JoinSemantics.where_containing_fragment_binding(
+      JoinSemantics.containing_assoc(plan, second_join.assoc),
+      :three_second
+    )
+    |> JoinSemantics.where_containing_fragment_binding(
+      JoinSemantics.containing_assoc(plan, third_join.assoc),
+      :three_third
+    )
+    |> JoinSemantics.where_call_definition_pairs(plan)
     |> where_source_predicates(predicates(plan, plan.binding), nil, :fragment)
     |> where_second_binding_predicates(
       predicates(plan, first_join.binding),
@@ -410,192 +429,6 @@ defmodule Exograph.DSL.Executor do
   defp predicates(%Plan{predicates_by_binding: predicates_by_binding}, binding) do
     Map.get(predicates_by_binding, binding, [])
   end
-
-  defp containing_assoc(%Plan{joins: joins}, :calls) do
-    if Enum.any?(joins, &(&1.assoc == :definitions)), do: :calls_with_definition, else: :calls
-  end
-
-  defp containing_assoc(%Plan{}, assoc), do: assoc
-
-  defp where_containing_fragment_binding(query, :calls_with_definition, _position), do: query
-
-  defp where_containing_fragment_binding(query, :definitions, :one) do
-    where(query, [fragment, joined, later], joined.line >= fragment.line and is_nil(later.id))
-  end
-
-  defp where_containing_fragment_binding(query, assoc, :one)
-       when assoc in [:references, :calls] do
-    where(query, [fragment, joined, later], joined.line >= fragment.line and is_nil(later.id))
-  end
-
-  defp where_containing_fragment_binding(query, :definitions, :two_first) do
-    where(
-      query,
-      [fragment, first, _second, first_later, _second_later],
-      first.line >= fragment.line and is_nil(first_later.id)
-    )
-  end
-
-  defp where_containing_fragment_binding(query, assoc, :two_first)
-       when assoc in [:references, :calls] do
-    where(
-      query,
-      [fragment, first, _second, first_later, _second_later],
-      first.line >= fragment.line and is_nil(first_later.id)
-    )
-  end
-
-  defp where_containing_fragment_binding(query, :definitions, :two_second) do
-    where(
-      query,
-      [fragment, _first, second, _first_later, second_later],
-      second.line >= fragment.line and is_nil(second_later.id)
-    )
-  end
-
-  defp where_containing_fragment_binding(query, assoc, :two_second)
-       when assoc in [:references, :calls] do
-    where(
-      query,
-      [fragment, _first, second, _first_later, second_later],
-      second.line >= fragment.line and is_nil(second_later.id)
-    )
-  end
-
-  defp where_containing_fragment_binding(query, :definitions, :three_first) do
-    where(
-      query,
-      [fragment, first, _second, _third, first_later, _second_later, _third_later],
-      first.line >= fragment.line and is_nil(first_later.id)
-    )
-  end
-
-  defp where_containing_fragment_binding(query, assoc, :three_first)
-       when assoc in [:references, :calls] do
-    where(
-      query,
-      [fragment, first, _second, _third, first_later, _second_later, _third_later],
-      first.line >= fragment.line and is_nil(first_later.id)
-    )
-  end
-
-  defp where_containing_fragment_binding(query, :definitions, :three_second) do
-    where(
-      query,
-      [fragment, _first, second, _third, _first_later, second_later, _third_later],
-      second.line >= fragment.line and is_nil(second_later.id)
-    )
-  end
-
-  defp where_containing_fragment_binding(query, assoc, :three_second)
-       when assoc in [:references, :calls] do
-    where(
-      query,
-      [fragment, _first, second, _third, _first_later, second_later, _third_later],
-      second.line >= fragment.line and is_nil(second_later.id)
-    )
-  end
-
-  defp where_containing_fragment_binding(query, :definitions, :three_third) do
-    where(
-      query,
-      [fragment, _first, _second, third, _first_later, _second_later, third_later],
-      third.line >= fragment.line and is_nil(third_later.id)
-    )
-  end
-
-  defp where_containing_fragment_binding(query, assoc, :three_third)
-       when assoc in [:references, :calls] do
-    where(
-      query,
-      [fragment, _first, _second, third, _first_later, _second_later, third_later],
-      third.line >= fragment.line and is_nil(third_later.id)
-    )
-  end
-
-  defp where_call_definition_pairs(query, %Plan{joins: [%{assoc: :definitions}, %{assoc: :calls}]}) do
-    where(
-      query,
-      [_fragment, definition, edge],
-      edge.caller_qualified_name == definition.qualified_name
-    )
-  end
-
-  defp where_call_definition_pairs(query, %Plan{joins: [%{assoc: :calls}, %{assoc: :definitions}]}) do
-    where(
-      query,
-      [_fragment, edge, definition],
-      edge.caller_qualified_name == definition.qualified_name
-    )
-  end
-
-  defp where_call_definition_pairs(
-         query,
-         %Plan{joins: [%{assoc: :definitions}, %{assoc: :calls}, _third]}
-       ) do
-    where(
-      query,
-      [_fragment, definition, edge, _third],
-      edge.caller_qualified_name == definition.qualified_name
-    )
-  end
-
-  defp where_call_definition_pairs(
-         query,
-         %Plan{joins: [%{assoc: :definitions}, _second, %{assoc: :calls}]}
-       ) do
-    where(
-      query,
-      [_fragment, definition, _second, edge],
-      edge.caller_qualified_name == definition.qualified_name
-    )
-  end
-
-  defp where_call_definition_pairs(
-         query,
-         %Plan{joins: [%{assoc: :calls}, %{assoc: :definitions}, _third]}
-       ) do
-    where(
-      query,
-      [_fragment, edge, definition, _third],
-      edge.caller_qualified_name == definition.qualified_name
-    )
-  end
-
-  defp where_call_definition_pairs(
-         query,
-         %Plan{joins: [%{assoc: :calls}, _second, %{assoc: :definitions}]}
-       ) do
-    where(
-      query,
-      [_fragment, edge, _second, definition],
-      edge.caller_qualified_name == definition.qualified_name
-    )
-  end
-
-  defp where_call_definition_pairs(
-         query,
-         %Plan{joins: [_first, %{assoc: :definitions}, %{assoc: :calls}]}
-       ) do
-    where(
-      query,
-      [_fragment, _first, definition, edge],
-      edge.caller_qualified_name == definition.qualified_name
-    )
-  end
-
-  defp where_call_definition_pairs(
-         query,
-         %Plan{joins: [_first, %{assoc: :calls}, %{assoc: :definitions}]}
-       ) do
-    where(
-      query,
-      [_fragment, _first, edge, definition],
-      edge.caller_qualified_name == definition.qualified_name
-    )
-  end
-
-  defp where_call_definition_pairs(query, %Plan{}), do: query
 
   defp where_source_predicates(query, predicates, binding, source) do
     predicates

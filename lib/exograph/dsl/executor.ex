@@ -307,6 +307,16 @@ defmodule Exograph.DSL.Executor do
     where(query, [row], field(row, ^field) == ^value)
   end
 
+  defp where_first_binding_predicate(query, {:cmp, _binding, field, op, value}, source) do
+    Sources.assert_field!(source, field)
+    where_first_cmp(query, field, op, value)
+  end
+
+  defp where_first_binding_predicate(query, {:in, _binding, field, values}, source) do
+    Sources.assert_field!(source, field)
+    where(query, [row], field(row, ^field) in ^values)
+  end
+
   defp where_second_binding_predicate(query, {:prefix_search, _binding, field, value}, source) do
     Sources.assert_field!(source, field)
     where(query, [_first, row], ilike(field(row, ^field), ^"#{value}%"))
@@ -316,6 +326,40 @@ defmodule Exograph.DSL.Executor do
     Sources.assert_field!(source, field)
     where(query, [_first, row], field(row, ^field) == ^value)
   end
+
+  defp where_second_binding_predicate(query, {:cmp, _binding, field, op, value}, source) do
+    Sources.assert_field!(source, field)
+    where_second_cmp(query, field, op, value)
+  end
+
+  defp where_second_binding_predicate(query, {:in, _binding, field, values}, source) do
+    Sources.assert_field!(source, field)
+    where(query, [_first, row], field(row, ^field) in ^values)
+  end
+
+  defp where_first_cmp(query, field, :>, value),
+    do: where(query, [row], field(row, ^field) > ^value)
+
+  defp where_first_cmp(query, field, :<, value),
+    do: where(query, [row], field(row, ^field) < ^value)
+
+  defp where_first_cmp(query, field, :>=, value),
+    do: where(query, [row], field(row, ^field) >= ^value)
+
+  defp where_first_cmp(query, field, :<=, value),
+    do: where(query, [row], field(row, ^field) <= ^value)
+
+  defp where_second_cmp(query, field, :>, value),
+    do: where(query, [_first, row], field(row, ^field) > ^value)
+
+  defp where_second_cmp(query, field, :<, value),
+    do: where(query, [_first, row], field(row, ^field) < ^value)
+
+  defp where_second_cmp(query, field, :>=, value),
+    do: where(query, [_first, row], field(row, ^field) >= ^value)
+
+  defp where_second_cmp(query, field, :<=, value),
+    do: where(query, [_first, row], field(row, ^field) <= ^value)
 
   defp predicates_for(predicates, nil), do: Enum.filter(predicates, &field_predicate?/1)
 
@@ -327,6 +371,7 @@ defmodule Exograph.DSL.Executor do
   end
 
   defp field_predicate?({_kind, _binding, _field, _value}), do: true
+  defp field_predicate?({:cmp, _binding, _field, _op, _value}), do: true
   defp field_predicate?(_predicate), do: false
 
   defp where_fragment_scope(queryable, opts) do

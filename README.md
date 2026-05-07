@@ -117,7 +117,10 @@ query =
 query =
   from(f in Fragment,
     join: e in assoc(f, :calls),
+    where: f.kind in [:def, :defp],
+    where: f.mass > 4,
     where: e.callee_qualified_name == "Repo.transaction/1",
+    where: e.line >= 2,
     where: matches(f, "def _ do ... end")
   )
 

@@ -140,6 +140,17 @@ defmodule Exograph.DSL do
     {:eq, field_binding, field, value}
   end
 
+  defp predicate!({op, _meta, [field_ast, value]}, _binding, bindings)
+       when op in [:>, :<, :>=, :<=] do
+    {:field, field_binding, field} = field!(field_ast, bindings)
+    {:cmp, field_binding, field, op, value}
+  end
+
+  defp predicate!({:in, _meta, [field_ast, values]}, _binding, bindings) when is_list(values) do
+    {:field, field_binding, field} = field!(field_ast, bindings)
+    {:in, field_binding, field, values}
+  end
+
   defp predicate!(ast, _binding, _bindings) do
     raise ArgumentError, "unsupported Exograph predicate: #{Macro.to_string(ast)}"
   end

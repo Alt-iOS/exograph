@@ -10,6 +10,8 @@ defmodule Exograph.DSL.Query do
           | {:contains, atom(), String.t()}
           | {:prefix_search, atom(), atom(), String.t()}
           | {:eq, atom(), atom(), term()}
+          | {:cmp, atom(), atom(), :> | :< | :>= | :<=, term()}
+          | {:in, atom(), atom(), [term()]}
 
   @type join :: {:assoc, atom(), atom(), atom()}
 

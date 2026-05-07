@@ -40,4 +40,5 @@ defmodule Exograph.DSL.Compiler do
 
   defp normalize_predicate({kind, binding, value}), do: {kind, binding, value}
   defp normalize_predicate({kind, binding, _field, value}), do: {kind, binding, value}
+  defp normalize_predicate({kind, binding, _field, _op, value}), do: {kind, binding, value}
 end

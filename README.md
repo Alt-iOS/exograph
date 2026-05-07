@@ -143,9 +143,9 @@ kept to Postgres extensions and ParadeDB-specific BM25 operators/index creation.
   )
 ```
 
-`backend: :postgres` is still accepted explicitly, but Postgres is the default.
-Custom profiles can implement `Exograph.Backend` for experiments, while public
-behavior and tests are validated against the real Postgres backend.
+`backend: :postgres` is still accepted explicitly, but Postgres is the only
+built-in backend. Public behavior and tests are validated against the real
+Postgres backend.
 
 This creates normalized Ecto-backed tables:
 

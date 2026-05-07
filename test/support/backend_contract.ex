@@ -6,25 +6,13 @@ defmodule Exograph.BackendContract do
 
   alias Exograph.Postgres.{PackageRecord, PackageVersionRecord}
 
-  def assert_profile(profile, expected) do
-    config = Exograph.Backend.config(profile.opts)
+  def assert_real_indexing_and_search(opts) do
+    path = fixture(opts)
+    {:ok, index} = Exograph.index(path, Keyword.merge(opts, min_mass: 4))
 
-    assert Keyword.fetch!(config, :inverted) == expected.inverted
-    assert Keyword.fetch!(config, :fragment_store) == expected.fragment_store
-    assert Keyword.fetch!(config, :tree_store) == expected.tree_store
-
-    assert Keyword.keyword?(Keyword.fetch!(config, :inverted_opts))
-    assert Keyword.keyword?(Keyword.fetch!(config, :fragment_store_opts))
-    assert Keyword.keyword?(Keyword.fetch!(config, :tree_store_opts))
-  end
-
-  def assert_real_indexing_and_search(profile) do
-    path = fixture(profile)
-    {:ok, index} = Exograph.index(path, Keyword.merge(profile.opts, min_mass: 4))
-
-    assert_profile_modules(index, profile.expected)
+    assert_postgres_modules(index)
     assert_fragments(index, path)
-    assert_package_scope(index, profile)
+    assert_package_scope(index, opts)
     assert_structural_search(index, path)
     assert_selector_search(index, path)
     assert_capture_guard_search(index, path)
@@ -133,10 +121,10 @@ defmodule Exograph.BackendContract do
     :ok
   end
 
-  defp assert_profile_modules(index, expected) do
-    assert index.inverted_backend == expected.inverted
-    assert index.fragment_store_backend == expected.fragment_store
-    assert index.tree_store_backend == expected.tree_store
+  defp assert_postgres_modules(index) do
+    assert index.inverted_backend == Exograph.InvertedIndex.Postgres
+    assert index.fragment_store_backend == Exograph.FragmentStore.Postgres
+    assert index.tree_store_backend == Exograph.TreeStore.Postgres
   end
 
   defp assert_fragments(index, path) do
@@ -145,8 +133,8 @@ defmodule Exograph.BackendContract do
     assert Enum.any?(fragments, &(&1.file == path and &1.name == "update_user"))
   end
 
-  defp assert_package_scope(index, profile) do
-    package_version = Exograph.PackageVersion.new(Keyword.fetch!(profile.opts, :package_version))
+  defp assert_package_scope(index, opts) do
+    package_version = Exograph.PackageVersion.new(Keyword.fetch!(opts, :package_version))
 
     assert Enum.all?(index.fragment_store_backend.all(index.fragment_store), fn fragment ->
              fragment.package_id == package_version.package_id and
@@ -245,16 +233,16 @@ defmodule Exograph.BackendContract do
     assert Enum.any?(results, &(&1.fragment.file == path and &1.similarity >= 0.7))
   end
 
-  defp fixture(profile) do
+  defp fixture(_opts) do
     dir =
       Path.join(
         System.tmp_dir!(),
-        "exograph-backend-contract-#{profile.name}-#{System.unique_integer([:positive])}"
+        "exograph-postgres-contract-#{System.unique_integer([:positive])}"
       )
 
     File.mkdir_p!(dir)
-    path = Path.join(dir, "#{profile.name}.ex")
-    File.write!(path, source(profile.module))
+    path = Path.join(dir, "postgres.ex")
+    File.write!(path, source(Demo.BackendContract.Postgres))
     path
   end
 

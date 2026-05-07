@@ -3,53 +3,40 @@ defmodule Exograph do
   Structural search and code intelligence for Elixir.
   """
 
-  alias Exograph.{Backend, Hit, Index, Indexer, Planner, Query, Scope, Similarity, Text}
+  alias Exograph.{Hit, Index, Planner, Query, Scope, Similarity, Text}
+  alias Exograph.Extractor.ExAST, as: ExASTExtractor
+  alias Exograph.FragmentStore.Postgres, as: PostgresFragmentStore
+  alias Exograph.InvertedIndex.Postgres, as: PostgresInvertedIndex
+  alias Exograph.TreeStore.Postgres, as: PostgresTreeStore
 
   @spec index(String.t() | [String.t()], keyword()) :: {:ok, Index.t()} | {:error, term()}
   def index(paths, opts \\ []) do
-    backend_config = Backend.config(opts)
-    inverted_backend = Keyword.fetch!(backend_config, :inverted)
-    fragment_store_backend = Keyword.fetch!(backend_config, :fragment_store)
-    tree_store_backend = Keyword.fetch!(backend_config, :tree_store)
-    inverted_opts = Keyword.fetch!(backend_config, :inverted_opts)
-    fragment_store_opts = Keyword.fetch!(backend_config, :fragment_store_opts)
-    tree_store_opts = Keyword.fetch!(backend_config, :tree_store_opts)
+    opts = normalize_backend(opts)
+    indexer_opts = extractor_opts(opts)
+    store_opts = store_opts(opts)
+    store_opts_without_migration = Keyword.put(store_opts, :migrate?, false)
+    batch_size = Keyword.get(opts, :index_batch_size, 2_000)
 
-    indexer_opts =
-      Keyword.drop(opts, [
-        :backend,
-        :backend_opts,
-        :fragment_store,
-        :fragment_store_opts,
-        :tree_store,
-        :tree_store_opts,
-        :repo,
-        :prefix,
-        :migrate?,
-        :bm25?,
-        :index_path
-      ])
-
-    if streaming_index?(backend_config) do
-      index_stream(paths, backend_config, indexer_opts, opts)
-    else
-      with fragments <- Indexer.index_paths(paths, indexer_opts),
-           {:ok, inverted} <- inverted_backend.new(inverted_opts),
-           {:ok, inverted} <- inverted_backend.add(inverted, fragments),
-           {:ok, fragment_store} <- fragment_store_backend.new(fragment_store_opts),
-           {:ok, fragment_store} <- fragment_store_backend.put(fragment_store, fragments),
-           {:ok, tree_store} <- tree_store_backend.new(tree_store_opts),
-           {:ok, tree_store} <- tree_store_backend.put_fragments(tree_store, fragments) do
-        {:ok,
-         %Index{
-           inverted_backend: inverted_backend,
-           inverted: inverted,
-           fragment_store_backend: fragment_store_backend,
-           fragment_store: fragment_store,
-           tree_store_backend: tree_store_backend,
-           tree_store: tree_store
-         }}
-      end
+    with {:ok, inverted} <- PostgresInvertedIndex.new(store_opts),
+         {:ok, fragment_store} <- PostgresFragmentStore.new(store_opts_without_migration),
+         {:ok, tree_store} <- PostgresTreeStore.new(store_opts_without_migration),
+         {:ok, {inverted, fragment_store, tree_store}} <-
+           put_fragment_stream(
+             ExASTExtractor.stream_paths(paths, indexer_opts),
+             batch_size,
+             inverted,
+             fragment_store,
+             tree_store
+           ) do
+      {:ok,
+       %Index{
+         inverted_backend: PostgresInvertedIndex,
+         inverted: inverted,
+         fragment_store_backend: PostgresFragmentStore,
+         fragment_store: fragment_store,
+         tree_store_backend: PostgresTreeStore,
+         tree_store: tree_store
+       }}
     end
   end
 
@@ -152,54 +139,7 @@ defmodule Exograph do
     index.tree_store_backend.nodes(index.tree_store, fragment_id)
   end
 
-  defp streaming_index?(backend_config) do
-    Keyword.fetch!(backend_config, :fragment_store) == Exograph.FragmentStore.Postgres
-  end
-
-  defp index_stream(paths, backend_config, indexer_opts, opts) do
-    inverted_backend = Keyword.fetch!(backend_config, :inverted)
-    fragment_store_backend = Keyword.fetch!(backend_config, :fragment_store)
-    tree_store_backend = Keyword.fetch!(backend_config, :tree_store)
-    batch_size = Keyword.get(opts, :index_batch_size, 2_000)
-
-    with {:ok, inverted} <- inverted_backend.new(Keyword.fetch!(backend_config, :inverted_opts)),
-         {:ok, fragment_store} <-
-           fragment_store_backend.new(Keyword.fetch!(backend_config, :fragment_store_opts)),
-         {:ok, tree_store} <-
-           tree_store_backend.new(Keyword.fetch!(backend_config, :tree_store_opts)),
-         {:ok, {inverted, fragment_store, tree_store}} <-
-           put_fragment_stream(
-             Indexer.stream_paths(paths, indexer_opts),
-             batch_size,
-             inverted_backend,
-             inverted,
-             fragment_store_backend,
-             fragment_store,
-             tree_store_backend,
-             tree_store
-           ) do
-      {:ok,
-       %Index{
-         inverted_backend: inverted_backend,
-         inverted: inverted,
-         fragment_store_backend: fragment_store_backend,
-         fragment_store: fragment_store,
-         tree_store_backend: tree_store_backend,
-         tree_store: tree_store
-       }}
-    end
-  end
-
-  defp put_fragment_stream(
-         fragments,
-         batch_size,
-         inverted_backend,
-         inverted,
-         fragment_store_backend,
-         fragment_store,
-         tree_store_backend,
-         tree_store
-       ) do
+  defp put_fragment_stream(fragments, batch_size, inverted, fragment_store, tree_store) do
     fragments
     |> Stream.chunk_every(batch_size)
     |> Enum.reduce_while({:ok, {inverted, fragment_store, tree_store}}, fn batch,
@@ -207,14 +147,37 @@ defmodule Exograph do
                                                                             {inverted,
                                                                              fragment_store,
                                                                              tree_store}} ->
-      with {:ok, inverted} <- inverted_backend.add(inverted, batch),
-           {:ok, fragment_store} <- fragment_store_backend.put(fragment_store, batch),
-           {:ok, tree_store} <- tree_store_backend.put_fragments(tree_store, batch) do
+      with {:ok, inverted} <- PostgresInvertedIndex.add(inverted, batch),
+           {:ok, fragment_store} <- PostgresFragmentStore.put(fragment_store, batch),
+           {:ok, tree_store} <- PostgresTreeStore.put_fragments(tree_store, batch) do
         {:cont, {:ok, {inverted, fragment_store, tree_store}}}
       else
         {:error, reason} -> {:halt, {:error, reason}}
       end
     end)
+  end
+
+  defp normalize_backend(opts) do
+    case Keyword.get(opts, :backend, :postgres) do
+      :postgres -> opts
+      "postgres" -> Keyword.put(opts, :backend, :postgres)
+      other -> raise ArgumentError, "unsupported backend #{inspect(other)}; use :postgres"
+    end
+  end
+
+  defp extractor_opts(opts) do
+    Keyword.drop(opts, [
+      :backend,
+      :repo,
+      :prefix,
+      :migrate?,
+      :bm25?,
+      :index_batch_size
+    ])
+  end
+
+  defp store_opts(opts) do
+    Keyword.take(opts, [:repo, :prefix, :migrate?, :bm25?, :package, :package_version])
   end
 
   defp search_text_seq(%Index{} = index, literal_or_regex, opts) do

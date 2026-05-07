@@ -31,7 +31,6 @@ defmodule Exograph.PostgresSupport do
   def opts(prefix, extra \\ []) do
     Keyword.merge(
       [
-        backend: :postgres,
         repo: Exograph.TestRepo,
         prefix: prefix,
         migrate?: true,

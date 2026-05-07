@@ -3,8 +3,9 @@ defmodule Exograph.DSL.Executor do
 
   import Ecto.Query
 
-  alias Exograph.{CallEdgeHit, DefinitionHit, ReferenceHit}
+  alias Exograph.{CallEdgeHit, DefinitionHit, Hit, ReferenceHit}
   alias Exograph.DSL.Query
+  alias Exograph.Query, as: StructuralQuery
 
   alias Exograph.Postgres.{
     CallEdgeRecord,
@@ -46,6 +47,18 @@ defmodule Exograph.DSL.Executor do
                       :column
                     ])
 
+  def all(
+        index,
+        %Query{
+          source: :fragment,
+          binding: binding,
+          joins: [{:assoc, binding, reference_binding, :references}]
+        } = query,
+        opts
+      ) do
+    fragment_reference_join_all(index, query, reference_binding, opts)
+  end
+
   def all(index, %Query{source: :definition, predicates: predicates}, opts) do
     symbol_fact_all(index, predicates, opts, Options.definitions_source(index.inverted.prefix))
   end
@@ -56,6 +69,55 @@ defmodule Exograph.DSL.Executor do
 
   def all(index, %Query{source: :call_edge, predicates: predicates}, opts) do
     call_edge_all(index, predicates, opts)
+  end
+
+  defp fragment_reference_join_all(index, query, reference_binding, opts) do
+    limit = Keyword.get(query_opts = opts, :limit, 50)
+    compiled_query = query |> Exograph.DSL.Compiler.compile() |> StructuralQuery.selector()
+
+    hits =
+      index
+      |> reference_join_fragments(query.predicates, reference_binding, query_opts)
+      |> Enum.flat_map(fn fragment ->
+        case StructuralQuery.verify(compiled_query, fragment) do
+          {:ok, matches} ->
+            Enum.map(matches, &Hit.with_match(Hit.new(fragment: fragment, score: 1.0), &1))
+
+          :error ->
+            []
+        end
+      end)
+      |> Enum.take(limit)
+
+    {:ok, hits}
+  end
+
+  defp reference_join_fragments(index, predicates, reference_binding, opts) do
+    candidate_limit =
+      Keyword.get_lazy(opts, :candidate_limit, fn ->
+        index.fragment_store_backend.count(index.fragment_store)
+      end)
+
+    files_source = Options.files_source(index.inverted.prefix)
+    fragments_source = Options.fragments_source(index.inverted.prefix)
+
+    from(fragment in {fragments_source, FragmentRecord},
+      join: reference in ^Options.references_source(index.inverted.prefix),
+      on: reference.file_id == fragment.file_id and fragment.line <= reference.line,
+      where: fragment.kind in [:def, :defp, :defmacro, :defmacrop],
+      left_join: file in ^files_source,
+      on: file.id == fragment.file_id,
+      distinct: fragment.id,
+      order_by: [asc: file.path, asc: fragment.line, asc: fragment.id],
+      limit: ^candidate_limit,
+      select: {fragment, file.source, file.path}
+    )
+    |> where_reference_predicates(predicates, reference_binding)
+    |> where_fragment_scope(opts)
+    |> index.inverted.repo.all()
+    |> Enum.map(fn {fragment, source, path} ->
+      Options.hydrate_fragment(fragment, source, path)
+    end)
   end
 
   defp symbol_fact_all(index, predicates, opts, source) do
@@ -120,6 +182,20 @@ defmodule Exograph.DSL.Executor do
     )
   end
 
+  defp where_reference_predicates(query, predicates, reference_binding) do
+    predicates
+    |> Enum.filter(&match?({_, ^reference_binding, _, _}, &1))
+    |> Enum.reduce(query, fn
+      {:prefix_search, _binding, field, value}, query ->
+        assert_symbol_fact_field!(field)
+        where(query, [_fragment, reference], ilike(field(reference, ^field), ^"#{value}%"))
+
+      {:eq, _binding, field, value}, query ->
+        assert_symbol_fact_field!(field)
+        where(query, [_fragment, reference], field(reference, ^field) == ^value)
+    end)
+  end
+
   defp where_symbol_fact_predicates(query, predicates) do
     Enum.reduce(predicates, query, fn
       {:prefix_search, _binding, field, value}, query ->
@@ -143,6 +219,27 @@ defmodule Exograph.DSL.Executor do
         where(query, [edge], field(edge, ^field) == ^value)
     end)
   end
+
+  defp where_fragment_scope(queryable, opts) do
+    package_id = Keyword.get(opts, :package_id)
+
+    package_version_id =
+      Keyword.get(opts, :package_version_id) || Keyword.get(opts, :package_version)
+
+    queryable
+    |> maybe_where_fragment_package(package_id)
+    |> maybe_where_fragment_package_version(package_version_id)
+  end
+
+  defp maybe_where_fragment_package(queryable, nil), do: queryable
+
+  defp maybe_where_fragment_package(queryable, package_id),
+    do: where(queryable, [fragment], fragment.package_id == ^package_id)
+
+  defp maybe_where_fragment_package_version(queryable, nil), do: queryable
+
+  defp maybe_where_fragment_package_version(queryable, package_version_id),
+    do: where(queryable, [fragment], fragment.package_version_id == ^package_version_id)
 
   defp where_scope(queryable, opts) do
     package_id = Keyword.get(opts, :package_id)

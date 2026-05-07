@@ -11,11 +11,14 @@ defmodule Exograph.DSL.Query do
           | {:prefix_search, atom(), atom(), String.t()}
           | {:eq, atom(), atom(), term()}
 
+  @type join :: {:assoc, atom(), atom(), atom()}
+
   @type t :: %__MODULE__{
           source: source(),
           binding: atom(),
-          predicates: [predicate()]
+          predicates: [predicate()],
+          joins: [join()]
         }
 
-  defstruct [:source, :binding, predicates: []]
+  defstruct [:source, :binding, predicates: [], joins: []]
 end

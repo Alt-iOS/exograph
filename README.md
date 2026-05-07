@@ -100,6 +100,20 @@ calls =
 {:ok, call_edges} = Exograph.all(index, calls)
 ```
 
+Fragment queries can join normalized references before ExAST structural
+verification:
+
+```elixir
+query =
+  from(f in Fragment,
+    join: r in assoc(f, :references),
+    where: r.qualified_name == "Repo.transaction/1",
+    where: matches(f, "def _ do ... end")
+  )
+
+{:ok, fragments} = Exograph.all(index, query)
+```
+
 ## Query planning and explanations
 
 Exograph treats indexes like an RDBMS treats access paths: advisory only. The

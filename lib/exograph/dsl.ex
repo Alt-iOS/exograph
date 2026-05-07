@@ -17,9 +17,14 @@ defmodule Exograph.DSL do
   defmacro from({:in, _meta, [binding_ast, source_ast]}, clauses) when is_list(clauses) do
     binding = binding_name!(binding_ast)
     source = source!(source_ast, __CALLER__)
-    predicates = predicates!(clauses, binding)
+    joins = joins!(clauses, binding)
 
-    Macro.escape(%Query{source: source, binding: binding, predicates: predicates})
+    bindings =
+      MapSet.new([binding | Enum.map(joins, fn {:assoc, _parent, join, _assoc} -> join end)])
+
+    predicates = predicates!(clauses, binding, bindings)
+
+    Macro.escape(%Query{source: source, binding: binding, predicates: predicates, joins: joins})
   end
 
   defmacro matches(_binding, _pattern) do
@@ -32,6 +37,10 @@ defmodule Exograph.DSL do
 
   defmacro prefix_search(_field, _value) do
     raise ArgumentError, "prefix_search/2 can only be used inside Exograph.DSL.from/2"
+  end
+
+  defmacro assoc(_binding, _name) do
+    raise ArgumentError, "assoc/2 can only be used inside Exograph.DSL.from/2"
   end
 
   defp binding_name!({name, _meta, context}) when is_atom(name) and is_atom(context), do: name
@@ -54,33 +63,57 @@ defmodule Exograph.DSL do
     end
   end
 
-  defp predicates!(clauses, binding) do
+  defp joins!(clauses, binding) do
     clauses
-    |> Keyword.get_values(:where)
-    |> Enum.map(&predicate!(&1, binding))
+    |> Keyword.get_values(:join)
+    |> Enum.map(&join!(&1, binding))
   end
 
-  defp predicate!({:matches, _meta, [binding_ast, pattern]}, binding) when is_binary(pattern) do
+  defp join!(
+         {:in, _meta, [join_binding_ast, {:assoc, _assoc_meta, [parent_ast, assoc]}]},
+         binding
+       )
+       when is_atom(assoc) do
+    join_binding = binding_name!(join_binding_ast)
+    assert_binding!(parent_ast, binding)
+    {:assoc, binding, join_binding, assoc}
+  end
+
+  defp join!(ast, _binding) do
+    raise ArgumentError,
+          "unsupported Exograph join, expected `j in assoc(binding, :name)`, got: #{Macro.to_string(ast)}"
+  end
+
+  defp predicates!(clauses, binding, bindings) do
+    clauses
+    |> Keyword.get_values(:where)
+    |> Enum.map(&predicate!(&1, binding, bindings))
+  end
+
+  defp predicate!({:matches, _meta, [binding_ast, pattern]}, binding, _bindings)
+       when is_binary(pattern) do
     assert_binding!(binding_ast, binding)
     {:matches, binding, pattern}
   end
 
-  defp predicate!({:contains, _meta, [binding_ast, pattern]}, binding) when is_binary(pattern) do
+  defp predicate!({:contains, _meta, [binding_ast, pattern]}, binding, _bindings)
+       when is_binary(pattern) do
     assert_binding!(binding_ast, binding)
     {:contains, binding, pattern}
   end
 
-  defp predicate!({:prefix_search, _meta, [field_ast, value]}, binding) when is_binary(value) do
-    {:field, ^binding, field} = field!(field_ast, binding)
-    {:prefix_search, binding, field, value}
+  defp predicate!({:prefix_search, _meta, [field_ast, value]}, _binding, bindings)
+       when is_binary(value) do
+    {:field, field_binding, field} = field!(field_ast, bindings)
+    {:prefix_search, field_binding, field, value}
   end
 
-  defp predicate!({:==, _meta, [field_ast, value]}, binding) do
-    {:field, ^binding, field} = field!(field_ast, binding)
-    {:eq, binding, field, value}
+  defp predicate!({:==, _meta, [field_ast, value]}, _binding, bindings) do
+    {:field, field_binding, field} = field!(field_ast, bindings)
+    {:eq, field_binding, field, value}
   end
 
-  defp predicate!(ast, _binding) do
+  defp predicate!(ast, _binding, _bindings) do
     raise ArgumentError, "unsupported Exograph predicate: #{Macro.to_string(ast)}"
   end
 
@@ -91,12 +124,18 @@ defmodule Exograph.DSL do
           "predicate must target binding `#{binding}`, got: #{Macro.to_string(ast)}"
   end
 
-  defp field!({{:., _meta, [binding_ast, field]}, _call_meta, []}, binding) when is_atom(field) do
-    assert_binding!(binding_ast, binding)
+  defp field!({{:., _meta, [binding_ast, field]}, _call_meta, []}, bindings)
+       when is_atom(field) do
+    binding = binding_name!(binding_ast)
+
+    unless MapSet.member?(bindings, binding) do
+      raise ArgumentError, "unknown Exograph binding `#{binding}` in field access"
+    end
+
     {:field, binding, field}
   end
 
-  defp field!(ast, _binding) do
+  defp field!(ast, _bindings) do
     raise ArgumentError, "expected a field access such as `d.name`, got: #{Macro.to_string(ast)}"
   end
 end

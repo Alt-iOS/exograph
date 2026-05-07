@@ -145,7 +145,7 @@ defmodule Exograph do
   @spec all(Index.t(), DSL.Query.t(), keyword()) :: {:ok, [map()]} | {:error, term()}
   def all(index, query, opts \\ [])
 
-  def all(%Index{} = index, %DSL.Query{source: :fragment} = query, opts) do
+  def all(%Index{} = index, %DSL.Query{source: :fragment, joins: []} = query, opts) do
     search(index, DSL.Compiler.compile(query), opts)
   end
 

@@ -146,7 +146,11 @@ defmodule Exograph do
   def all(index, query, opts \\ [])
 
   def all(%Index{} = index, %DSL.Query{source: :fragment, joins: []} = query, opts) do
-    search(index, DSL.Compiler.compile(query), opts)
+    if DSL.Compiler.structural_only?(query) do
+      search(index, DSL.Compiler.compile(query), opts)
+    else
+      DSL.Executor.all(index, query, opts)
+    end
   end
 
   def all(%Index{} = index, %DSL.Query{} = query, opts) do

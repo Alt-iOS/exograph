@@ -107,6 +107,7 @@ structural verification:
 query =
   from(f in Fragment,
     join: r in assoc(f, :references),
+    where: f.kind == :def,
     where: r.qualified_name == "Repo.transaction/1",
     where: matches(f, "def _ do ... end")
   )

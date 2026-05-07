@@ -4,7 +4,7 @@ defmodule Exograph.DSL.Executor do
   import Ecto.Query
 
   alias Exograph.{CallEdgeHit, DefinitionHit, Hit, ReferenceHit}
-  alias Exograph.DSL.Query
+  alias Exograph.DSL.{Query, Sources}
   alias Exograph.Query, as: StructuralQuery
 
   alias Exograph.Postgres.{
@@ -15,37 +15,9 @@ defmodule Exograph.DSL.Executor do
     ReferenceRecord
   }
 
-  @symbol_fact_fields MapSet.new([
-                        :id,
-                        :package_id,
-                        :package_version_id,
-                        :file_id,
-                        :fragment_id,
-                        :kind,
-                        :module,
-                        :name,
-                        :arity,
-                        :qualified_name,
-                        :mfa_module,
-                        :mfa_name,
-                        :mfa_arity,
-                        :line,
-                        :column
-                      ])
-
-  @call_edge_fields MapSet.new([
-                      :id,
-                      :package_id,
-                      :package_version_id,
-                      :file_id,
-                      :caller_node_id,
-                      :callee_node_id,
-                      :call_site_fragment_id,
-                      :caller_qualified_name,
-                      :callee_qualified_name,
-                      :line,
-                      :column
-                    ])
+  def all(index, %Query{source: :fragment, joins: []} = query, opts) do
+    fragment_all(index, query, opts)
+  end
 
   def all(
         index,
@@ -73,15 +45,28 @@ defmodule Exograph.DSL.Executor do
   end
 
   def all(index, %Query{source: :definition, predicates: predicates}, opts) do
-    symbol_fact_all(index, predicates, opts, Options.definitions_source(index.inverted.prefix))
+    symbol_fact_all(index, predicates, opts, :definition)
   end
 
   def all(index, %Query{source: :reference, predicates: predicates}, opts) do
-    symbol_fact_all(index, predicates, opts, Options.references_source(index.inverted.prefix))
+    symbol_fact_all(index, predicates, opts, :reference)
   end
 
   def all(index, %Query{source: :call_edge, predicates: predicates}, opts) do
     call_edge_all(index, predicates, opts)
+  end
+
+  defp fragment_all(index, query, opts) do
+    limit = Keyword.get(opts, :limit, 50)
+    compiled_query = query |> Exograph.DSL.Compiler.compile() |> StructuralQuery.selector()
+
+    hits =
+      index
+      |> filtered_fragments(query.predicates, query.binding, opts)
+      |> Enum.flat_map(&verify_fragment(&1, compiled_query))
+      |> Enum.take(limit)
+
+    {:ok, hits}
   end
 
   defp fragment_join_all(index, query, join_binding, assoc, opts) do
@@ -91,31 +76,39 @@ defmodule Exograph.DSL.Executor do
     hits =
       index
       |> joined_fragments(query.predicates, join_binding, assoc, query_opts)
-      |> Enum.flat_map(fn fragment ->
-        case StructuralQuery.verify(compiled_query, fragment) do
-          {:ok, matches} ->
-            Enum.map(matches, &Hit.with_match(Hit.new(fragment: fragment, score: 1.0), &1))
-
-          :error ->
-            []
-        end
-      end)
+      |> Enum.flat_map(&verify_fragment(&1, compiled_query))
       |> Enum.take(limit)
 
     {:ok, hits}
   end
 
-  defp joined_fragments(index, predicates, join_binding, assoc, opts) do
-    candidate_limit =
-      Keyword.get_lazy(opts, :candidate_limit, fn ->
-        index.fragment_store_backend.count(index.fragment_store)
-      end)
-
+  defp filtered_fragments(index, predicates, binding, opts) do
+    candidate_limit = candidate_limit(index, opts)
     files_source = Options.files_source(index.inverted.prefix)
     fragments_source = Options.fragments_source(index.inverted.prefix)
 
     from(fragment in {fragments_source, FragmentRecord},
-      join: joined in ^join_source(index, assoc),
+      left_join: file in ^files_source,
+      on: file.id == fragment.file_id,
+      order_by: [asc: file.path, asc: fragment.line, asc: fragment.id],
+      limit: ^candidate_limit,
+      select: {fragment, file.source, file.path}
+    )
+    |> where_source_predicates(predicates, binding, :fragment)
+    |> where_fragment_scope(opts)
+    |> index.inverted.repo.all()
+    |> Enum.map(fn {fragment, source, path} ->
+      Options.hydrate_fragment(fragment, source, path)
+    end)
+  end
+
+  defp joined_fragments(index, predicates, join_binding, assoc, opts) do
+    candidate_limit = candidate_limit(index, opts)
+    files_source = Options.files_source(index.inverted.prefix)
+    fragments_source = Options.fragments_source(index.inverted.prefix)
+
+    from(fragment in {fragments_source, FragmentRecord},
+      join: joined in ^Sources.join_source(assoc, index.inverted.prefix),
       on: joined.file_id == fragment.file_id and fragment.line <= joined.line,
       where: fragment.kind in [:def, :defp, :defmacro, :defmacrop],
       left_join: file in ^files_source,
@@ -150,7 +143,7 @@ defmodule Exograph.DSL.Executor do
         limit: ^limit,
         select: {definition, fragment, nil, file.path}
       )
-      |> where_symbol_fact_predicates(query.predicates, query.binding)
+      |> where_source_predicates(query.predicates, query.binding, :definition)
       |> where_second_binding_call_edge_predicates(query.predicates, call_edge_binding)
       |> where_scope(opts)
 
@@ -161,7 +154,24 @@ defmodule Exograph.DSL.Executor do
     {:ok, results}
   end
 
-  defp symbol_fact_all(index, predicates, opts, source) do
+  defp verify_fragment(fragment, compiled_query) do
+    case StructuralQuery.verify(compiled_query, fragment) do
+      {:ok, matches} ->
+        Enum.map(matches, &Hit.with_match(Hit.new(fragment: fragment, score: 1.0), &1))
+
+      :error ->
+        []
+    end
+  end
+
+  defp candidate_limit(index, opts) do
+    Keyword.get_lazy(opts, :candidate_limit, fn ->
+      index.fragment_store_backend.count(index.fragment_store)
+    end)
+  end
+
+  defp symbol_fact_all(index, predicates, opts, source_name) do
+    source = Sources.source(source_name, index.inverted.prefix)
     limit = Keyword.get(opts, :limit, 50)
     files_source = Options.files_source(index.inverted.prefix)
     fragments_source = Options.fragments_source(index.inverted.prefix)
@@ -176,7 +186,7 @@ defmodule Exograph.DSL.Executor do
         limit: ^limit,
         select: {fact, fragment, nil, file.path}
       )
-      |> where_symbol_fact_predicates(predicates)
+      |> where_source_predicates(predicates, nil, source_name)
       |> where_scope(opts)
 
     results =
@@ -223,69 +233,67 @@ defmodule Exograph.DSL.Executor do
     )
   end
 
-  defp where_join_predicates(query, predicates, join_binding, :references) do
+  defp where_join_predicates(query, predicates, join_binding, assoc) do
     predicates
-    |> Enum.filter(&match?({_, ^join_binding, _, _}, &1))
-    |> Enum.reduce(query, fn
-      {:prefix_search, _binding, field, value}, query ->
-        assert_symbol_fact_field!(field)
-        where(query, [_fragment, joined], ilike(field(joined, ^field), ^"#{value}%"))
-
-      {:eq, _binding, field, value}, query ->
-        assert_symbol_fact_field!(field)
-        where(query, [_fragment, joined], field(joined, ^field) == ^value)
+    |> predicates_for(join_binding)
+    |> Enum.reduce(query, fn predicate, query ->
+      where_second_binding_predicate(query, predicate, assoc)
     end)
   end
 
-  defp where_join_predicates(query, predicates, join_binding, :calls) do
-    where_second_binding_call_edge_predicates(query, predicates, join_binding)
-  end
-
-  defp where_symbol_fact_predicates(query, predicates, binding \\ nil) do
+  defp where_source_predicates(query, predicates, binding, source) do
     predicates
-    |> Enum.filter(fn
-      {_kind, predicate_binding, _field, _value} ->
-        is_nil(binding) or predicate_binding == binding
-
-      _predicate ->
-        false
-    end)
-    |> Enum.reduce(query, fn
-      {:prefix_search, _binding, field, value}, query ->
-        assert_symbol_fact_field!(field)
-        where(query, [fact], ilike(field(fact, ^field), ^"#{value}%"))
-
-      {:eq, _binding, field, value}, query ->
-        assert_symbol_fact_field!(field)
-        where(query, [fact], field(fact, ^field) == ^value)
+    |> predicates_for(binding)
+    |> Enum.reduce(query, fn predicate, query ->
+      where_first_binding_predicate(query, predicate, source)
     end)
   end
 
   defp where_second_binding_call_edge_predicates(query, predicates, call_edge_binding) do
     predicates
-    |> Enum.filter(&match?({_, ^call_edge_binding, _, _}, &1))
-    |> Enum.reduce(query, fn
-      {:prefix_search, _binding, field, value}, query ->
-        assert_call_edge_field!(field)
-        where(query, [_first, edge], ilike(field(edge, ^field), ^"#{value}%"))
-
-      {:eq, _binding, field, value}, query ->
-        assert_call_edge_field!(field)
-        where(query, [_first, edge], field(edge, ^field) == ^value)
+    |> predicates_for(call_edge_binding)
+    |> Enum.reduce(query, fn predicate, query ->
+      where_second_binding_predicate(query, predicate, :calls)
     end)
   end
 
   defp where_call_edge_predicates(query, predicates) do
-    Enum.reduce(predicates, query, fn
-      {:prefix_search, _binding, field, value}, query ->
-        assert_call_edge_field!(field)
-        where(query, [edge], ilike(field(edge, ^field), ^"#{value}%"))
-
-      {:eq, _binding, field, value}, query ->
-        assert_call_edge_field!(field)
-        where(query, [edge], field(edge, ^field) == ^value)
+    Enum.reduce(predicates, query, fn predicate, query ->
+      where_first_binding_predicate(query, predicate, :call_edge)
     end)
   end
+
+  defp where_first_binding_predicate(query, {:prefix_search, _binding, field, value}, source) do
+    Sources.assert_field!(source, field)
+    where(query, [row], ilike(field(row, ^field), ^"#{value}%"))
+  end
+
+  defp where_first_binding_predicate(query, {:eq, _binding, field, value}, source) do
+    Sources.assert_field!(source, field)
+    where(query, [row], field(row, ^field) == ^value)
+  end
+
+  defp where_second_binding_predicate(query, {:prefix_search, _binding, field, value}, source) do
+    Sources.assert_field!(source, field)
+    where(query, [_first, row], ilike(field(row, ^field), ^"#{value}%"))
+  end
+
+  defp where_second_binding_predicate(query, {:eq, _binding, field, value}, source) do
+    Sources.assert_field!(source, field)
+    where(query, [_first, row], field(row, ^field) == ^value)
+  end
+
+  defp predicates_for(predicates, nil), do: Enum.filter(predicates, &field_predicate?/1)
+
+  defp predicates_for(predicates, binding) do
+    Enum.filter(predicates, fn
+      {_kind, ^binding, _field, _value} -> true
+      _predicate -> false
+    end)
+  end
+
+  defp field_predicate?({_kind, _binding, _field, _value}), do: true
+  defp field_predicate?(_predicate), do: false
 
   defp where_fragment_scope(queryable, opts) do
     package_id = Keyword.get(opts, :package_id)
@@ -328,21 +336,6 @@ defmodule Exograph.DSL.Executor do
 
   defp maybe_where_package_version(queryable, package_version_id),
     do: where(queryable, [row], row.package_version_id == ^package_version_id)
-
-  defp join_source(index, :references), do: Options.references_source(index.inverted.prefix)
-  defp join_source(index, :calls), do: Options.call_edges_source(index.inverted.prefix)
-
-  defp assert_symbol_fact_field!(field) do
-    unless MapSet.member?(@symbol_fact_fields, field) do
-      raise ArgumentError, "unsupported symbol fact field in Exograph DSL: #{field}"
-    end
-  end
-
-  defp assert_call_edge_field!(field) do
-    unless MapSet.member?(@call_edge_fields, field) do
-      raise ArgumentError, "unsupported CallEdge field in Exograph DSL: #{field}"
-    end
-  end
 
   defp hydrate_fragment(nil, _source, _path), do: nil
 

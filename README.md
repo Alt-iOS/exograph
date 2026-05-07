@@ -100,8 +100,8 @@ calls =
 {:ok, call_edges} = Exograph.all(index, calls)
 ```
 
-Fragment queries can join normalized references before ExAST structural
-verification:
+Fragment queries can join normalized references or Reach call edges before ExAST
+structural verification:
 
 ```elixir
 query =
@@ -112,6 +112,28 @@ query =
   )
 
 {:ok, fragments} = Exograph.all(index, query)
+
+query =
+  from(f in Fragment,
+    join: e in assoc(f, :calls),
+    where: e.callee_qualified_name == "Repo.transaction/1",
+    where: matches(f, "def _ do ... end")
+  )
+
+{:ok, fragments} = Exograph.all(index, query)
+```
+
+Definition queries can also join Reach call edges:
+
+```elixir
+query =
+  from(d in Definition,
+    join: e in assoc(d, :calls),
+    where: d.kind == :defp,
+    where: e.callee_qualified_name == "Repo.transaction/1"
+  )
+
+{:ok, definitions} = Exograph.all(index, query)
 ```
 
 ## Query planning and explanations

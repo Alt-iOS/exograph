@@ -73,8 +73,8 @@ query =
 {:ok, results} = Exograph.all(index, query)
 ```
 
-Definition queries run directly against normalized Ecto/Postgres code facts and
-return typed `%Exograph.DefinitionHit{}` values:
+Definition and reference queries run directly against normalized Ecto/Postgres
+code facts and return typed hits:
 
 ```elixir
 query =
@@ -84,6 +84,13 @@ query =
   )
 
 {:ok, definitions} = Exograph.all(index, query)
+
+references =
+  from(r in Reference,
+    where: r.qualified_name == "Repo.transaction/1"
+  )
+
+{:ok, references} = Exograph.all(index, references)
 ```
 
 ## Query planning and explanations

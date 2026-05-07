@@ -3,7 +3,7 @@ defmodule Exograph.DSL.Query do
   Query IR produced by `Exograph.DSL`.
   """
 
-  @type source :: :fragment | :definition
+  @type source :: :fragment | :definition | :reference
 
   @type predicate ::
           {:matches, atom(), String.t()}

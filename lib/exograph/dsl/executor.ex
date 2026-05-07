@@ -28,7 +28,7 @@ defmodule Exograph.DSL.Executor do
         } = query,
         opts
       )
-      when assoc in [:references, :calls] do
+      when assoc in [:definitions, :references, :calls] do
     fragment_join_all(index, query, join_binding, assoc, opts)
   end
 

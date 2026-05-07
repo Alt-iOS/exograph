@@ -100,8 +100,8 @@ calls =
 {:ok, call_edges} = Exograph.all(index, calls)
 ```
 
-Fragment queries can join normalized references or Reach call edges before ExAST
-structural verification:
+Fragment queries can join normalized definitions, references, or Reach call edges
+before ExAST structural verification:
 
 ```elixir
 query =

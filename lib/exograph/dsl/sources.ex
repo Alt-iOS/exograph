@@ -57,12 +57,14 @@ defmodule Exograph.DSL.Sources do
   def source_record(:reference), do: ReferenceRecord
   def source_record(:call_edge), do: CallEdgeRecord
 
+  def join_source(:definitions, prefix), do: Options.definitions_source(prefix)
   def join_source(:references, prefix), do: Options.references_source(prefix)
   def join_source(:calls, prefix), do: Options.call_edges_source(prefix)
 
   def fields(:fragment), do: @fragment_fields
   def fields(:definition), do: @symbol_fact_fields
   def fields(:reference), do: @symbol_fact_fields
+  def fields(:definitions), do: @symbol_fact_fields
   def fields(:references), do: @symbol_fact_fields
   def fields(:call_edge), do: @call_edge_fields
   def fields(:calls), do: @call_edge_fields

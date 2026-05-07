@@ -143,8 +143,14 @@ defmodule Exograph do
   end
 
   @spec all(Index.t(), DSL.Query.t(), keyword()) :: {:ok, [map()]} | {:error, term()}
-  def all(%Index{} = index, %DSL.Query{} = query, opts \\ []) do
+  def all(index, query, opts \\ [])
+
+  def all(%Index{} = index, %DSL.Query{source: :fragment} = query, opts) do
     search(index, DSL.Compiler.compile(query), opts)
+  end
+
+  def all(%Index{} = index, %DSL.Query{} = query, opts) do
+    DSL.Executor.all(index, query, opts)
   end
 
   @spec compile(ExAST.Pattern.pattern() | ExAST.Selector.t()) :: Query.t()

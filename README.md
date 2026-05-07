@@ -73,6 +73,19 @@ query =
 {:ok, results} = Exograph.all(index, query)
 ```
 
+Definition queries run directly against normalized Ecto/Postgres code facts and
+return typed `%Exograph.DefinitionHit{}` values:
+
+```elixir
+query =
+  from(d in Definition,
+    where: prefix_search(d.name, "parse_resp"),
+    where: d.kind == :def
+  )
+
+{:ok, definitions} = Exograph.all(index, query)
+```
+
 ## Query planning and explanations
 
 Exograph treats indexes like an RDBMS treats access paths: advisory only. The

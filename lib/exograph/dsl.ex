@@ -2,7 +2,8 @@ defmodule Exograph.DSL do
   @moduledoc """
   Ecto-shaped query DSL for Exograph.
 
-  The initial DSL milestone targets structural fragment queries:
+  The DSL currently supports structural `Fragment` queries and relational
+  `Definition` queries:
 
       import Exograph.DSL
 
@@ -29,6 +30,10 @@ defmodule Exograph.DSL do
     raise ArgumentError, "contains/2 can only be used inside Exograph.DSL.from/2"
   end
 
+  defmacro prefix_search(_field, _value) do
+    raise ArgumentError, "prefix_search/2 can only be used inside Exograph.DSL.from/2"
+  end
+
   defp binding_name!({name, _meta, context}) when is_atom(name) and is_atom(context), do: name
 
   defp binding_name!(ast) do
@@ -39,6 +44,8 @@ defmodule Exograph.DSL do
     case Macro.expand(source_ast, caller) do
       Exograph.Fragment -> :fragment
       Fragment -> :fragment
+      Exograph.Definition -> :definition
+      Definition -> :definition
       other -> raise ArgumentError, "unsupported Exograph source: #{inspect(other)}"
     end
   end
@@ -59,6 +66,16 @@ defmodule Exograph.DSL do
     {:contains, binding, pattern}
   end
 
+  defp predicate!({:prefix_search, _meta, [field_ast, value]}, binding) when is_binary(value) do
+    {:field, ^binding, field} = field!(field_ast, binding)
+    {:prefix_search, binding, field, value}
+  end
+
+  defp predicate!({:==, _meta, [field_ast, value]}, binding) do
+    {:field, ^binding, field} = field!(field_ast, binding)
+    {:eq, binding, field, value}
+  end
+
   defp predicate!(ast, _binding) do
     raise ArgumentError, "unsupported Exograph predicate: #{Macro.to_string(ast)}"
   end
@@ -68,5 +85,14 @@ defmodule Exograph.DSL do
   defp assert_binding!(ast, binding) do
     raise ArgumentError,
           "predicate must target binding `#{binding}`, got: #{Macro.to_string(ast)}"
+  end
+
+  defp field!({{:., _meta, [binding_ast, field]}, _call_meta, []}, binding) when is_atom(field) do
+    assert_binding!(binding_ast, binding)
+    {:field, binding, field}
+  end
+
+  defp field!(ast, _binding) do
+    raise ArgumentError, "expected a field access such as `d.name`, got: #{Macro.to_string(ast)}"
   end
 end

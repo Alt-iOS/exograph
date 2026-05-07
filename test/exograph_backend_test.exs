@@ -80,6 +80,19 @@ defmodule ExographBackendTest do
     assert Enum.any?(results, &(&1.similarity >= 0.7))
   end
 
+  test "can disable Reach semantic extraction", %{opts: opts} do
+    path =
+      fixture("without_reach.ex", """
+      defmodule Demo.WithoutReach do
+        def update_user(user), do: Repo.transaction(fn -> user end)
+      end
+      """)
+
+    {:ok, index} = Exograph.index(path, Keyword.merge(opts, min_mass: 4, extractors: [:ex_ast]))
+
+    assert {:ok, []} = Exograph.search_callers(index, "Repo.transaction/1")
+  end
+
   test "literal and regex text search use fragment verification", %{opts: opts} do
     path =
       fixture("text.ex", """

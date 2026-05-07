@@ -33,13 +33,18 @@ defmodule Exograph.FragmentStore.Postgres do
     ReferenceRecord
   }
 
-  defstruct repo: nil, prefix: "exograph", package: nil, package_version: nil
+  defstruct repo: nil,
+            prefix: "exograph",
+            package: nil,
+            package_version: nil,
+            extractors: [:ex_ast, :reach]
 
   @type t :: %__MODULE__{
           repo: module(),
           prefix: String.t(),
           package: Package.t() | nil,
-          package_version: PackageVersion.t() | nil
+          package_version: PackageVersion.t() | nil,
+          extractors: keyword() | [atom()]
         }
 
   @impl true
@@ -235,26 +240,36 @@ defmodule Exograph.FragmentStore.Postgres do
       now
     )
 
-    %{graph_nodes: graph_nodes, call_edges: call_edges} =
-      ReachExtractor.extract_files(files, fragments_by_file)
+    if extractor_enabled?(store, :reach) do
+      %{graph_nodes: graph_nodes, call_edges: call_edges} =
+        ReachExtractor.extract_files(files, fragments_by_file)
 
-    insert_code_facts(
-      store,
-      graph_nodes_source(store),
-      graph_nodes,
-      GraphNodeRecord,
-      :from_graph_node,
-      now
-    )
+      insert_code_facts(
+        store,
+        graph_nodes_source(store),
+        graph_nodes,
+        GraphNodeRecord,
+        :from_graph_node,
+        now
+      )
 
-    insert_code_facts(
-      store,
-      call_edges_source(store),
-      call_edges,
-      CallEdgeRecord,
-      :from_call_edge,
-      now
-    )
+      insert_code_facts(
+        store,
+        call_edges_source(store),
+        call_edges,
+        CallEdgeRecord,
+        :from_call_edge,
+        now
+      )
+    end
+  end
+
+  defp extractor_enabled?(store, name) do
+    Enum.any?(store.extractors, fn
+      ^name -> true
+      {^name, opts} -> Keyword.get(opts, :enabled?, true)
+      _other -> false
+    end)
   end
 
   defp extract_comments(source) do

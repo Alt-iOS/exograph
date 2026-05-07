@@ -33,7 +33,7 @@ defmodule Exograph.MixProject do
       {:ex_ast, "~> 0.11"},
       {:ex_dna, "~> 1.5"},
       {:ex_slop, "~> 0.4", only: [:dev, :test], runtime: false},
-      {:reach, "~> 2.2", only: [:dev, :test], runtime: false},
+      {:reach, "~> 2.2", optional: true},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
       {:ecto_sql, "~> 3.13"},
       {:postgrex, "~> 0.22"},

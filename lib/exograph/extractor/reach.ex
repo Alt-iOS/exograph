@@ -9,6 +9,14 @@ defmodule Exograph.Extractor.Reach do
   alias Exograph.{CallEdge, FragmentLocator, GraphNode}
 
   def extract_files(files, fragments_by_file) do
+    if Code.ensure_loaded?(Reach) do
+      do_extract_files(files, fragments_by_file)
+    else
+      %{graph_nodes: [], call_edges: []}
+    end
+  end
+
+  defp do_extract_files(files, fragments_by_file) do
     files
     |> Enum.map(&extract_file(&1, Map.get(fragments_by_file, &1.id, [])))
     |> Enum.reduce(%{graph_nodes: [], call_edges: []}, fn facts, acc ->

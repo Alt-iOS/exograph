@@ -15,6 +15,8 @@ defmodule Exograph.Postgres.Options do
     end
   end
 
+  def extractors(opts), do: Keyword.get(opts, :extractors, [:ex_ast, :reach])
+
   def package_version(opts) do
     case Keyword.get(opts, :package_version) do
       nil -> nil
@@ -26,12 +28,20 @@ defmodule Exograph.Postgres.Options do
   def store(module, opts) do
     migrate(opts)
 
-    struct(module,
+    attrs = %{
       repo: repo(opts),
       prefix: prefix(opts),
       package: package(opts),
-      package_version: package_version(opts)
-    )
+      package_version: package_version(opts),
+      extractors: extractors(opts)
+    }
+
+    module
+    |> struct()
+    |> Map.from_struct()
+    |> Map.keys()
+    |> then(&Map.take(attrs, &1))
+    |> then(&struct(module, &1))
   end
 
   def hydrate_fragment(record, source, path) do

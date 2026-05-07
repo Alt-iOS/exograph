@@ -212,12 +212,21 @@ defmodule Exograph do
       :prefix,
       :migrate?,
       :bm25?,
-      :index_batch_size
+      :index_batch_size,
+      :extractors
     ])
   end
 
   defp store_opts(opts) do
-    Keyword.take(opts, [:repo, :prefix, :migrate?, :bm25?, :package, :package_version])
+    Keyword.take(opts, [
+      :repo,
+      :prefix,
+      :migrate?,
+      :bm25?,
+      :package,
+      :package_version,
+      :extractors
+    ])
   end
 
   defp search_text_seq(%Index{} = index, literal_or_regex, opts) do

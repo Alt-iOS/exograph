@@ -99,11 +99,11 @@ candidate retrieval plus source verification. Regex search verifies against
 fragment source.
 
 ```elixir
-Exograph.search_text(index, "/users/:id")
-Exograph.search_text(index, ~r/Repo\.get!\(/)
-Exograph.search_comments(index, "streaming chunks")
-Exograph.search_definitions(index, "parse_resp")
-Exograph.search_references(index, "Repo.transaction")
+Exograph.search_text(index, "/users/:id")          #=> {:ok, [%Exograph.TextHit{}]}
+Exograph.search_text(index, ~r/Repo\.get!\(/)      #=> {:ok, [%Exograph.TextHit{}]}
+Exograph.search_comments(index, "streaming chunks") #=> {:ok, [%Exograph.CommentHit{}]}
+Exograph.search_definitions(index, "parse_resp")    #=> {:ok, [%Exograph.DefinitionHit{}]}
+Exograph.search_references(index, "Repo.transaction") #=> {:ok, [%Exograph.ReferenceHit{}]}
 ```
 
 ## Call graph search

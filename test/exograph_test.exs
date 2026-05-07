@@ -104,9 +104,11 @@ defmodule ExographTest do
     {:ok, index} = Exograph.index(path, Keyword.merge(opts, min_mass: 4))
 
     assert {:ok, comment_results} = Exograph.search_comments(index, "streaming chunks")
+    assert Enum.all?(comment_results, &match?(%Exograph.CommentHit{}, &1))
     assert Enum.any?(comment_results, &(&1.fragment.file == path))
 
     assert {:ok, definition_results} = Exograph.search_definitions(index, "parse_resp")
+    assert Enum.all?(definition_results, &match?(%Exograph.DefinitionHit{}, &1))
     assert Enum.any?(definition_results, &(&1.fragment.name == "parse_response_chunk"))
     refute Enum.any?(definition_results, &(&1.fragment.name == "unrelated"))
   end

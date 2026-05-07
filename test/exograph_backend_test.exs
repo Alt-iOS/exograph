@@ -90,9 +90,10 @@ defmodule ExographBackendTest do
 
     {:ok, index} = Exograph.index(path, Keyword.merge(opts, min_mass: 4))
 
-    assert {:ok, [%{fragment: %{file: ^path}} | _]} = Exograph.search_text(index, "/users/:id")
+    assert {:ok, [%Exograph.TextHit{fragment: %{file: ^path}} | _]} =
+             Exograph.search_text(index, "/users/:id")
 
-    assert {:ok, [%{fragment: %{file: ^path}} | _]} =
+    assert {:ok, [%Exograph.TextHit{fragment: %{file: ^path}} | _]} =
              Exograph.search_text(index, ~r/users\/:[a-z]+/)
   end
 

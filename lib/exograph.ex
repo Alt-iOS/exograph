@@ -3,7 +3,19 @@ defmodule Exograph do
   Structural search and code intelligence for Elixir.
   """
 
-  alias Exograph.{Hit, Index, Planner, Query, Scope, Similarity, Text}
+  alias Exograph.{
+    CommentHit,
+    DefinitionHit,
+    Index,
+    Planner,
+    Query,
+    ReferenceHit,
+    Scope,
+    Similarity,
+    Text,
+    TextHit
+  }
+
   alias Exograph.Extractor.ExAST, as: ExASTExtractor
   alias Exograph.FragmentStore.Postgres, as: PostgresFragmentStore
   alias Exograph.InvertedIndex.Postgres, as: PostgresInvertedIndex
@@ -59,12 +71,14 @@ defmodule Exograph do
     Similarity.search(index, source_or_ast, opts)
   end
 
-  @spec search_text(Index.t(), String.t() | Regex.t(), keyword()) :: {:ok, [map()]}
+  @spec search_text(Index.t(), String.t() | Regex.t(), keyword()) :: {:ok, [TextHit.t()]}
   def search_text(%Index{} = index, literal_or_regex, opts \\ []) do
     if is_binary(literal_or_regex) and function_exported?(index.inverted_backend, :search_text, 3) do
       case index.inverted_backend.search_text(index.inverted, literal_or_regex, opts) do
         {:ok, hits} ->
-          {:ok, Enum.filter(hits, &text_match?(&1.fragment.source || "", literal_or_regex))}
+          hits
+          |> Enum.filter(&text_match?(&1.fragment.source || "", literal_or_regex))
+          |> typed_hits(TextHit)
 
         {:error, _reason} ->
           search_text_seq(index, literal_or_regex, opts)
@@ -74,12 +88,14 @@ defmodule Exograph do
     end
   end
 
-  @spec search_comments(Index.t(), String.t(), keyword()) :: {:ok, [map()]}
+  @spec search_comments(Index.t(), String.t(), keyword()) :: {:ok, [CommentHit.t()]}
   def search_comments(%Index{} = index, literal, opts \\ []) when is_binary(literal) do
     if function_exported?(index.inverted_backend, :search_comments, 3) do
       case index.inverted_backend.search_comments(index.inverted, literal, opts) do
         {:ok, hits} ->
-          {:ok, Enum.filter(hits, &text_match?(comments_text(&1.fragment.source), literal))}
+          hits
+          |> Enum.filter(&text_match?(comments_text(&1.fragment.source), literal))
+          |> typed_hits(CommentHit)
 
         {:error, _reason} ->
           search_comments_seq(index, literal, opts)
@@ -89,16 +105,30 @@ defmodule Exograph do
     end
   end
 
-  @spec search_definitions(Index.t(), String.t(), keyword()) :: {:ok, [map()]}
+  @spec search_definitions(Index.t(), String.t(), keyword()) :: {:ok, [DefinitionHit.t()]}
   def search_definitions(%Index{} = index, partial_name, opts \\ [])
       when is_binary(partial_name) do
-    search_code_facts(index, partial_name, opts, :search_definitions, &definition_match?/2)
+    search_code_facts(
+      index,
+      partial_name,
+      opts,
+      :search_definitions,
+      DefinitionHit,
+      &definition_match?/2
+    )
   end
 
-  @spec search_references(Index.t(), String.t(), keyword()) :: {:ok, [map()]}
+  @spec search_references(Index.t(), String.t(), keyword()) :: {:ok, [ReferenceHit.t()]}
   def search_references(%Index{} = index, partial_name, opts \\ [])
       when is_binary(partial_name) do
-    search_code_facts(index, partial_name, opts, :search_references, &reference_match?/2)
+    search_code_facts(
+      index,
+      partial_name,
+      opts,
+      :search_references,
+      ReferenceHit,
+      &reference_match?/2
+    )
   end
 
   @spec search_callers(Index.t(), String.t(), keyword()) :: {:ok, [Exograph.CallEdge.t()]}
@@ -196,62 +226,71 @@ defmodule Exograph do
     query_trigrams =
       if is_binary(literal_or_regex), do: Text.trigrams(literal_or_regex), else: MapSet.new()
 
-    results =
-      index.fragment_store_backend.all(index.fragment_store)
-      |> Enum.filter(fn fragment ->
-        source = fragment.source || ""
+    index.fragment_store_backend.all(index.fragment_store)
+    |> Enum.filter(fn fragment ->
+      source = fragment.source || ""
 
-        trigram_candidate? =
-          MapSet.size(query_trigrams) == 0 or
-            MapSet.subset?(query_trigrams, Text.trigrams(source))
+      trigram_candidate? =
+        MapSet.size(query_trigrams) == 0 or
+          MapSet.subset?(query_trigrams, Text.trigrams(source))
 
-        Scope.fragment?(fragment, opts) and trigram_candidate? and
-          text_match?(source, literal_or_regex)
-      end)
-      |> Enum.map(&Hit.new(fragment: &1, score: 1.0))
-      |> Enum.take(limit)
-
-    {:ok, results}
+      Scope.fragment?(fragment, opts) and trigram_candidate? and
+        text_match?(source, literal_or_regex)
+    end)
+    |> Enum.map(&TextHit.new(fragment: &1, score: 1.0))
+    |> Enum.take(limit)
+    |> ok()
   end
 
   defp search_comments_seq(%Index{} = index, literal, opts) do
     limit = Keyword.get(opts, :limit, 50)
 
-    results =
-      index.fragment_store_backend.all(index.fragment_store)
-      |> Enum.filter(fn fragment ->
-        Scope.fragment?(fragment, opts) and text_match?(comments_text(fragment.source), literal)
-      end)
-      |> Enum.map(&Hit.new(fragment: &1, score: 1.0))
-      |> Enum.take(limit)
-
-    {:ok, results}
+    index.fragment_store_backend.all(index.fragment_store)
+    |> Enum.filter(fn fragment ->
+      Scope.fragment?(fragment, opts) and text_match?(comments_text(fragment.source), literal)
+    end)
+    |> Enum.map(&CommentHit.new(fragment: &1, score: 1.0))
+    |> Enum.take(limit)
+    |> ok()
   end
 
-  defp search_code_facts(index, partial_name, opts, backend_function, fallback_match?) do
+  defp search_code_facts(index, partial_name, opts, backend_function, hit_module, fallback_match?) do
     if function_exported?(index.inverted_backend, backend_function, 3) do
       case apply(index.inverted_backend, backend_function, [index.inverted, partial_name, opts]) do
-        {:ok, hits} -> {:ok, Enum.filter(hits, &fallback_match?.(&1.fragment, partial_name))}
-        {:error, _reason} -> search_code_facts_seq(index, partial_name, opts, fallback_match?)
+        {:ok, hits} ->
+          hits
+          |> Enum.filter(&fallback_match?.(&1.fragment, partial_name))
+          |> typed_hits(hit_module)
+
+        {:error, _reason} ->
+          search_code_facts_seq(index, partial_name, opts, hit_module, fallback_match?)
       end
     else
-      search_code_facts_seq(index, partial_name, opts, fallback_match?)
+      search_code_facts_seq(index, partial_name, opts, hit_module, fallback_match?)
     end
   end
 
-  defp search_code_facts_seq(%Index{} = index, partial_name, opts, fallback_match?) do
+  defp search_code_facts_seq(%Index{} = index, partial_name, opts, hit_module, fallback_match?) do
     limit = Keyword.get(opts, :limit, 50)
 
-    results =
-      index.fragment_store_backend.all(index.fragment_store)
-      |> Enum.filter(fn fragment ->
-        Scope.fragment?(fragment, opts) and fallback_match?.(fragment, partial_name)
-      end)
-      |> Enum.map(&Hit.new(fragment: &1, score: 1.0))
-      |> Enum.take(limit)
-
-    {:ok, results}
+    index.fragment_store_backend.all(index.fragment_store)
+    |> Enum.filter(fn fragment ->
+      Scope.fragment?(fragment, opts) and fallback_match?.(fragment, partial_name)
+    end)
+    |> Enum.map(&hit_module.new(fragment: &1, score: 1.0))
+    |> Enum.take(limit)
+    |> ok()
   end
+
+  defp typed_hits(hits, module) do
+    {:ok,
+     Enum.map(hits, fn
+       %{__struct__: ^module} = hit -> hit
+       hit -> module.new(fragment: hit.fragment, score: hit.score, match: hit.match)
+     end)}
+  end
+
+  defp ok(results), do: {:ok, results}
 
   defp text_match?(source, literal) when is_binary(literal),
     do: Text.literal_match?(source, literal)

@@ -3,7 +3,7 @@ defmodule Exograph.CodeFactQuery do
 
   import Ecto.Query
 
-  alias Exograph.{Hit, Scope, Text}
+  alias Exograph.{DefinitionHit, ReferenceHit, Scope, Text}
   alias Exograph.Postgres.{FragmentRecord, Options}
 
   def search(index, table_source, literal, opts) do
@@ -19,15 +19,13 @@ defmodule Exograph.CodeFactQuery do
         where: ^fact_filter(literal),
         order_by: [desc: fragment("pdb.score(?)", fact.id)],
         limit: ^limit,
-        select: {fragment, nil, file.path}
+        select: {fragment, nil, file.path, fact}
       )
       |> where_scope(opts)
 
     hits =
       index.repo.all(query)
-      |> Enum.map(fn {record, source, path} ->
-        Hit.new(fragment: Options.hydrate_fragment(record, source, path), score: 1.0)
-      end)
+      |> Enum.map(&hit(&1, table_source))
 
     {:ok, hits}
   rescue
@@ -52,6 +50,22 @@ defmodule Exograph.CodeFactQuery do
     |> Enum.filter(fn fragment ->
       Scope.fragment?(fragment, opts) and Enum.any?(mapper.(fragment), &contains?(&1, literal))
     end)
+  end
+
+  defp hit({record, source, path, fact}, {_table, Exograph.Postgres.DefinitionRecord}) do
+    DefinitionHit.new(
+      definition: Exograph.Postgres.DefinitionRecord.to_definition(fact),
+      fragment: Options.hydrate_fragment(record, source, path),
+      score: 1.0
+    )
+  end
+
+  defp hit({record, source, path, fact}, {_table, Exograph.Postgres.ReferenceRecord}) do
+    ReferenceHit.new(
+      reference: Exograph.Postgres.ReferenceRecord.to_reference(fact),
+      fragment: Options.hydrate_fragment(record, source, path),
+      score: 1.0
+    )
   end
 
   defp fact_filter(literal) do

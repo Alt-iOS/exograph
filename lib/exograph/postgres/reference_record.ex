@@ -26,23 +26,27 @@ defmodule Exograph.Postgres.ReferenceRecord do
     timestamps(type: :utc_datetime_usec)
   end
 
-  def from_reference(%Reference{} = reference) do
-    Map.take(reference, [
-      :id,
-      :package_id,
-      :package_version_id,
-      :file_id,
-      :fragment_id,
-      :kind,
-      :module,
-      :name,
-      :arity,
-      :qualified_name,
-      :mfa_module,
-      :mfa_name,
-      :mfa_arity,
-      :line,
-      :column
-    ])
+  @fields [
+    :id,
+    :package_id,
+    :package_version_id,
+    :file_id,
+    :fragment_id,
+    :kind,
+    :module,
+    :name,
+    :arity,
+    :qualified_name,
+    :mfa_module,
+    :mfa_name,
+    :mfa_arity,
+    :line,
+    :column
+  ]
+
+  def from_reference(%Reference{} = reference), do: Map.take(reference, @fields)
+
+  def to_reference(%__MODULE__{} = record) do
+    struct(Reference, Map.take(record, @fields))
   end
 end

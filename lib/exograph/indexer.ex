@@ -6,11 +6,11 @@ defmodule Exograph.Indexer do
   alias Exograph.Extractor.ExAST
 
   @spec index_paths(String.t() | [String.t()], keyword()) :: [Exograph.Fragment.t()]
-  defdelegate index_paths(paths, opts \\ []), to: ExAST
+  def index_paths(paths, opts \\ []), do: ExAST.index_paths(paths, opts)
 
   @spec stream_paths(String.t() | [String.t()], keyword()) :: Enumerable.t()
-  defdelegate stream_paths(paths, opts \\ []), to: ExAST
+  def stream_paths(paths, opts \\ []), do: ExAST.stream_paths(paths, opts)
 
   @spec index_file(String.t(), keyword()) :: [Exograph.Fragment.t()]
-  defdelegate index_file(file, opts \\ []), to: ExAST
+  def index_file(file, opts \\ []), do: ExAST.index_file(file, opts)
 end

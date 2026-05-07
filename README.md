@@ -1,381 +1,149 @@
 # Exograph
 
-Structural search and code intelligence for Elixir.
+Local CodeQL-style code search for Elixir, backed by Postgres and ExAST.
 
-Exograph combines:
+Exograph indexes Elixir source code into normalized Ecto/Postgres tables: files,
+AST fragments, comments, definitions, references, package versions, and optional
+Reach call graph facts. You can then query that index with structural AST
+patterns, text search, symbol/reference filters, and Ecto-shaped joins.
 
-- `ex_ast` patterns and SQL-like queries for exact AST matching
-- `ex_dna` fingerprints for structural fragments and near-duplicate search
-- normalized Ecto/Postgres storage for packages, files, fragments, comments, definitions, and references
-- optional ParadeDB (`pg_search`) BM25 retrieval for source text and code facts
-- Reach-derived call graph facts for caller/callee search
-- lazy tree access derived from stored AST fragments
+Exograph was originally built to stress-test Reach and ExAST on larger
+real-world codebases and Hex package sets. It is now a reusable local/self-hosted
+code intelligence layer for Elixir tooling.
 
-## Prototype
+## What is Exograph?
+
+Exograph is:
+
+- a library for indexing Elixir source code into Postgres
+- a set of Ecto schemas and migrations for normalized code facts
+- a structural search engine using ExAST for exact AST verification
+- an optional Reach-backed call graph index
+- a foundation for CodeQL-like Elixir queries over one project or many package versions
+
+Exograph is not currently:
+
+- a hosted search service
+- a language server
+- a general multi-language analyzer
+- a replacement for ExAST or Reach
+
+## Why?
+
+Use Exograph when text search is not enough:
+
+- find functions matching an AST shape
+- search definitions and references across packages
+- ask “which private functions call `Repo.transaction/1`?”
+- index multiple Hex package versions into one database
+- combine relational filters with exact ExAST verification
+- persist Reach call graph facts for caller/callee queries
+
+## Installation
+
+Exograph is early-stage and currently installed from GitHub:
+
+```elixir
+def deps do
+  [
+    {:exograph, github: "elixir-vibe/exograph"}
+  ]
+end
+```
+
+Exograph currently requires Postgres. ParadeDB's `pg_search` extension is
+optional and enables BM25-backed text/code-fact retrieval.
+
+## Quickstart
+
+Point Exograph at Elixir source and an Ecto repo:
 
 ```elixir
 {:ok, index} =
-  Exograph.index("lib/",
+  Exograph.index("lib",
     repo: MyApp.Repo,
-    migrate?: true,
-    bm25?: true,
-    min_mass: 8
+    migrate?: true
   )
 
-{:ok, results} = Exograph.search(index, "Repo.get!(_, _)")
+{:ok, hits} = Exograph.search(index, "Repo.get!(_, _)")
 ```
 
-Relationship-aware queries are supported through `ExAST.Query`:
+Exograph uses Postgres for candidate retrieval and ExAST for exact structural
+verification.
 
-```elixir
-import ExAST.Query
+## Query with code facts
 
-query =
-  from("def _ do ... end")
-  |> where(contains("Repo.transaction(_)"))
-  |> where(not contains("IO.inspect(_)"))
-
-{:ok, results} = Exograph.search(index, query)
-```
-
-Selector alternatives, sibling/position predicates, comment predicates, and
-capture guards are supported. Index terms stay advisory and ExAST performs exact
-verification against the original source when selector features need comments or
-source ranges.
-
-```elixir
-from(["def _ do ... end", "defp _ do ... end"])
-|> where(follows("@doc _"))
-|> where(first())
-
-from("left == right")
-|> where(^left == ^right)
-
-from("def _ do ... end")
-|> where(comment_before(text("transaction wrapper")))
-```
-
-## Unified query DSL
-
-`Exograph.DSL` provides an Ecto-shaped query entry point. The first supported
-source is `Fragment`, with structural predicates compiled back to ExAST selectors
-and executed through the normal Postgres planner/verifier pipeline.
+Use `Exograph.DSL` when you want to combine structural AST patterns with indexed
+facts such as references or call edges:
 
 ```elixir
 import Exograph.DSL
 
 query =
   from(f in Fragment,
-    where: matches(f, "def _ do ... end"),
-    where: contains(f, "Repo.transaction(_)")
-  )
-
-{:ok, results} = Exograph.all(index, query)
-```
-
-Definition and reference queries run directly against normalized Ecto/Postgres
-code facts and return typed hits:
-
-```elixir
-query =
-  from(d in Definition,
-    where: prefix_search(d.name, "parse_resp"),
-    where: d.kind == :def
-  )
-
-{:ok, definitions} = Exograph.all(index, query)
-
-references =
-  from(r in Reference,
-    where: r.qualified_name == "Repo.transaction/1"
-  )
-
-{:ok, references} = Exograph.all(index, references)
-
-calls =
-  from(e in CallEdge,
-    where: e.callee_qualified_name == "Repo.transaction/1"
-  )
-
-{:ok, call_edges} = Exograph.all(index, calls)
-```
-
-Fragment queries can join normalized definitions, references, or Reach call edges
-before ExAST structural verification:
-
-```elixir
-query =
-  from(f in Fragment,
     join: r in assoc(f, :references),
-    where: f.kind == :def,
     where: r.qualified_name == "Repo.transaction/1",
     where: matches(f, "def _ do ... end")
   )
 
-{:ok, fragments} = Exograph.all(index, query)
-
-query =
-  from(f in Fragment,
-    join: e in assoc(f, :calls),
-    where: f.kind in [:def, :defp],
-    where: f.mass > 4,
-    where: e.callee_qualified_name == "Repo.transaction/1",
-    where: e.line >= 2,
-    where: matches(f, "def _ do ... end")
-  )
-
-{:ok, fragments} = Exograph.all(index, query)
+{:ok, hits} = Exograph.all(index, query)
 ```
 
-Definition queries can also join Reach call edges:
-
-```elixir
-query =
-  from(d in Definition,
-    join: e in assoc(d, :calls),
-    where: d.kind == :defp,
-    where: e.callee_qualified_name == "Repo.transaction/1"
-  )
-
-{:ok, definitions} = Exograph.all(index, query)
-```
-
-Joined fragment queries can select the fragment hit, joined fact, or both:
-
-```elixir
-query =
-  from(f in Fragment,
-    join: e in assoc(f, :calls),
-    where: e.callee_qualified_name == "Repo.transaction/1",
-    where: matches(f, "def _ do ... end"),
-    select: {f, e}
-  )
-
-{:ok, [{hit, call_edge}]} = Exograph.all(index, query)
-```
-
-Multiple joins are supported for fragment queries:
-
-```elixir
-query =
-  from(f in Fragment,
-    join: d in assoc(f, :definitions),
-    join: e in assoc(f, :calls),
-    where: d.kind == :defp,
-    where: e.callee_qualified_name == "Repo.transaction/1",
-    where: matches(f, "defp _ do ... end"),
-    select: {f, d, e}
-  )
-
-{:ok, [{hit, definition, call_edge}]} = Exograph.all(index, query)
-```
-
-Fragment queries can combine definitions, references, and calls in one plan:
-
-```elixir
-from(f in Fragment,
-  join: d in assoc(f, :definitions),
-  join: r in assoc(f, :references),
-  join: e in assoc(f, :calls),
-  where: d.kind == :defp,
-  where: r.qualified_name == "Repo.transaction/1",
-  where: e.callee_qualified_name == "Repo.transaction/1",
-  select: {f, d, r, e}
-)
-```
-
-## Query planning and explanations
-
-DSL queries are normalized through an internal `Exograph.DSL.Plan` before
-execution. The plan groups predicates by binding, records join sources, and keeps
-structural predicates separate so relational candidates can be fetched before
-ExAST verification. The planner validates unsupported sources, joins, duplicate
-bindings, unbound predicates, and invalid selects before execution. Fragment
-joins use containing-function semantics so facts from later functions do not
-accidentally satisfy predicates on an earlier fragment.
-
-Exograph treats indexes like an RDBMS treats access paths: advisory only. The
-logical query remains the source of truth and every physical plan ends in exact
-`ExAST` verification unless you explicitly pass `verify: false`. Disjunctions
-such as `where(any([...]))` are planned as a union of candidate scans when safe,
-then verified exactly.
-
-```elixir
-plan = Exograph.plan(index, from("def _ do ... end") |> where(contains("Repo.get!(_, _)")))
-Exograph.explain(plan)
-#=> %{
-#=>   logical: %{required_terms: ["call.remote:Repo.get!/2"], ...},
-#=>   physical: %{scan: {:term_index_scan, [...]}, filters: [:hydrate_fragments, :ex_ast_verify]},
-#=>   estimated_candidates: 4,
-#=>   warnings: []
-#=> }
-```
-
-Standalone query explanations are still available:
-
-```elixir
-Exograph.explain("Repo.get!(User, id)")
-#=> %{required: ["call.remote:Repo.get!/2", ...], verifier: :pattern, ...}
-```
-
-## Near duplicates
-
-```elixir
-{:ok, results} =
-  Exograph.similar(index, """
-  user
-  |> cast(attrs, [:name])
-  |> validate_required([:name])
-  """, min_similarity: 0.8)
-```
-
-## Text and code-fact search
-
-Literal source search uses ParadeDB when available, falling back to Postgres-backed
-candidate retrieval plus source verification. Regex search verifies against
-fragment source.
-
-```elixir
-Exograph.search_text(index, "/users/:id")          #=> {:ok, [%Exograph.TextHit{}]}
-Exograph.search_text(index, ~r/Repo\.get!\(/)      #=> {:ok, [%Exograph.TextHit{}]}
-Exograph.search_comments(index, "streaming chunks") #=> {:ok, [%Exograph.CommentHit{}]}
-Exograph.search_definitions(index, "parse_resp")    #=> {:ok, [%Exograph.DefinitionHit{}]}
-Exograph.search_references(index, "Repo.transaction") #=> {:ok, [%Exograph.ReferenceHit{}]}
-```
-
-## Call graph search
-
-Exograph persists Reach-derived call graph facts during indexing. Reach is used
-as a library analysis engine; Exograph owns the stable IDs, package/file scope,
-and Postgres persistence.
+Reach call graph facts can also be queried directly:
 
 ```elixir
 Exograph.search_callers(index, "Repo.transaction/1")
 Exograph.search_callees(index, "MyApp.Accounts.update_user/2")
 ```
 
-## Mix tasks
+## How it compares
 
-Index the current project:
+| Tool | Scope | Storage | Query style | Elixir AST-aware? | Best for |
+|------|-------|---------|-------------|-------------------|----------|
+| `ripgrep` | local text search | none | regex/text | no | fast ad-hoc text search |
+| ExAST | structural AST matching | none/advisory terms | AST patterns/selectors | yes | exact search and patching |
+| Reach | dependence analysis | in-memory graph/reports | APIs / Mix tasks | yes | call/data/control-flow analysis |
+| CodeQL | semantic code analysis | CodeQL database | QL language | not first-class Elixir | security analysis at scale |
+| Sourcegraph | cross-repo search | external index | text/structural depending setup | not Elixir-specific | organization-wide search |
+| Exograph | Elixir code fact index | Postgres/ParadeDB | ExAST + Ecto-shaped DSL | yes | local/self-hosted Elixir code intelligence |
 
-```bash
-mix exograph.index --repo MyApp.Repo --migrate lib test
-mix exograph.index --repo MyApp.Repo --migrate lib test --stats
-mix exograph.index --repo MyApp.Repo --migrate --no-bm25 lib
-mix exograph.index --repo MyApp.Repo --migrate --json lib
-```
+## Features
 
-Search from the command line:
+- ExAST-backed structural search with exact verification
+- normalized Ecto/Postgres storage for files, fragments, comments, definitions, references, packages, versions, and call edges
+- package/version-scoped indexes for Hex or other source archives
+- optional Reach call graph extraction
+- optional ParadeDB BM25 text/fact retrieval
+- ExDNA-powered structural similarity
+- Mix tasks for indexing and searching
 
-```bash
-mix exograph.search 'Repo.get!(_, _)' --repo MyApp.Repo --migrate lib
-mix exograph.search 'def _ do ... end' --repo MyApp.Repo --migrate lib --contains 'Repo.transaction(_)'
-mix exograph.search 'def _ do ... end' --repo MyApp.Repo --migrate lib --contains 'Repo.transaction(_)' --not-contains 'IO.inspect(_)'
-mix exograph.search 'Repo.get!(_, _)' --repo MyApp.Repo --migrate lib --explain
-mix exograph.search '/users/:id' --repo MyApp.Repo --migrate lib --text
-mix exograph.search 'Repo\.get!\(' --repo MyApp.Repo --migrate lib --regex
-```
+## Documentation
 
-## Postgres + ParadeDB backend
+| Guide | Content |
+|-------|---------|
+| [Getting Started](guides/getting-started.md) | Installation, Postgres setup, first index/search |
+| [Querying](guides/querying.md) | Structural search, ExAST selectors, planning/explain |
+| [DSL](guides/dsl.md) | `Exograph.DSL`, joins, selects, predicates |
+| [Code Facts](guides/code-facts.md) | Definitions, references, comments, text search, typed hits |
+| [Call Graph](guides/call-graph.md) | Reach extraction, callers/callees, call edge DSL |
+| [Postgres and ParadeDB](guides/postgres-paradedb.md) | Storage backend, migrations, BM25 |
+| [Package Indexing](guides/package-indexing.md) | Indexing many package versions into one database |
+| [Mix Tasks](guides/mix-tasks.md) | CLI indexing and searching |
+| [Comparisons](guides/comparisons.md) | Exograph vs ExAST, Reach, CodeQL, Sourcegraph |
+| [Architecture](guides/architecture.md) | Storage model, verifier contract, extraction pipeline |
 
-Postgres is the production backend. Exograph uses Ecto migrations, schemas,
-`Repo` operations, and transactions for packages, package versions, source files,
-fragments, comments, definitions, references, and related code facts. Raw SQL is
-kept to Postgres extensions and ParadeDB-specific BM25 operators/index creation.
+## Status
 
-```elixir
-{:ok, index} =
-  Exograph.index("lib/",
-    repo: MyApp.Repo,
-    migrate?: true,
-    bm25?: true
-  )
-```
+Exograph is early-stage. The current focus is a reliable Postgres-backed index
+and query layer for Elixir-specific code intelligence.
 
-`backend: :postgres` is still accepted explicitly, but Postgres is the only
-built-in backend. Public behavior and tests are validated against the real
-Postgres backend.
+The core design is stable:
 
-This creates normalized Ecto-backed tables:
+- ExAST remains the semantic authority for structural matches
+- Reach is an optional semantic extractor
+- Postgres is the built-in production backend
+- ParadeDB is optional acceleration for text/code-fact search
 
-- `exograph_packages`
-- `exograph_package_versions`
-- `exograph_files`
-- `exograph_fragments`
-- `exograph_comments`
-- `exograph_definitions`
-- `exograph_references`
+## License
 
-Fragments store `package_id`, `package_version_id`, and `file_id`; package name,
-ecosystem, release metadata, source refs, and checksums live in package/version
-tables and are joined when needed. Source text is stored once in `exograph_files`.
-
-When ParadeDB's `pg_search` extension is available, `migrate?: true` also
-creates BM25 indexes over source files, comments, definitions, and references.
-Source files use ParadeDB's `pdb.source_code` tokenizer; symbol names use
-`pdb.edge_ngram` for prefix/partial matching.
-
-Index multiple package versions into the same backend by passing package release
-identity:
-
-```elixir
-Exograph.index("sources/req_llm-1.11.0",
-  repo: MyApp.Repo,
-  migrate?: true,
-  package_version: [
-    ecosystem: :hex,
-    name: "req_llm",
-    version: "1.11.0",
-    source_ref: "hex:req_llm:1.11.0"
-  ]
-)
-
-Exograph.index("sources/req_llm-1.12.0",
-  repo: MyApp.Repo,
-  package_version: [ecosystem: :hex, name: "req_llm", version: "1.12.0"]
-)
-
-Exograph.search(index, "Repo.get!(_, _)",
-  package_version_id: "hex:req_llm@1.11.0"
-)
-```
-
-ParadeDB notes from the docs:
-
-- `pg_search` is a Postgres extension backed by ParadeDB's Tantivy fork.
-- BM25 indexes require a `key_field`, and that field must be first.
-- Include columns used for filtering, grouping, ordering, or scoring in the BM25
-  covering index.
-- `|||` is match disjunction, `&&&` is match conjunction, and `pdb.score(id)`
-  exposes BM25 relevance.
-- ParadeDB updates its BM25 index transactionally with Postgres writes and WAL.
-
-CLI usage:
-
-```bash
-mix exograph.index --backend postgres --repo MyApp.Repo --migrate lib test
-mix exograph.search 'Repo.get!(_, _)' --backend postgres --repo MyApp.Repo --migrate lib
-mix exograph.search 'running shoes' --text --backend postgres --repo MyApp.Repo --migrate lib
-```
-
-The test suite runs real indexing, structural search, selector search, text
-search, tree-node lookup, code-fact lookup, and similarity search against
-Postgres. Set a database URL when the default local Postgres database is not
-available:
-
-```bash
-EXOGRAPH_DATABASE_URL=postgres://postgres:postgres@localhost:5432/exograph_test \
-  mix test
-```
-
-## Storage layout
-
-`Exograph.Index` separates execution by concern:
-
-- Postgres inverted index: structural term candidate retrieval from fragment rows
-- fragment store: AST blobs, ExDNA hashes, symbols, and file joins
-- source files: source text and aggregated comment text stored once per file
-- code facts: normalized comments, definitions, references, graph nodes, and call edges
-- tree access: derived lazily from stored AST fragments
-- verifier: `ExAST.Pattern` / `ExAST.Query`
-- similarity: ExDNA structural reranking
+MIT.

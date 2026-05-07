@@ -44,7 +44,19 @@ defmodule Exograph.MixProject do
   defp docs do
     [
       main: "readme",
-      extras: ["README.md"]
+      extras: [
+        "README.md",
+        "guides/getting-started.md",
+        "guides/querying.md",
+        "guides/dsl.md",
+        "guides/code-facts.md",
+        "guides/call-graph.md",
+        "guides/postgres-paradedb.md",
+        "guides/package-indexing.md",
+        "guides/mix-tasks.md",
+        "guides/comparisons.md",
+        "guides/architecture.md"
+      ]
     ]
   end
 

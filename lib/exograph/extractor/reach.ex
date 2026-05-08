@@ -93,7 +93,7 @@ defmodule Exograph.Extractor.Reach do
         external_id: reach_node_id(node),
         kind: :function,
         module: module,
-        name: Atom.to_string(name),
+        name: function_name(name),
         arity: arity,
         qualified_name: qualified_name,
         line: line,
@@ -114,7 +114,7 @@ defmodule Exograph.Extractor.Reach do
       external_id: reach_node_id(call_node),
       kind: :function,
       module: module,
-      name: Atom.to_string(name),
+      name: function_name(name),
       arity: arity,
       qualified_name: qualified_name(module, name, arity),
       line: line,
@@ -132,7 +132,7 @@ defmodule Exograph.Extractor.Reach do
       external_id: external_id(module, name, arity),
       kind: :external_function,
       module: module,
-      name: Atom.to_string(name),
+      name: function_name(name),
       arity: arity,
       qualified_name: qualified_name(module, name, arity),
       line: nil,
@@ -174,7 +174,7 @@ defmodule Exograph.Extractor.Reach do
   defp internal_call?(_edge), do: false
 
   defp mfa_key(%GraphNode{module: module, name: name, arity: arity}), do: {module, name, arity}
-  defp mfa_key({_module, name, arity}), do: {nil, Atom.to_string(name), arity}
+  defp mfa_key({_module, name, arity}), do: {nil, function_name(name), arity}
 
   defp source_line(nil), do: nil
   defp source_line(%{source_span: nil}), do: nil
@@ -192,10 +192,17 @@ defmodule Exograph.Extractor.Reach do
   defp module_name(module) when is_atom(module),
     do: Atom.to_string(module) |> String.trim_leading("Elixir.")
 
-  defp module_name(module), do: to_string(module)
+  defp module_name(module), do: term_name(module)
 
-  defp qualified_name(nil, name, arity), do: "#{name}/#{arity}"
-  defp qualified_name(module, name, arity), do: "#{module}.#{name}/#{arity}"
+  defp function_name(name), do: term_name(name)
+
+  defp qualified_name(nil, name, arity), do: "#{function_name(name)}/#{arity}"
+  defp qualified_name(module, name, arity), do: "#{module}.#{function_name(name)}/#{arity}"
+
+  defp term_name(value) when is_atom(value), do: Atom.to_string(value)
+  defp term_name(value) when is_binary(value), do: value
+  defp term_name(value) when is_tuple(value), do: Macro.to_string(value)
+  defp term_name(value), do: to_string(value)
 
   defp reach_node_id(nil), do: nil
   defp reach_node_id(%{id: id}), do: to_string(id)

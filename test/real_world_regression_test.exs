@@ -15,6 +15,22 @@ defmodule Exograph.RealWorldRegressionTest do
     {:ok, opts: opts}
   end
 
+  test "indexes module-attribute callees from Reach without crashing", %{opts: opts} do
+    path =
+      fixture("module_attribute_callee.ex", """
+      defmodule Demo.ModuleAttributeCallee do
+        @schema_provider Demo.SchemaProvider
+
+        def schema do
+          @schema_provider.schema()
+        end
+      end
+      """)
+
+    assert {:ok, index} = Exograph.index(path, Keyword.merge(opts, min_mass: 4))
+    assert [_ | _] = index.fragment_store_backend.all(index.fragment_store)
+  end
+
   test "indexes dynamic aliases such as __MODULE__ without crashing", %{opts: opts} do
     path =
       fixture("dynamic_alias.ex", """

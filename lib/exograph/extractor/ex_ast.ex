@@ -41,7 +41,8 @@ defmodule Exograph.Extractor.ExAST do
     opts = Keyword.merge(@default_opts, opts)
 
     with {:ok, source} <- File.read(file),
-         {:ok, ast} <- Code.string_to_quoted(source, line: 1, columns: true, file: file) do
+         {:ok, ast} <-
+           Code.string_to_quoted(source, line: 1, columns: true, file: file, emit_warnings: false) do
       package_context = package_context(opts)
       source_file = SourceFile.new(file, source, package_context)
 

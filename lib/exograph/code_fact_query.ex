@@ -72,12 +72,12 @@ defmodule Exograph.CodeFactQuery do
     dynamic(
       [_fragment, fact],
       fragment(
-        "?::pdb.edge_ngram(2, 96, 'token_chars=letter,digit,punctuation') ||| ?",
+        "?::pdb.ngram(2, 96, 'prefix_only=true') ||| ?",
         fact.qualified_name,
         ^literal
       ) or
         fragment(
-          "?::pdb.edge_ngram(2, 32, 'token_chars=letter,digit,punctuation') ||| ?",
+          "?::pdb.ngram(2, 32, 'prefix_only=true') ||| ?",
           fact.name,
           ^literal
         )

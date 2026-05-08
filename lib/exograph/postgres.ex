@@ -75,7 +75,7 @@ defmodule Exograph.Postgres do
       USING bm25 (
         id,
         (source::pdb.source_code),
-        (comments_text::pdb.unicode),
+        (comments_text::pdb.unicode_words),
         (path::pdb.literal),
         (package_id::pdb.literal),
         (package_version_id::pdb.literal)
@@ -92,8 +92,8 @@ defmodule Exograph.Postgres do
       ON #{table(prefix, "fragments")}
       USING bm25 (
         id,
-        (name::pdb.edge_ngram(2, 32, 'token_chars=letter,digit,punctuation')),
-        (module::pdb.edge_ngram(2, 64, 'token_chars=letter,digit,punctuation')),
+        (name::pdb.ngram(2, 32, 'prefix_only=true')),
+        (module::pdb.ngram(2, 64, 'prefix_only=true')),
         (kind::pdb.literal),
         (package_id::pdb.literal),
         (package_version_id::pdb.literal)
@@ -110,7 +110,7 @@ defmodule Exograph.Postgres do
       ON #{table(prefix, "comments")}
       USING bm25 (
         id,
-        (text::pdb.unicode),
+        (text::pdb.unicode_words),
         (package_id::pdb.literal),
         (package_version_id::pdb.literal),
         (file_id::pdb.literal),
@@ -128,9 +128,9 @@ defmodule Exograph.Postgres do
       ON #{table(prefix, "definitions")}
       USING bm25 (
         id,
-        (name::pdb.edge_ngram(2, 32, 'token_chars=letter,digit,punctuation')),
-        (module::pdb.edge_ngram(2, 64, 'token_chars=letter,digit,punctuation')),
-        (qualified_name::pdb.edge_ngram(2, 96, 'token_chars=letter,digit,punctuation')),
+        (name::pdb.ngram(2, 32, 'prefix_only=true')),
+        (module::pdb.ngram(2, 64, 'prefix_only=true')),
+        (qualified_name::pdb.ngram(2, 96, 'prefix_only=true')),
         (kind::pdb.literal),
         (package_id::pdb.literal),
         (package_version_id::pdb.literal),
@@ -149,9 +149,9 @@ defmodule Exograph.Postgres do
       ON #{table(prefix, "references")}
       USING bm25 (
         id,
-        (name::pdb.edge_ngram(2, 32, 'token_chars=letter,digit,punctuation')),
-        (module::pdb.edge_ngram(2, 64, 'token_chars=letter,digit,punctuation')),
-        (qualified_name::pdb.edge_ngram(2, 96, 'token_chars=letter,digit,punctuation')),
+        (name::pdb.ngram(2, 32, 'prefix_only=true')),
+        (module::pdb.ngram(2, 64, 'prefix_only=true')),
+        (qualified_name::pdb.ngram(2, 96, 'prefix_only=true')),
         (kind::pdb.literal),
         (package_id::pdb.literal),
         (package_version_id::pdb.literal),

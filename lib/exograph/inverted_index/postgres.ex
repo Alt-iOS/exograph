@@ -132,7 +132,7 @@ defmodule Exograph.InvertedIndex.Postgres do
     from(fragment in {source(index), FragmentRecord},
       join: file in ^files_source,
       on: file.id == fragment.file_id,
-      where: fragment("?::pdb.unicode &&& ?", file.comments_text, ^literal),
+      where: fragment("?::pdb.unicode_words &&& ?", file.comments_text, ^literal),
       order_by: [desc: fragment("pdb.score(?)", file.id)],
       limit: ^limit,
       select: {fragment, file.source, file.path}
@@ -143,7 +143,7 @@ defmodule Exograph.InvertedIndex.Postgres do
     from(fragment in {source(index), FragmentRecord},
       join: file in ^files_source,
       on: file.id == fragment.file_id,
-      where: fragment("?::pdb.unicode ||| ?", file.comments_text, ^literal),
+      where: fragment("?::pdb.unicode_words ||| ?", file.comments_text, ^literal),
       order_by: [desc: fragment("pdb.score(?)", file.id)],
       limit: ^limit,
       select: {fragment, file.source, file.path}

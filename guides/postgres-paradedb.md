@@ -44,7 +44,7 @@ once in `exograph_files`.
 When ParadeDB's `pg_search` extension is available, `migrate?: true` can create
 BM25 indexes over source files, comments, definitions, and references. Source
 files use ParadeDB's `pdb.source_code` tokenizer; symbol names use tokenizers
-such as `pdb.edge_ngram` for prefix/partial matching.
+such as `pdb.ngram` for prefix/partial matching.
 
 Raw SQL is limited to areas Ecto cannot express directly:
 

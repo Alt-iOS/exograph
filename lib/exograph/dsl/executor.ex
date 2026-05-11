@@ -71,8 +71,8 @@ defmodule Exograph.DSL.Executor do
 
     hits =
       index
-      |> joined_fragments(plan, query_opts)
-      |> Enum.flat_map(fn {fragment, joined_by_binding} ->
+      |> stream_joined_fragments(plan, query_opts)
+      |> Stream.flat_map(fn {fragment, joined_by_binding} ->
         fragment
         |> verify_fragment(compiled_query)
         |> Enum.map(&select_multi_fragment_join(plan, &1, joined_by_binding))
@@ -102,23 +102,53 @@ defmodule Exograph.DSL.Executor do
     end)
   end
 
-  defp joined_fragments(index, %Plan{joins: [join]} = plan, opts) do
+  @stream_batch_size 500
+
+  defp stream_joined_fragments(index, %Plan{joins: [_]} = plan, opts) do
+    Stream.resource(
+      fn -> {0, false} end,
+      fn
+        {_offset, true} ->
+          {:halt, :done}
+
+        {offset, false} ->
+          batch_opts = Keyword.put(opts, :candidate_limit, @stream_batch_size)
+          batch = joined_fragments(index, plan, batch_opts, offset)
+          done = length(batch) < @stream_batch_size
+          {batch, {offset + length(batch), done}}
+      end,
+      fn _acc -> :ok end
+    )
+  end
+
+  defp stream_joined_fragments(index, plan, opts) do
+    joined_fragments(
+      index,
+      plan,
+      Keyword.put_new_lazy(opts, :candidate_limit, fn ->
+        index.fragment_store_backend.count(index.fragment_store)
+      end),
+      0
+    )
+  end
+
+  defp joined_fragments(index, %Plan{joins: [join]} = plan, opts, offset) do
     join_predicates = predicates(plan, join.binding)
 
     if join_predicates != [] do
-      joined_fragments_fact_first(index, plan, join, opts)
+      joined_fragments_fact_first(index, plan, join, opts, offset)
     else
-      joined_fragments_fragment_first(index, plan, join, opts)
+      joined_fragments_fragment_first(index, plan, join, opts, offset)
     end
   end
 
-  defp joined_fragments(index, %Plan{joins: [_first, _second]} = plan, opts),
+  defp joined_fragments(index, %Plan{joins: [_first, _second]} = plan, opts, _offset),
     do: joined_fragments_two(index, plan, opts)
 
-  defp joined_fragments(index, %Plan{joins: [_first, _second, _third]} = plan, opts),
+  defp joined_fragments(index, %Plan{joins: [_first, _second, _third]} = plan, opts, _offset),
     do: joined_fragments_three(index, plan, opts)
 
-  defp joined_fragments_fact_first(index, plan, join, opts) do
+  defp joined_fragments_fact_first(index, plan, join, opts, offset) do
     candidate_limit = candidate_limit(index, opts)
     files_source = Options.files_source(index.inverted.prefix)
     fragments_source = Options.fragments_source(index.inverted.prefix)
@@ -139,6 +169,7 @@ defmodule Exograph.DSL.Executor do
       where: joined.line >= fragment.line and is_nil(later.id),
       distinct: fragment.id,
       order_by: [asc: file.path, asc: fragment.line, asc: fragment.id],
+      offset: ^offset,
       limit: ^candidate_limit,
       select: {fragment, file.source, file.path, joined}
     )
@@ -154,7 +185,7 @@ defmodule Exograph.DSL.Executor do
     end)
   end
 
-  defp joined_fragments_fragment_first(index, plan, join, opts) do
+  defp joined_fragments_fragment_first(index, plan, join, opts, offset) do
     candidate_limit = candidate_limit(index, opts)
     files_source = Options.files_source(index.inverted.prefix)
     fragments_source = Options.fragments_source(index.inverted.prefix)
@@ -173,6 +204,7 @@ defmodule Exograph.DSL.Executor do
       on: file.id == fragment.file_id,
       distinct: fragment.id,
       order_by: [asc: file.path, asc: fragment.line, asc: fragment.id],
+      offset: ^offset,
       limit: ^candidate_limit,
       select: {fragment, file.source, file.path, joined}
     )

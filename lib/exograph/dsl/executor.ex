@@ -103,6 +103,58 @@ defmodule Exograph.DSL.Executor do
   end
 
   defp joined_fragments(index, %Plan{joins: [join]} = plan, opts) do
+    join_predicates = predicates(plan, join.binding)
+
+    if join_predicates != [] do
+      joined_fragments_fact_first(index, plan, join, opts)
+    else
+      joined_fragments_fragment_first(index, plan, join, opts)
+    end
+  end
+
+  defp joined_fragments(index, %Plan{joins: [_first, _second]} = plan, opts),
+    do: joined_fragments_two(index, plan, opts)
+
+  defp joined_fragments(index, %Plan{joins: [_first, _second, _third]} = plan, opts),
+    do: joined_fragments_three(index, plan, opts)
+
+  defp joined_fragments_fact_first(index, plan, join, opts) do
+    candidate_limit = candidate_limit(index, opts)
+    files_source = Options.files_source(index.inverted.prefix)
+    fragments_source = Options.fragments_source(index.inverted.prefix)
+    function_fragment_kinds = JoinSemantics.function_fragment_kinds()
+
+    {join_table, join_record} = Sources.primary_source(join.assoc, index.inverted.prefix)
+
+    from(joined in {join_table, join_record},
+      join: fragment in ^{fragments_source, FragmentRecord},
+      as: :fragment,
+      on: fragment.file_id == joined.file_id and fragment.kind in ^function_fragment_kinds,
+      left_join: later in ^{fragments_source, FragmentRecord},
+      on:
+        later.file_id == fragment.file_id and later.kind in ^function_fragment_kinds and
+          later.line > fragment.line and later.line <= joined.line,
+      left_join: file in ^files_source,
+      on: file.id == fragment.file_id,
+      where: joined.line >= fragment.line and is_nil(later.id),
+      distinct: fragment.id,
+      order_by: [asc: file.path, asc: fragment.line, asc: fragment.id],
+      limit: ^candidate_limit,
+      select: {fragment, file.source, file.path, joined}
+    )
+    |> where_first_binding_join_predicates(predicates(plan, join.binding), join.assoc)
+    |> where_second_binding_predicates(predicates(plan, plan.binding), plan.binding, :fragment)
+    |> where_fragment_scope_second(opts)
+    |> index.inverted.repo.all()
+    |> Enum.map(fn {fragment, source, path, joined} ->
+      {
+        Options.hydrate_fragment(fragment, source, path),
+        %{join.binding => joined_value(join.assoc, joined)}
+      }
+    end)
+  end
+
+  defp joined_fragments_fragment_first(index, plan, join, opts) do
     candidate_limit = candidate_limit(index, opts)
     files_source = Options.files_source(index.inverted.prefix)
     fragments_source = Options.fragments_source(index.inverted.prefix)
@@ -140,7 +192,7 @@ defmodule Exograph.DSL.Executor do
     end)
   end
 
-  defp joined_fragments(index, %Plan{joins: [first_join, second_join]} = plan, opts) do
+  defp joined_fragments_two(index, %Plan{joins: [first_join, second_join]} = plan, opts) do
     candidate_limit = candidate_limit(index, opts)
     files_source = Options.files_source(index.inverted.prefix)
     fragments_source = Options.fragments_source(index.inverted.prefix)
@@ -202,7 +254,11 @@ defmodule Exograph.DSL.Executor do
     end)
   end
 
-  defp joined_fragments(index, %Plan{joins: [first_join, second_join, third_join]} = plan, opts) do
+  defp joined_fragments_three(
+         index,
+         %Plan{joins: [first_join, second_join, third_join]} = plan,
+         opts
+       ) do
     candidate_limit = candidate_limit(index, opts)
     files_source = Options.files_source(index.inverted.prefix)
     fragments_source = Options.fragments_source(index.inverted.prefix)
@@ -429,6 +485,33 @@ defmodule Exograph.DSL.Executor do
   defp predicates(%Plan{predicates_by_binding: predicates_by_binding}, binding) do
     Map.get(predicates_by_binding, binding, [])
   end
+
+  defp where_first_binding_join_predicates(query, predicates, source) do
+    Enum.reduce(predicates, query, fn predicate, query ->
+      where_first_binding_predicate(query, predicate, source)
+    end)
+  end
+
+  defp where_fragment_scope_second(queryable, opts) do
+    package_id = Keyword.get(opts, :package_id)
+
+    package_version_id =
+      Keyword.get(opts, :package_version_id) || Keyword.get(opts, :package_version)
+
+    queryable
+    |> maybe_where_second_package(package_id)
+    |> maybe_where_second_package_version(package_version_id)
+  end
+
+  defp maybe_where_second_package(queryable, nil), do: queryable
+
+  defp maybe_where_second_package(queryable, package_id),
+    do: where(queryable, [_first, fragment], fragment.package_id == ^package_id)
+
+  defp maybe_where_second_package_version(queryable, nil), do: queryable
+
+  defp maybe_where_second_package_version(queryable, package_version_id),
+    do: where(queryable, [_first, fragment], fragment.package_version_id == ^package_version_id)
 
   defp where_source_predicates(query, predicates, binding, source) do
     predicates

@@ -94,9 +94,9 @@ defmodule Exograph.InvertedIndex.Postgres do
     {:ok, Enum.map(records, &CallEdgeRecord.to_call_edge/1)}
   end
 
-  defp resolve_term_ids(_index, []), do: []
+  def resolve_term_ids(_index, []), do: []
 
-  defp resolve_term_ids(index, terms) when is_list(terms) do
+  def resolve_term_ids(index, terms) when is_list(terms) do
     rows =
       Ecto.Adapters.SQL.query!(
         index.repo,

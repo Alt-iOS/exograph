@@ -4,8 +4,9 @@ defmodule Exograph.DSL.Executor do
   import Ecto.Query
 
   alias Exograph.{CallEdgeHit, DefinitionHit, Hit, ReferenceHit}
-  alias Exograph.DSL.{JoinSemantics, Plan, Planner, Query, Sources}
+  alias Exograph.DSL.{Compiler, JoinSemantics, Plan, Planner, Query, Sources}
   alias Exograph.DSL.Plan.Join
+  alias Exograph.InvertedIndex.Postgres, as: PostgresInvertedIndex
   alias Exograph.Query, as: StructuralQuery
 
   alias Exograph.Postgres.{
@@ -58,7 +59,7 @@ defmodule Exograph.DSL.Executor do
 
     hits =
       index
-      |> filtered_fragments(predicates(plan, plan.binding), plan.binding, opts)
+      |> filtered_fragments(plan, opts)
       |> Enum.flat_map(&verify_fragment(&1, compiled_query))
       |> Enum.take(limit)
 
@@ -82,7 +83,7 @@ defmodule Exograph.DSL.Executor do
     {:ok, hits}
   end
 
-  defp filtered_fragments(index, predicates, binding, opts) do
+  defp filtered_fragments(index, plan, opts) do
     candidate_limit = candidate_limit(index, opts)
     files_source = Options.files_source(index.inverted.prefix)
     fragments_source = Options.fragments_source(index.inverted.prefix)
@@ -94,7 +95,8 @@ defmodule Exograph.DSL.Executor do
       limit: ^candidate_limit,
       select: {fragment, file.source, file.path}
     )
-    |> where_source_predicates(predicates, binding, :fragment)
+    |> where_structural_terms(index, plan)
+    |> where_source_predicates(predicates(plan, plan.binding), plan.binding, :fragment)
     |> where_fragment_scope(opts)
     |> index.inverted.repo.all()
     |> Enum.map(fn {fragment, source, path} ->
@@ -160,13 +162,11 @@ defmodule Exograph.DSL.Executor do
       join: fragment in ^{fragments_source, FragmentRecord},
       as: :fragment,
       on: fragment.file_id == joined.file_id and fragment.kind in ^function_fragment_kinds,
-      left_join: later in ^{fragments_source, FragmentRecord},
-      on:
-        later.file_id == fragment.file_id and later.kind in ^function_fragment_kinds and
-          later.line > fragment.line and later.line <= joined.line,
       left_join: file in ^files_source,
       on: file.id == fragment.file_id,
-      where: joined.line >= fragment.line and is_nil(later.id),
+      where:
+        joined.line >= fragment.line and
+          (is_nil(fragment.end_line) or joined.line <= fragment.end_line),
       distinct: fragment.id,
       order_by: [asc: file.path, asc: fragment.line, asc: fragment.id],
       offset: ^offset,
@@ -174,6 +174,7 @@ defmodule Exograph.DSL.Executor do
       select: {fragment, file.source, file.path, joined}
     )
     |> where_first_binding_join_predicates(predicates(plan, join.binding), join.assoc)
+    |> where_structural_terms_second(index, plan)
     |> where_second_binding_predicates(predicates(plan, plan.binding), plan.binding, :fragment)
     |> where_fragment_scope_second(opts)
     |> index.inverted.repo.all()
@@ -195,11 +196,9 @@ defmodule Exograph.DSL.Executor do
       as: :fragment,
       join: joined in ^Sources.join_source(join.assoc, index.inverted.prefix),
       on: joined.file_id == fragment.file_id,
-      where: fragment.kind in ^function_fragment_kinds,
-      left_join: later in ^{fragments_source, FragmentRecord},
-      on:
-        later.file_id == fragment.file_id and later.kind in ^function_fragment_kinds and
-          later.line > fragment.line and later.line <= joined.line,
+      where:
+        fragment.kind in ^function_fragment_kinds and joined.line >= fragment.line and
+          (is_nil(fragment.end_line) or joined.line <= fragment.end_line),
       left_join: file in ^files_source,
       on: file.id == fragment.file_id,
       distinct: fragment.id,
@@ -208,10 +207,7 @@ defmodule Exograph.DSL.Executor do
       limit: ^candidate_limit,
       select: {fragment, file.source, file.path, joined}
     )
-    |> JoinSemantics.where_containing_fragment_binding(
-      JoinSemantics.containing_assoc(plan, join.assoc),
-      :one
-    )
+    |> where_structural_terms(index, plan)
     |> where_source_predicates(predicates(plan, plan.binding), nil, :fragment)
     |> where_second_binding_predicates(predicates(plan, join.binding), join.binding, join.assoc)
     |> where_fragment_scope(opts)
@@ -233,18 +229,13 @@ defmodule Exograph.DSL.Executor do
     from(fragment in {fragments_source, FragmentRecord},
       as: :fragment,
       join: first in ^Sources.join_source(first_join.assoc, index.inverted.prefix),
-      on: first.file_id == fragment.file_id,
+      on:
+        first.file_id == fragment.file_id and first.line >= fragment.line and
+          (is_nil(fragment.end_line) or first.line <= fragment.end_line),
       join: second in ^Sources.join_source(second_join.assoc, index.inverted.prefix),
-      on: second.file_id == fragment.file_id,
-      left_join: first_later in ^{fragments_source, FragmentRecord},
       on:
-        first_later.file_id == fragment.file_id and first_later.kind in ^function_fragment_kinds and
-          first_later.line > fragment.line and first_later.line <= first.line,
-      left_join: second_later in ^{fragments_source, FragmentRecord},
-      on:
-        second_later.file_id == fragment.file_id and
-          second_later.kind in ^function_fragment_kinds and
-          second_later.line > fragment.line and second_later.line <= second.line,
+        second.file_id == fragment.file_id and second.line >= fragment.line and
+          (is_nil(fragment.end_line) or second.line <= fragment.end_line),
       left_join: file in ^files_source,
       on: file.id == fragment.file_id,
       where: fragment.kind in ^function_fragment_kinds,
@@ -253,15 +244,8 @@ defmodule Exograph.DSL.Executor do
       limit: ^candidate_limit,
       select: {fragment, file.source, file.path, first, second}
     )
-    |> JoinSemantics.where_containing_fragment_binding(
-      JoinSemantics.containing_assoc(plan, first_join.assoc),
-      :two_first
-    )
-    |> JoinSemantics.where_containing_fragment_binding(
-      JoinSemantics.containing_assoc(plan, second_join.assoc),
-      :two_second
-    )
     |> JoinSemantics.where_call_definition_pairs(plan)
+    |> where_structural_terms(index, plan)
     |> where_source_predicates(predicates(plan, plan.binding), nil, :fragment)
     |> where_second_binding_predicates(
       predicates(plan, first_join.binding),
@@ -299,24 +283,15 @@ defmodule Exograph.DSL.Executor do
     from(fragment in {fragments_source, FragmentRecord},
       as: :fragment,
       join: first in ^Sources.join_source(first_join.assoc, index.inverted.prefix),
-      on: first.file_id == fragment.file_id,
+      on:
+        first.file_id == fragment.file_id and first.line >= fragment.line and
+          (is_nil(fragment.end_line) or first.line <= fragment.end_line),
       join: second in ^Sources.join_source(second_join.assoc, index.inverted.prefix),
-      on: second.file_id == fragment.file_id,
+      on:
+        second.file_id == fragment.file_id and second.line >= fragment.line and
+          (is_nil(fragment.end_line) or second.line <= fragment.end_line),
       join: third in ^Sources.join_source(third_join.assoc, index.inverted.prefix),
       on: third.file_id == fragment.file_id,
-      left_join: first_later in ^{fragments_source, FragmentRecord},
-      on:
-        first_later.file_id == fragment.file_id and first_later.kind in ^function_fragment_kinds and
-          first_later.line > fragment.line and first_later.line <= first.line,
-      left_join: second_later in ^{fragments_source, FragmentRecord},
-      on:
-        second_later.file_id == fragment.file_id and
-          second_later.kind in ^function_fragment_kinds and
-          second_later.line > fragment.line and second_later.line <= second.line,
-      left_join: third_later in ^{fragments_source, FragmentRecord},
-      on:
-        third_later.file_id == fragment.file_id and third_later.kind in ^function_fragment_kinds and
-          third_later.line > fragment.line and third_later.line <= third.line,
       left_join: file in ^files_source,
       on: file.id == fragment.file_id,
       where: fragment.kind in ^function_fragment_kinds,
@@ -325,19 +300,8 @@ defmodule Exograph.DSL.Executor do
       limit: ^candidate_limit,
       select: {fragment, file.source, file.path, first, second, third}
     )
-    |> JoinSemantics.where_containing_fragment_binding(
-      JoinSemantics.containing_assoc(plan, first_join.assoc),
-      :three_first
-    )
-    |> JoinSemantics.where_containing_fragment_binding(
-      JoinSemantics.containing_assoc(plan, second_join.assoc),
-      :three_second
-    )
-    |> JoinSemantics.where_containing_fragment_binding(
-      JoinSemantics.containing_assoc(plan, third_join.assoc),
-      :three_third
-    )
     |> JoinSemantics.where_call_definition_pairs(plan)
+    |> where_structural_terms(index, plan)
     |> where_source_predicates(predicates(plan, plan.binding), nil, :fragment)
     |> where_second_binding_predicates(
       predicates(plan, first_join.binding),
@@ -449,6 +413,30 @@ defmodule Exograph.DSL.Executor do
     Keyword.get_lazy(opts, :candidate_limit, fn ->
       index.fragment_store_backend.count(index.fragment_store)
     end)
+  end
+
+  defp resolve_structural_term_ids(index, plan) do
+    required_terms = Compiler.required_terms(plan.query)
+
+    if required_terms == [] do
+      []
+    else
+      PostgresInvertedIndex.resolve_term_ids(index.inverted, required_terms)
+    end
+  end
+
+  defp where_structural_terms(queryable, index, plan) do
+    case resolve_structural_term_ids(index, plan) do
+      [] -> queryable
+      ids -> where(queryable, [fragment], fragment("? @> ?", fragment.terms, ^ids))
+    end
+  end
+
+  defp where_structural_terms_second(queryable, index, plan) do
+    case resolve_structural_term_ids(index, plan) do
+      [] -> queryable
+      ids -> where(queryable, [_first, fragment], fragment("? @> ?", fragment.terms, ^ids))
+    end
   end
 
   defp symbol_fact_all(index, plan, opts, source_name) do

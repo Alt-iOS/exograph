@@ -114,6 +114,19 @@ defmodule Exograph.Postgres.Migrations.CreateSchema do
       index(name("fragments"), [:file_id], name: index_name("fragments", "file"))
     )
 
+    create_if_not_exists(
+      index(name("fragments"), [:file_id, :kind, :line],
+        name: index_name("fragments", "file_kind_line")
+      )
+    )
+
+    create_if_not_exists(
+      index(name("fragments"), [:file_id, :line, :end_line],
+        where: "kind IN ('def','defp','defmacro','defmacrop')",
+        name: index_name("fragments", "containment")
+      )
+    )
+
     create_if_not_exists table(name("comments")) do
       add(:package_id, references(name("packages"), on_delete: :delete_all))
       add(:package_version_id, references(name("package_versions"), on_delete: :delete_all))
@@ -159,6 +172,10 @@ defmodule Exograph.Postgres.Migrations.CreateSchema do
       index(name("definitions"), [:fragment_id], name: index_name("definitions", "fragment"))
     )
 
+    create_if_not_exists(
+      index(name("definitions"), [:file_id, :line], name: index_name("definitions", "file_line"))
+    )
+
     create_if_not_exists table(name("references")) do
       add(:package_id, references(name("packages"), on_delete: :delete_all))
       add(:package_version_id, references(name("package_versions"), on_delete: :delete_all))
@@ -183,6 +200,10 @@ defmodule Exograph.Postgres.Migrations.CreateSchema do
 
     create_if_not_exists(
       index(name("references"), [:fragment_id], name: index_name("references", "fragment"))
+    )
+
+    create_if_not_exists(
+      index(name("references"), [:file_id, :line], name: index_name("references", "file_line"))
     )
 
     create_if_not_exists table(name("graph_nodes")) do

@@ -33,6 +33,13 @@ defmodule Exograph.DSL.Compiler do
     end)
   end
 
+  @spec required_terms(Query.t()) :: [String.t()]
+  def required_terms(%Query{} = query) do
+    selector = compile(query)
+    plan = ExAST.Index.plan(selector)
+    MapSet.to_list(plan.required_terms)
+  end
+
   defp structural_predicate?({kind, _binding, _value}) when kind in [:matches, :contains],
     do: true
 

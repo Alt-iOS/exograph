@@ -49,6 +49,7 @@ defmodule Exograph.Extractor.ExAST do
       ast
       |> Fingerprint.fragments(file, Keyword.fetch!(opts, :min_mass), opts)
       |> Enum.map(&to_fragment(&1, source_file, package_context))
+      |> compute_end_lines()
     else
       _ -> []
     end
@@ -95,6 +96,27 @@ defmodule Exograph.Extractor.ExAST do
       structs: symbols.structs,
       atoms: symbols.atoms
     }
+  end
+
+  @function_kinds [:def, :defp, :defmacro, :defmacrop]
+
+  defp compute_end_lines(fragments) do
+    function_lines =
+      fragments
+      |> Enum.filter(&(&1.kind in @function_kinds))
+      |> Enum.map(& &1.line)
+      |> Enum.sort()
+
+    Enum.map(fragments, fn fragment ->
+      if fragment.kind in @function_kinds do
+        next_line =
+          Enum.find(function_lines, fn l -> l > fragment.line end)
+
+        %{fragment | end_line: if(next_line, do: next_line - 1, else: 999_999)}
+      else
+        fragment
+      end
+    end)
   end
 
   defp classify({form, _meta, [head | _]}) when form in [:def, :defp, :defmacro, :defmacrop] do

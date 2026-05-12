@@ -61,6 +61,7 @@ defmodule Exograph.Postgres.Options do
   def references_source(prefix), do: {"#{prefix}_references", Exograph.Postgres.ReferenceRecord}
   def graph_nodes_source(prefix), do: {"#{prefix}_graph_nodes", Exograph.Postgres.GraphNodeRecord}
   def call_edges_source(prefix), do: {"#{prefix}_call_edges", Exograph.Postgres.CallEdgeRecord}
+  def terms_source(prefix), do: {"#{prefix}_terms", Exograph.Postgres.TermRecord}
 
   def migrate(opts) do
     if Keyword.get(opts, :migrate?, false), do: Postgres.migrate!(opts)

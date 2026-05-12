@@ -131,17 +131,20 @@ defmodule Exograph.FragmentStore.Postgres do
       ids = Map.values(term_to_id)
       id_to_term = Map.new(term_to_id, fn {term, id} -> {id, term} end)
 
-      sql = """
-      SELECT term_id, count(*)::bigint
-      FROM #{Exograph.Postgres.table(store.prefix, "fragments")}, unnest(terms) AS term_id
-      WHERE term_id = ANY($1)
-      GROUP BY term_id
-      """
+      # unnest + GROUP BY has no Ecto DSL equivalent
+      {:ok, %{rows: rows}} =
+        Postgres.query(
+          store.repo,
+          """
+          SELECT term_id, count(*)::bigint
+          FROM #{source(store)}, unnest(terms) AS term_id
+          WHERE term_id = ANY($1)
+          GROUP BY term_id
+          """,
+          [ids]
+        )
 
-      store.repo
-      |> Ecto.Adapters.SQL.query!(sql, [ids], timeout: :infinity)
-      |> Map.fetch!(:rows)
-      |> Map.new(fn [id, count] -> {Map.fetch!(id_to_term, id), count} end)
+      Map.new(rows, fn [id, count] -> {Map.fetch!(id_to_term, id), count} end)
     end
   end
 
@@ -385,24 +388,24 @@ defmodule Exograph.FragmentStore.Postgres do
   end
 
   defp upsert_terms(store, terms) do
-    Ecto.Adapters.SQL.query!(
+    entries = Enum.map(terms, &%{term: &1})
+
+    Postgres.bulk_insert_all(
       store.repo,
-      "INSERT INTO #{Exograph.Postgres.table(store.prefix, "terms")} (term) SELECT unnest($1::text[]) ON CONFLICT (term) DO NOTHING",
-      [terms],
+      terms_source(store),
+      entries,
+      conflict_target: [:term],
+      on_conflict: :nothing,
       timeout: :infinity
     )
   end
 
   defp load_term_ids(store, terms) do
-    rows =
-      Ecto.Adapters.SQL.query!(
-        store.repo,
-        "SELECT term, id FROM #{Exograph.Postgres.table(store.prefix, "terms")} WHERE term = ANY($1)",
-        [terms],
-        timeout: :infinity
-      ).rows
+    import Ecto.Query
 
-    Map.new(rows, fn [term, id] -> {term, id} end)
+    from(t in terms_source(store), where: t.term in ^terms, select: {t.term, t.id})
+    |> store.repo.all(timeout: :infinity)
+    |> Map.new()
   end
 
   defp upsert_code_facts(_store, [], _fragments, _now), do: :ok
@@ -622,5 +625,6 @@ defmodule Exograph.FragmentStore.Postgres do
   defp references_source(store), do: Options.references_source(store.prefix)
   defp graph_nodes_source(store), do: Options.graph_nodes_source(store.prefix)
   defp call_edges_source(store), do: Options.call_edges_source(store.prefix)
+  defp terms_source(store), do: Options.terms_source(store.prefix)
   defp source(store), do: Options.fragments_source(store.prefix)
 end

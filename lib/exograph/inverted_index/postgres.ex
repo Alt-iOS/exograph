@@ -97,15 +97,8 @@ defmodule Exograph.InvertedIndex.Postgres do
   def resolve_term_ids(_index, []), do: []
 
   def resolve_term_ids(index, terms) when is_list(terms) do
-    rows =
-      Ecto.Adapters.SQL.query!(
-        index.repo,
-        "SELECT id FROM #{Exograph.Postgres.table(index.prefix, "terms")} WHERE term = ANY($1)",
-        [terms],
-        timeout: :infinity
-      ).rows
-
-    Enum.map(rows, fn [id] -> id end)
+    from(t in Options.terms_source(index.prefix), where: t.term in ^terms, select: t.id)
+    |> index.repo.all(timeout: :infinity)
   rescue
     _ -> []
   end

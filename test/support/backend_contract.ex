@@ -174,7 +174,9 @@ defmodule Exograph.BackendContract do
   end
 
   defp assert_structural_search(index, path) do
-    assert {:ok, [%{fragment: fragment} | _]} = Exograph.search(index, "Repo.get!(_, _)")
+    assert {:ok, [%Exograph.Hit{fragment: fragment} | _]} =
+             Exograph.search(index, "Repo.get!(_, _)")
+
     assert fragment.file == path
     assert {:ok, ^fragment} = index.fragment_store_backend.get(index.fragment_store, fragment.id)
 

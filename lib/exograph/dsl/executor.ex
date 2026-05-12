@@ -59,8 +59,8 @@ defmodule Exograph.DSL.Executor do
 
     hits =
       index
-      |> filtered_fragments(plan, opts)
-      |> Enum.flat_map(&verify_fragment(&1, compiled_query))
+      |> stream_filtered_fragments(plan, opts)
+      |> Stream.flat_map(&verify_fragment(&1, compiled_query))
       |> Enum.take(limit)
 
     {:ok, hits}
@@ -83,8 +83,65 @@ defmodule Exograph.DSL.Executor do
     {:ok, hits}
   end
 
-  defp filtered_fragments(index, plan, opts) do
-    candidate_limit = candidate_limit(index, opts)
+  @stream_batch_size 500
+
+  defp stream_filtered_fragments(index, plan, opts) do
+    Stream.resource(
+      fn -> {0, false} end,
+      fn
+        {_offset, true} ->
+          {:halt, :done}
+
+        {offset, false} ->
+          batch = filtered_fragment_batch(index, plan, opts, offset)
+          done = length(batch) < @stream_batch_size
+          {batch, {offset + length(batch), done}}
+      end,
+      fn _acc -> :ok end
+    )
+  end
+
+  defp filtered_fragment_batch(index, plan, opts, offset) do
+    base_fragment_query(index, offset)
+    |> where_structural_terms(index, plan)
+    |> where_source_predicates(predicates(plan, plan.binding), plan.binding, :fragment)
+    |> where_fragment_scope(opts)
+    |> hydrate_fragment_batch(index)
+  end
+
+  def stream_structural(index, %Exograph.Query{} = compiled_query, opts) do
+    term_strings = MapSet.to_list(compiled_query.required_terms)
+    term_ids = PostgresInvertedIndex.resolve_term_ids(index.inverted, term_strings)
+
+    Stream.resource(
+      fn -> {0, false} end,
+      fn
+        {_offset, true} ->
+          {:halt, :done}
+
+        {offset, false} ->
+          batch = structural_fragment_batch(index, term_ids, opts, offset)
+          done = length(batch) < @stream_batch_size
+          {batch, {offset + length(batch), done}}
+      end,
+      fn _acc -> :ok end
+    )
+  end
+
+  defp structural_fragment_batch(index, term_ids, opts, offset) do
+    query = base_fragment_query(index, offset)
+
+    query =
+      if term_ids != [],
+        do: where(query, [fragment], fragment("? @> ?", fragment.terms, ^term_ids)),
+        else: query
+
+    query
+    |> where_fragment_scope(opts)
+    |> hydrate_fragment_batch(index)
+  end
+
+  defp base_fragment_query(index, offset) do
     files_source = Options.files_source(index.inverted.prefix)
     fragments_source = Options.fragments_source(index.inverted.prefix)
 
@@ -92,19 +149,18 @@ defmodule Exograph.DSL.Executor do
       left_join: file in ^files_source,
       on: file.id == fragment.file_id,
       order_by: [asc: file.path, asc: fragment.line, asc: fragment.id],
-      limit: ^candidate_limit,
+      offset: ^offset,
+      limit: ^@stream_batch_size,
       select: {fragment, file.source, file.path}
     )
-    |> where_structural_terms(index, plan)
-    |> where_source_predicates(predicates(plan, plan.binding), plan.binding, :fragment)
-    |> where_fragment_scope(opts)
-    |> index.inverted.repo.all()
+  end
+
+  defp hydrate_fragment_batch(query, index) do
+    index.inverted.repo.all(query)
     |> Enum.map(fn {fragment, source, path} ->
       Options.hydrate_fragment(fragment, source, path)
     end)
   end
-
-  @stream_batch_size 500
 
   defp stream_joined_fragments(index, %Plan{joins: [_]} = plan, opts) do
     Stream.resource(

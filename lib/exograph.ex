@@ -7,6 +7,7 @@ defmodule Exograph do
     CommentHit,
     DefinitionHit,
     DSL,
+    Hit,
     Index,
     Planner,
     Query,
@@ -58,9 +59,24 @@ defmodule Exograph do
   def search(index, pattern_or_selector, opts \\ [])
 
   def search(%Index{} = index, pattern_or_selector, opts) do
-    query = compile(pattern_or_selector)
-    plan = Planner.plan(index, query, opts)
-    Planner.execute(index, plan, opts)
+    compiled = compile(pattern_or_selector)
+    limit = Keyword.get(opts, :limit, 50)
+
+    hits =
+      index
+      |> DSL.Executor.stream_structural(compiled, opts)
+      |> Stream.flat_map(fn fragment ->
+        case Query.verify(compiled, fragment) do
+          {:ok, matches} ->
+            Enum.map(matches, &Hit.with_match(Hit.new(fragment: fragment, score: 1.0), &1))
+
+          :error ->
+            []
+        end
+      end)
+      |> Enum.take(limit)
+
+    {:ok, hits}
   end
 
   def search(_index, _pattern_or_selector, _opts) do
@@ -145,12 +161,8 @@ defmodule Exograph do
   @spec all(Index.t(), DSL.Query.t(), keyword()) :: {:ok, [map()]} | {:error, term()}
   def all(index, query, opts \\ [])
 
-  def all(%Index{} = index, %DSL.Query{source: :fragment, joins: []} = query, opts) do
-    if DSL.Compiler.structural_only?(query) do
-      search(index, DSL.Compiler.compile(query), opts)
-    else
-      DSL.Executor.all(index, query, opts)
-    end
+  def all(%Index{} = index, %DSL.Query{source: :fragment} = query, opts) do
+    DSL.Executor.all(index, query, opts)
   end
 
   def all(%Index{} = index, %DSL.Query{} = query, opts) do

@@ -120,6 +120,36 @@ defmodule Exograph.FragmentStore.Postgres do
   end
 
   @impl true
+  def page(%__MODULE__{} = store, offset, limit, opts \\ []) do
+    import Ecto.Query
+
+    query =
+      from(fragment in {source(store), FragmentRecord},
+        left_join: file in ^files_source(store),
+        on: file.id == fragment.file_id,
+        order_by: [asc: file.path, asc: fragment.line, asc: fragment.id],
+        offset: ^offset,
+        limit: ^limit,
+        select: {fragment, file.source, file.path}
+      )
+
+    query =
+      case Keyword.get(opts, :package_id) do
+        nil -> query
+        pid -> where(query, [fragment], fragment.package_id == ^pid)
+      end
+
+    query =
+      case Keyword.get(opts, :package_version_id) || Keyword.get(opts, :package_version) do
+        nil -> query
+        pvid -> where(query, [fragment], fragment.package_version_id == ^pvid)
+      end
+
+    store.repo.all(query)
+    |> Enum.map(fn {record, source, path} -> Options.hydrate_fragment(record, source, path) end)
+  end
+
+  @impl true
   def term_frequencies(_store, []), do: %{}
 
   def term_frequencies(%__MODULE__{} = store, terms) when is_list(terms) do
@@ -510,8 +540,10 @@ defmodule Exograph.FragmentStore.Postgres do
           |> Map.merge(%{inserted_at: now, updated_at: now})
         end)
 
+      gn_source = graph_nodes_source(store)
+
       store.repo.insert_all(
-        graph_nodes_source(store),
+        gn_source,
         entries,
         on_conflict: :nothing,
         timeout: :infinity
@@ -521,7 +553,7 @@ defmodule Exograph.FragmentStore.Postgres do
       qualified_names = Enum.map(graph_nodes, & &1.qualified_name)
 
       db_nodes =
-        from(n in graph_nodes_source(store),
+        from(n in gn_source,
           where: n.external_id in ^external_ids or n.qualified_name in ^qualified_names
         )
         |> store.repo.all()

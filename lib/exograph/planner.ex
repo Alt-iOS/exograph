@@ -106,13 +106,14 @@ defmodule Exograph.Planner do
   defp filters(false), do: [:hydrate_fragments]
   defp filters(true), do: [:hydrate_fragments, :ex_ast_verify]
 
-  defp scan(index, %Plan{physical: %PhysicalPlan{scan: :fragment_seq_scan} = physical}, _opts) do
+  defp scan(index, %Plan{physical: %PhysicalPlan{scan: :fragment_seq_scan} = physical}, opts) do
     hits =
-      index.fragment_store_backend.all(index.fragment_store)
-      |> Enum.map(&Hit.new(fragment: &1, score: 1.0))
+      index
+      |> stream_all_fragments(opts)
+      |> Stream.map(&Hit.new(fragment: &1, score: 1.0))
       |> maybe_take_candidates(physical)
 
-    {:ok, hits}
+    {:ok, Enum.to_list(hits)}
   end
 
   defp scan(index, %Plan{physical: %PhysicalPlan{scan: {:term_index_scan, _terms}}} = plan, opts) do
@@ -172,10 +173,35 @@ defmodule Exograph.Planner do
   defp maybe_take_candidates(hits, %PhysicalPlan{verify?: true}), do: hits
 
   defp maybe_take_candidates(hits, %PhysicalPlan{verify?: false, limit: limit}),
-    do: Enum.take(hits, limit)
+    do: Stream.take(hits, limit)
 
   defp candidate_count(index) do
     index.fragment_store_backend.count(index.fragment_store)
+  end
+
+  @stream_batch_size 500
+
+  defp stream_all_fragments(index, opts) do
+    Stream.resource(
+      fn -> {0, false} end,
+      fn
+        {_offset, true} ->
+          {:halt, :done}
+
+        {offset, false} ->
+          batch =
+            index.fragment_store_backend.page(
+              index.fragment_store,
+              offset,
+              @stream_batch_size,
+              opts
+            )
+
+          done = length(batch) < @stream_batch_size
+          {batch, {offset + length(batch), done}}
+      end,
+      fn _acc -> :ok end
+    )
   end
 
   defp hit_key(%{fragment_id: fragment_id}) when not is_nil(fragment_id), do: fragment_id

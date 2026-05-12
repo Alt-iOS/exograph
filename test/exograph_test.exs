@@ -34,7 +34,7 @@ defmodule ExographTest do
     {:ok, index} = Exograph.index(path, Keyword.merge(opts, min_mass: 4))
     {:ok, results} = Exograph.search(index, "Repo.get!(_, _)")
 
-    assert [%{fragment: fragment}] = results
+    assert [%Exograph.Hit{fragment: fragment} | _] = results
     assert fragment.file == path
   end
 

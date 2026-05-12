@@ -27,7 +27,9 @@ defmodule ExographBackendTest do
       """)
 
     {:ok, index} = Exograph.index(path, Keyword.merge(opts, min_mass: 4))
-    [%{fragment: fragment}] = elem(Exograph.search(index, "def first_fun do ... end"), 1)
+
+    [%Exograph.Hit{fragment: fragment}] =
+      elem(Exograph.search(index, "def first_fun do ... end"), 1)
 
     assert index.inverted_backend == Exograph.InvertedIndex.Postgres
     assert index.fragment_store_backend == Exograph.FragmentStore.Postgres

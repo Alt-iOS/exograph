@@ -24,7 +24,7 @@ defmodule Exograph.Tree do
     {next_counter, acc, _child_ordinal} =
       ast
       |> semantic_children()
-      |> Enum.with_index()
+      |> Stream.with_index()
       |> Enum.reduce({counter + 1, acc, 0}, fn {{child_role, child}, child_ordinal},
                                                {ctr, nodes, _} ->
         {ctr, nodes, _postorder} =

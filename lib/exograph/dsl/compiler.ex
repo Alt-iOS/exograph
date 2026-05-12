@@ -3,6 +3,39 @@ defmodule Exograph.DSL.Compiler do
 
   alias Exograph.DSL.Query
 
+  @spec from_pattern(ExAST.Pattern.pattern() | ExAST.Selector.t()) :: Query.t()
+  def from_pattern(pattern) when is_binary(pattern) do
+    %Query{
+      source: :fragment,
+      binding: :f,
+      predicates: [{:matches, :f, pattern}]
+    }
+  end
+
+  @spec from_selector(ExAST.Selector.t()) :: Query.t()
+  def from_selector(%ExAST.Selector{steps: [{:self, ast}]} = selector) do
+    pattern = Macro.to_string(ast)
+
+    contains_predicates =
+      selector.filters
+      |> Enum.filter(&(&1.relation == :has_descendant and not &1.negated?))
+      |> Enum.map(&{:contains, :f, Macro.to_string(&1.pattern)})
+
+    %Query{
+      source: :fragment,
+      binding: :f,
+      predicates: [{:matches, :f, pattern} | contains_predicates]
+    }
+  end
+
+  def from_selector(%ExAST.Selector{}) do
+    %Query{
+      source: :fragment,
+      binding: :f,
+      predicates: [{:matches, :f, "_"}]
+    }
+  end
+
   @spec structural_only?(Query.t()) :: boolean()
   def structural_only?(%Query{source: :fragment, binding: binding, predicates: predicates}) do
     Enum.all?(predicates, fn predicate ->

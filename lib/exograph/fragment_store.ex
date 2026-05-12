@@ -12,6 +12,7 @@ defmodule Exograph.FragmentStore do
   @callback get(store(), Fragment.id()) :: {:ok, Fragment.t()} | :error
   @callback all(store()) :: [Fragment.t()]
   @callback count(store()) :: non_neg_integer()
+  @callback page(store(), non_neg_integer(), non_neg_integer(), keyword()) :: [Fragment.t()]
   @callback term_frequencies(store(), [String.t()]) :: %{
               optional(String.t()) => non_neg_integer()
             }

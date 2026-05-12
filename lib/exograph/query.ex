@@ -1,7 +1,5 @@
 defmodule Exograph.Query do
-  @moduledoc """
-  Compiled query plan for candidate retrieval and exact verification.
-  """
+  @moduledoc false
 
   defstruct source: nil,
             required_terms: MapSet.new(),

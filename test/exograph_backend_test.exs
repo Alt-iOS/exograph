@@ -41,13 +41,6 @@ defmodule ExographBackendTest do
     assert "first_fun/0" in fragment.defs
   end
 
-  test "explains compiled query plans" do
-    explanation = Exograph.explain("Repo.get!(User, id)")
-
-    assert "call.remote:Repo.get!/2" in explanation.required
-    assert explanation.verifier == :pattern
-  end
-
   test "finds structurally similar fragments", %{opts: opts} do
     path =
       fixture("similar.ex", """

@@ -9,7 +9,6 @@ defmodule Mix.Tasks.Exograph.Search do
       mix exograph.search 'Repo.get!(_, _)' --repo MyApp.Repo --migrate
       mix exograph.search 'def _ do ... end' lib --repo MyApp.Repo --contains 'Repo.transaction(_)'
       mix exograph.search 'def _ do ... end' lib --repo MyApp.Repo --contains 'Repo.transaction(_)' --not-contains 'IO.inspect(_)'
-      mix exograph.search 'Repo.get!(_, _)' lib --explain
       mix exograph.search '/users/:id' lib --text
       mix exograph.search 'Repo\\.get!\\(' lib --regex
 
@@ -24,7 +23,6 @@ defmodule Mix.Tasks.Exograph.Search do
     * `--limit` - maximum results (default: `20`)
     * `--contains` - require descendant pattern, can be repeated
     * `--not-contains` - reject descendant pattern, can be repeated; verifier-only
-    * `--explain` - print the query plan before results
     * `--no-verify` - skip final ExAST verification
     * `--json` - print JSON results
     * `--text` - literal source text search instead of AST query
@@ -47,7 +45,6 @@ defmodule Mix.Tasks.Exograph.Search do
           limit: :integer,
           contains: :keep,
           not_contains: :keep,
-          explain: :boolean,
           no_verify: :boolean,
           json: :boolean,
           text: :boolean,
@@ -97,13 +94,6 @@ defmodule Mix.Tasks.Exograph.Search do
       true ->
         query = ast_query(query_text, opts)
 
-        plan =
-          Exograph.plan(index, query, limit: limit, verify: !Keyword.get(opts, :no_verify, false))
-
-        if Keyword.get(opts, :explain, false) do
-          print_explain(plan, opts)
-        end
-
         {:ok, results} =
           Exograph.search(index, query,
             limit: limit,
@@ -138,16 +128,6 @@ defmodule Mix.Tasks.Exograph.Search do
   end
 
   defp backend_opts(backend, opts), do: Mix.Exograph.PostgresOptions.backend_opts(backend, opts)
-
-  defp print_explain(plan, opts) do
-    explain = Exograph.explain(plan)
-
-    if Keyword.get(opts, :json, false) do
-      Mix.shell().info(json(%{plan: explain}))
-    else
-      Mix.shell().info("Plan: #{inspect(explain, pretty: true, limit: :infinity)}")
-    end
-  end
 
   defp print_results(results, opts) do
     if Keyword.get(opts, :json, false) do

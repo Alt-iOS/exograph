@@ -1,7 +1,5 @@
 defmodule Exograph.InvertedIndex do
-  @moduledoc """
-  Candidate retrieval backend contract.
-  """
+  @moduledoc false
 
   alias Exograph.{Hit, Query}
 

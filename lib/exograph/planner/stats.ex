@@ -1,7 +1,5 @@
 defmodule Exograph.Planner.Stats do
-  @moduledoc """
-  Lightweight statistics used by the planner.
-  """
+  @moduledoc false
 
   alias Exograph.Index
 

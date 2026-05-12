@@ -1,7 +1,5 @@
 defmodule Exograph.Indexer do
-  @moduledoc """
-  Compatibility wrapper around `Exograph.Extractor.ExAST`.
-  """
+  @moduledoc false
 
   alias Exograph.Extractor.ExAST
 

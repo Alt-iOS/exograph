@@ -1,7 +1,5 @@
 defmodule Exograph.Tree.Node do
-  @moduledoc """
-  Structural AST node metadata for tree-query acceleration.
-  """
+  @moduledoc false
 
   @type t :: %__MODULE__{
           id: non_neg_integer(),

@@ -1,7 +1,5 @@
 defmodule Exograph.Tree do
-  @moduledoc """
-  Converts fragment ASTs into preorder/postorder tree nodes.
-  """
+  @moduledoc false
 
   alias Exograph.Fragment
   alias Exograph.Tree.Node

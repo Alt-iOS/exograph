@@ -1,6 +1,19 @@
 defmodule Exograph.Hit do
   @moduledoc """
   Candidate or verified search hit.
+
+  ## Hit type hierarchy
+
+  Exograph returns typed hit structs depending on the search function:
+
+  - `Exograph.Hit` — structural pattern/selector match from `Exograph.search/3`
+  - `Exograph.TextHit` — source text match from `search_text/3`
+  - `Exograph.CommentHit` — comment match from `search_comments/3`
+  - `Exograph.DefinitionHit` — definition name match from `search_definitions/3`
+  - `Exograph.ReferenceHit` — reference name match from `search_references/3`
+  - `Exograph.CallEdgeHit` — call graph edge from `search_callers/3` / `search_callees/3`
+
+  All hit types expose `:fragment`, `:score`, and `:match` fields.
   """
 
   alias Exograph.Fragment

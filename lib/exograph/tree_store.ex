@@ -1,7 +1,5 @@
 defmodule Exograph.TreeStore do
-  @moduledoc """
-  Tree node storage backend contract.
-  """
+  @moduledoc false
 
   alias Exograph.Fragment
   alias Exograph.Tree.Node

@@ -6,15 +6,13 @@ defmodule Exograph.Index do
   access modules together for query execution.
   """
 
-  alias Exograph.{FragmentStore, InvertedIndex, TreeStore}
-
   @type t :: %__MODULE__{
           inverted_backend: module(),
-          inverted: InvertedIndex.index(),
+          inverted: term(),
           fragment_store_backend: module(),
-          fragment_store: FragmentStore.store(),
+          fragment_store: term(),
           tree_store_backend: module() | nil,
-          tree_store: TreeStore.store() | nil
+          tree_store: term() | nil
         }
 
   defstruct inverted_backend: Exograph.InvertedIndex.Postgres,

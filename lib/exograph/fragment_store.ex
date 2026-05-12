@@ -1,7 +1,5 @@
 defmodule Exograph.FragmentStore do
-  @moduledoc """
-  Fragment storage backend contract.
-  """
+  @moduledoc false
 
   alias Exograph.Fragment
 

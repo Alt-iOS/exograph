@@ -1,7 +1,5 @@
 defmodule Exograph.Planner.PhysicalPlan do
-  @moduledoc """
-  Executable scan/filter plan chosen for a logical query.
-  """
+  @moduledoc false
 
   @type scan ::
           :fragment_seq_scan

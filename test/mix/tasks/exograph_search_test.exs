@@ -72,22 +72,6 @@ defmodule Mix.Tasks.Exograph.SearchTest do
     refute result =~ "noisy"
   end
 
-  test "prints explain plan", %{prefix: prefix} do
-    path =
-      fixture("explain.ex", """
-      defmodule Demo.ExplainTask do
-        def get(id), do: Repo.get!(User, id)
-      end
-      """)
-
-    Mix.Tasks.Exograph.Search.run(
-      base_args(prefix) ++ ["Repo.get!(_, _)", "--explain", "--min-mass", "4", path]
-    )
-
-    assert_receive {:mix_shell, :info, [plan]}
-    assert plan =~ "term_index_scan"
-  end
-
   test "searches literal text", %{prefix: prefix} do
     path =
       fixture("text.ex", """

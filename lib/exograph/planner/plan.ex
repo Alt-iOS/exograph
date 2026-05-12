@@ -1,7 +1,5 @@
 defmodule Exograph.Planner.Plan do
-  @moduledoc """
-  Full query plan: logical semantics plus selected physical operators.
-  """
+  @moduledoc false
 
   alias Exograph.Planner.{LogicalPlan, PhysicalPlan}
   alias Exograph.Query

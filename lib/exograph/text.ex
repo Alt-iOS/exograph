@@ -1,7 +1,5 @@
 defmodule Exograph.Text do
-  @moduledoc """
-  Text-search helpers for substring/regex verification and trigram planning.
-  """
+  @moduledoc false
 
   @spec trigrams(String.t()) :: MapSet.t(String.t())
   def trigrams(text) when is_binary(text) do

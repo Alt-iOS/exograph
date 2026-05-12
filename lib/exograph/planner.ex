@@ -1,11 +1,5 @@
 defmodule Exograph.Planner do
-  @moduledoc """
-  Query planner and executor.
-
-  Indexes are advisory: every plan preserves `ExAST` semantics by hydrating
-  fragments and running the exact verifier unless verification is explicitly
-  disabled.
-  """
+  @moduledoc false
 
   alias Exograph.Planner.{LogicalPlan, PhysicalPlan, Plan, Stats}
   alias Exograph.{Hit, Index, Query}

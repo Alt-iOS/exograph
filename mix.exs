@@ -26,8 +26,7 @@ defmodule Exograph.MixProject do
 
   def application do
     [
-      extra_applications: [:logger],
-      mod: {Exograph.Application, []}
+      extra_applications: [:logger]
     ]
   end
 

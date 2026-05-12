@@ -1,6 +1,22 @@
 defmodule Exograph do
   @moduledoc """
   Local CodeQL-style code search for Elixir, backed by Postgres and ExAST.
+
+  ## Quick start
+
+      {:ok, index} = Exograph.index("lib", repo: MyApp.Repo, migrate?: true)
+      {:ok, hits} = Exograph.search(index, "Repo.get!(_, _)")
+
+  ## DSL queries
+
+      import Exograph.DSL
+      query = from(f in Fragment, where: matches(f, "def _ do ... end"))
+      {:ok, hits} = Exograph.all(index, query)
+
+  ## Call graph
+
+      {:ok, callers} = Exograph.search_callers(index, "Repo.transaction/1")
+      {:ok, callees} = Exograph.search_callees(index, "MyApp.create_user/1")
   """
 
   alias Exograph.{
@@ -9,7 +25,6 @@ defmodule Exograph do
     DSL,
     Hit,
     Index,
-    Planner,
     Query,
     ReferenceHit,
     Scope,
@@ -83,11 +98,34 @@ defmodule Exograph do
     {:error, :invalid_index}
   end
 
+  @spec all(Index.t(), DSL.Query.t(), keyword()) :: {:ok, [map()]} | {:error, term()}
+  def all(index, query, opts \\ [])
+
+  def all(%Index{} = index, %DSL.Query{source: :fragment} = query, opts) do
+    DSL.Executor.all(index, query, opts)
+  end
+
+  def all(%Index{} = index, %DSL.Query{} = query, opts) do
+    DSL.Executor.all(index, query, opts)
+  end
+
+  @spec search_callers(Index.t(), String.t(), keyword()) :: {:ok, [Exograph.CallEdge.t()]}
+  def search_callers(%Index{} = index, callee, opts \\ []) when is_binary(callee) do
+    PostgresInvertedIndex.search_callers(index.inverted, callee, opts)
+  end
+
+  @spec search_callees(Index.t(), String.t(), keyword()) :: {:ok, [Exograph.CallEdge.t()]}
+  def search_callees(%Index{} = index, caller, opts \\ []) when is_binary(caller) do
+    PostgresInvertedIndex.search_callees(index.inverted, caller, opts)
+  end
+
+  @doc false
   @spec similar(Index.t(), String.t() | Macro.t(), keyword()) :: {:ok, [map()]} | {:error, term()}
   def similar(%Index{} = index, source_or_ast, opts \\ []) do
     Similarity.search(index, source_or_ast, opts)
   end
 
+  @doc false
   @spec search_text(Index.t(), String.t() | Regex.t(), keyword()) :: {:ok, [TextHit.t()]}
   def search_text(%Index{} = index, literal_or_regex, opts \\ []) do
     if is_binary(literal_or_regex) and function_exported?(index.inverted_backend, :search_text, 3) do
@@ -105,6 +143,7 @@ defmodule Exograph do
     end
   end
 
+  @doc false
   @spec search_comments(Index.t(), String.t(), keyword()) :: {:ok, [CommentHit.t()]}
   def search_comments(%Index{} = index, literal, opts \\ []) when is_binary(literal) do
     if function_exported?(index.inverted_backend, :search_comments, 3) do
@@ -122,6 +161,7 @@ defmodule Exograph do
     end
   end
 
+  @doc false
   @spec search_definitions(Index.t(), String.t(), keyword()) :: {:ok, [DefinitionHit.t()]}
   def search_definitions(%Index{} = index, partial_name, opts \\ [])
       when is_binary(partial_name) do
@@ -135,6 +175,7 @@ defmodule Exograph do
     )
   end
 
+  @doc false
   @spec search_references(Index.t(), String.t(), keyword()) :: {:ok, [ReferenceHit.t()]}
   def search_references(%Index{} = index, partial_name, opts \\ [])
       when is_binary(partial_name) do
@@ -148,60 +189,12 @@ defmodule Exograph do
     )
   end
 
-  @spec search_callers(Index.t(), String.t(), keyword()) :: {:ok, [Exograph.CallEdge.t()]}
-  def search_callers(%Index{} = index, callee, opts \\ []) when is_binary(callee) do
-    PostgresInvertedIndex.search_callers(index.inverted, callee, opts)
-  end
-
-  @spec search_callees(Index.t(), String.t(), keyword()) :: {:ok, [Exograph.CallEdge.t()]}
-  def search_callees(%Index{} = index, caller, opts \\ []) when is_binary(caller) do
-    PostgresInvertedIndex.search_callees(index.inverted, caller, opts)
-  end
-
-  @spec all(Index.t(), DSL.Query.t(), keyword()) :: {:ok, [map()]} | {:error, term()}
-  def all(index, query, opts \\ [])
-
-  def all(%Index{} = index, %DSL.Query{source: :fragment} = query, opts) do
-    DSL.Executor.all(index, query, opts)
-  end
-
-  def all(%Index{} = index, %DSL.Query{} = query, opts) do
-    DSL.Executor.all(index, query, opts)
-  end
-
+  @doc false
   @spec compile(ExAST.Pattern.pattern() | ExAST.Selector.t()) :: Query.t()
   def compile(%ExAST.Selector{} = selector), do: Query.selector(selector)
   def compile(pattern), do: Query.pattern(pattern)
 
-  @spec plan(Index.t(), ExAST.Pattern.pattern() | ExAST.Selector.t() | Query.t(), keyword()) ::
-          Exograph.Planner.Plan.t()
-  def plan(index, pattern_or_selector, opts \\ [])
-  def plan(%Index{} = index, %Query{} = query, opts), do: Planner.plan(index, query, opts)
-
-  def plan(%Index{} = index, pattern_or_selector, opts),
-    do: Planner.plan(index, compile(pattern_or_selector), opts)
-
-  @spec explain(
-          ExAST.Pattern.pattern()
-          | ExAST.Selector.t()
-          | Query.t()
-          | Exograph.Planner.Plan.t()
-        ) :: map()
-  def explain(%Exograph.Planner.Plan{} = plan), do: Planner.explain(plan)
-
-  def explain(%Query{} = query) do
-    %{
-      required: query.required_terms |> MapSet.to_list() |> Enum.sort(),
-      optional: query.optional_terms |> MapSet.to_list() |> Enum.sort(),
-      negative: query.negative_terms |> MapSet.to_list() |> Enum.sort(),
-      candidate_groups:
-        Enum.map(query.candidate_groups, fn group -> group |> MapSet.to_list() |> Enum.sort() end),
-      verifier: verifier_name(query.verifier)
-    }
-  end
-
-  def explain(pattern_or_selector), do: pattern_or_selector |> compile() |> explain()
-
+  @doc false
   @spec tree_nodes(Index.t(), Exograph.Fragment.id()) :: [Exograph.Tree.Node.t()]
   def tree_nodes(%Index{} = index, fragment_id) do
     index.tree_store_backend.nodes(index.tree_store, fragment_id)
@@ -352,8 +345,4 @@ defmodule Exograph do
       reference |> String.downcase() |> String.contains?(partial_name)
     end)
   end
-
-  defp verifier_name({:pattern, _}), do: :pattern
-  defp verifier_name({:selector, _}), do: :selector
-  defp verifier_name(nil), do: nil
 end

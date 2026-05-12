@@ -1,7 +1,5 @@
 defmodule Exograph.Symbols do
-  @moduledoc """
-  Lightweight Elixir symbol and reference extraction.
-  """
+  @moduledoc false
 
   @type result :: %{
           defs: MapSet.t(String.t()),

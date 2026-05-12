@@ -1,7 +1,5 @@
 defmodule Exograph.Similarity do
-  @moduledoc """
-  Near-duplicate search using ExDNA fingerprints and structural similarity.
-  """
+  @moduledoc false
 
   alias ExDNA.AST.{EditDistance, Fingerprint, Normalizer}
   alias Exograph.Index

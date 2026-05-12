@@ -1,7 +1,5 @@
 defmodule Exograph.Planner.LogicalPlan do
-  @moduledoc """
-  Backend-independent query semantics.
-  """
+  @moduledoc false
 
   alias Exograph.Query
 

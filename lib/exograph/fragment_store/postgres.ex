@@ -542,9 +542,11 @@ defmodule Exograph.FragmentStore.Postgres do
 
       gn_source = graph_nodes_source(store)
 
-      store.repo.insert_all(
+      Postgres.bulk_insert_all(
+        store.repo,
         gn_source,
         entries,
+        chunk_size: 2_000,
         on_conflict: :nothing,
         timeout: :infinity
       )

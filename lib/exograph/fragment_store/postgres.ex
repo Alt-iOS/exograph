@@ -294,17 +294,22 @@ defmodule Exograph.FragmentStore.Postgres do
             |> Map.merge(%{inserted_at: now, updated_at: now})
           end)
 
-        {_count, returning} =
-          store.repo.insert_all(
-            {source(store), FragmentRecord},
-            entries,
-            conflict_target: [:content_hash],
-            on_conflict: :nothing,
-            returning: [:id, :content_hash],
-            timeout: :infinity
-          )
+        inserted_by_hash =
+          entries
+          |> Enum.chunk_every(2_000)
+          |> Enum.reduce(%{}, fn chunk, acc ->
+            {_count, returning} =
+              store.repo.insert_all(
+                {source(store), FragmentRecord},
+                chunk,
+                conflict_target: [:content_hash],
+                on_conflict: :nothing,
+                returning: [:id, :content_hash],
+                timeout: :infinity
+              )
 
-        inserted_by_hash = Map.new(returning, fn r -> {r.content_hash, r.id} end)
+            Map.merge(acc, Map.new(returning, fn r -> {r.content_hash, r.id} end))
+          end)
 
         all_hashes = Enum.map(hashed_unique, & &1.content_hash)
 

@@ -115,7 +115,10 @@ defmodule Exograph.Extractor.ExAST do
   defp unwrap_head({:when, _, [head | _]}), do: unwrap_head(head)
   defp unwrap_head(head), do: head
 
-  defp alias_name({:__aliases__, _, parts}), do: Enum.join(parts, ".")
+  defp alias_name({:__aliases__, _, parts}) do
+    if Enum.all?(parts, &is_atom/1), do: Enum.join(parts, "."), else: nil
+  end
+
   defp alias_name(_), do: nil
 
   defp line({_form, meta, _args}), do: Keyword.get(meta, :line, 0)

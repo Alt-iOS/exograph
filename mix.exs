@@ -43,7 +43,13 @@ defmodule Exograph.MixProject do
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
       {:ecto_sql, "~> 3.13"},
       {:postgrex, "~> 0.22"},
-      {:ex_doc, "~> 0.38", only: :dev, runtime: false}
+      {:ex_doc, "~> 0.38", only: :dev, runtime: false},
+      {:phoenix, "~> 1.8", optional: true},
+      {:phoenix_html, "~> 4.1", optional: true},
+      {:phoenix_live_view, "~> 1.1", optional: true},
+      {:volt, "~> 0.10", optional: true},
+      {:bandit, "~> 1.5", optional: true},
+      {:jason, "~> 1.2"}
     ]
   end
 

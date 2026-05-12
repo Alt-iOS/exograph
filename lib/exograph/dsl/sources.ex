@@ -24,6 +24,7 @@ defmodule Exograph.DSL.Sources do
                      :package_version_id,
                      :file_id,
                      :kind,
+                     :module,
                      :name,
                      :arity,
                      :line,

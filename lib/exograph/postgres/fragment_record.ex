@@ -22,6 +22,7 @@ defmodule Exograph.Postgres.FragmentRecord do
       values: [:unknown, :module, :expression, :def, :defp, :defmacro, :defmacrop]
     )
 
+    field(:module, :string)
     field(:name, :string)
     field(:arity, :integer)
     field(:line, :integer)
@@ -48,6 +49,7 @@ defmodule Exograph.Postgres.FragmentRecord do
       content_hash: fragment.content_hash,
       ast: compressed_binary(fragment.ast),
       kind: fragment.kind,
+      module: fragment.module,
       name: fragment.name,
       arity: fragment.arity,
       line: fragment.line,
@@ -70,6 +72,7 @@ defmodule Exograph.Postgres.FragmentRecord do
       content_hash: record.content_hash,
       ast: :erlang.binary_to_term(record.ast),
       kind: record.kind,
+      module: record.module,
       name: record.name,
       arity: record.arity,
       line: record.line,

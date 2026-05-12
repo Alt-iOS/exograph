@@ -73,6 +73,7 @@ defmodule Exograph.Postgres.Migrations.CreateSchema do
       add(:content_hash, :binary)
       add(:ast, :binary, null: false)
       add(:kind, :text, null: false)
+      add(:module, :text)
       add(:name, :text)
       add(:arity, :integer)
       add(:line, :integer, null: false)

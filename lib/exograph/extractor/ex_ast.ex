@@ -42,20 +42,28 @@ defmodule Exograph.Extractor.ExAST do
 
     with {:ok, source} <- File.read(file),
          {:ok, ast} <-
-           Code.string_to_quoted(source, line: 1, columns: true, file: file, emit_warnings: false) do
+           Code.string_to_quoted(source,
+             line: 1,
+             columns: true,
+             token_metadata: true,
+             file: file,
+             emit_warnings: false
+           ) do
       package_context = package_context(opts)
       source_file = SourceFile.new(file, source, package_context)
 
+      modules = collect_modules(ast)
+
       ast
       |> Fingerprint.fragments(file, Keyword.fetch!(opts, :min_mass), opts)
-      |> Enum.map(&to_fragment(&1, source_file, package_context))
+      |> Enum.map(&to_fragment(&1, source_file, package_context, modules))
       |> compute_end_lines()
     else
       _ -> []
     end
   end
 
-  defp to_fragment(fingerprint, source_file, package_context) do
+  defp to_fragment(fingerprint, source_file, package_context, modules) do
     ast = fingerprint.ast
     {kind, name, arity} = classify(ast)
     line = Map.get(fingerprint, :line, line(ast))
@@ -75,6 +83,7 @@ defmodule Exograph.Extractor.ExAST do
       file_id: nil,
       ast: ast,
       kind: kind,
+      module: containing_module(modules, line),
       name: name,
       arity: arity,
       line: line,
@@ -83,6 +92,35 @@ defmodule Exograph.Extractor.ExAST do
       terms: terms,
       sub_hashes: fingerprint.sub_hashes
     }
+  end
+
+  defp collect_modules(ast) do
+    {_ast, modules} =
+      Macro.prewalk(ast, [], fn
+        {:defmodule, meta, [{:__aliases__, _, parts} | _]} = node, acc when is_list(meta) ->
+          if Enum.all?(parts, &is_atom/1) do
+            line = Keyword.get(meta, :line, 0)
+            end_line = Keyword.get(meta, :end, []) |> Keyword.get(:line, 999_999)
+            {node, [{Enum.join(parts, "."), line, end_line} | acc]}
+          else
+            {node, acc}
+          end
+
+        node, acc ->
+          {node, acc}
+      end)
+
+    Enum.sort_by(modules, fn {_name, line, _end_line} -> line end)
+  end
+
+  defp containing_module(modules, line) do
+    modules
+    |> Enum.filter(fn {_name, mod_line, mod_end} -> line > mod_line and line <= mod_end end)
+    |> List.last()
+    |> case do
+      {name, _, _} -> name
+      nil -> nil
+    end
   end
 
   @function_kinds [:def, :defp, :defmacro, :defmacrop]

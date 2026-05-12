@@ -16,7 +16,8 @@ defmodule Exograph.MixProject do
       elixirc_paths: elixirc_paths(Mix.env()),
       aliases: aliases(),
       source_url: @source_url,
-      homepage_url: @source_url
+      homepage_url: @source_url,
+      package: package()
     ]
   end
 
@@ -43,6 +44,14 @@ defmodule Exograph.MixProject do
       {:ecto_sql, "~> 3.13"},
       {:postgrex, "~> 0.22"},
       {:ex_doc, "~> 0.38", only: :dev, runtime: false}
+    ]
+  end
+
+  defp package do
+    [
+      licenses: ["MIT"],
+      links: %{"GitHub" => @source_url},
+      files: ~w(lib guides mix.exs README.md LICENSE CHANGELOG.md .formatter.exs)
     ]
   end
 

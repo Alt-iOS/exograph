@@ -33,6 +33,10 @@ defmodule Exograph.FragmentStore.Postgres do
     ReferenceRecord
   }
 
+  @noise_references MapSet.new(
+                      ~w(|/2 ::/2 =/2 %{}/1 ->/2 |>/2 %/2 @/1 fn/1 __block__/1 __block__/2 __block__/3 __block__/4 __block__/5 __block__/6 __block__/7 __block__/8 __block__/9 __block__/10)
+                    )
+
   defstruct repo: nil,
             prefix: "exograph",
             package: nil,
@@ -492,6 +496,11 @@ defmodule Exograph.FragmentStore.Postgres do
       files_with_ast
       |> Enum.flat_map(fn {file, ast} ->
         symbols_from(ast, file.source || "", &ExAST.Symbols.references/1)
+        |> Enum.reject(fn ref ->
+          MapSet.member?(@noise_references, ref.qualified_name) or
+            String.starts_with?(ref.qualified_name, "__block__/") or
+            (ref.kind == :local_call and ref.name == "__block__")
+        end)
         |> Enum.map(fn reference ->
           Reference.new(
             file,

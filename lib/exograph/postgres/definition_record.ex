@@ -31,9 +31,6 @@ defmodule Exograph.Postgres.DefinitionRecord do
     field(:name, :string)
     field(:arity, :integer)
     field(:qualified_name, :string)
-    field(:mfa_module, :string)
-    field(:mfa_name, :string)
-    field(:mfa_arity, :integer)
     field(:line, :integer)
     field(:column, :integer)
 
@@ -51,9 +48,6 @@ defmodule Exograph.Postgres.DefinitionRecord do
     :name,
     :arity,
     :qualified_name,
-    :mfa_module,
-    :mfa_name,
-    :mfa_arity,
     :line,
     :column
   ]

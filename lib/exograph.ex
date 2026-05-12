@@ -165,28 +165,28 @@ defmodule Exograph do
   @spec search_definitions(Index.t(), String.t(), keyword()) :: {:ok, [DefinitionHit.t()]}
   def search_definitions(%Index{} = index, partial_name, opts \\ [])
       when is_binary(partial_name) do
-    search_code_facts(
-      index,
-      partial_name,
-      opts,
-      :search_definitions,
-      DefinitionHit,
-      &definition_match?/2
-    )
+    if function_exported?(index.inverted_backend, :search_definitions, 3) do
+      case index.inverted_backend.search_definitions(index.inverted, partial_name, opts) do
+        {:ok, hits} -> typed_hits(hits, DefinitionHit)
+        {:error, _} -> search_definitions_seq(index, partial_name, opts)
+      end
+    else
+      search_definitions_seq(index, partial_name, opts)
+    end
   end
 
   @doc false
   @spec search_references(Index.t(), String.t(), keyword()) :: {:ok, [ReferenceHit.t()]}
   def search_references(%Index{} = index, partial_name, opts \\ [])
       when is_binary(partial_name) do
-    search_code_facts(
-      index,
-      partial_name,
-      opts,
-      :search_references,
-      ReferenceHit,
-      &reference_match?/2
-    )
+    if function_exported?(index.inverted_backend, :search_references, 3) do
+      case index.inverted_backend.search_references(index.inverted, partial_name, opts) do
+        {:ok, hits} -> typed_hits(hits, ReferenceHit)
+        {:error, _} -> search_references_seq(index, opts)
+      end
+    else
+      search_references_seq(index, opts)
+    end
   end
 
   @doc false
@@ -284,30 +284,28 @@ defmodule Exograph do
     |> ok()
   end
 
-  defp search_code_facts(index, partial_name, opts, backend_function, hit_module, fallback_match?) do
-    if function_exported?(index.inverted_backend, backend_function, 3) do
-      case apply(index.inverted_backend, backend_function, [index.inverted, partial_name, opts]) do
-        {:ok, hits} ->
-          hits
-          |> Enum.filter(&fallback_match?.(&1.fragment, partial_name))
-          |> typed_hits(hit_module)
-
-        {:error, _reason} ->
-          search_code_facts_seq(index, partial_name, opts, hit_module, fallback_match?)
-      end
-    else
-      search_code_facts_seq(index, partial_name, opts, hit_module, fallback_match?)
-    end
-  end
-
-  defp search_code_facts_seq(%Index{} = index, partial_name, opts, hit_module, fallback_match?) do
+  defp search_definitions_seq(%Index{} = index, partial_name, opts) do
+    partial_lower = String.downcase(partial_name)
     limit = Keyword.get(opts, :limit, 50)
 
     index.fragment_store_backend.all(index.fragment_store)
     |> Enum.filter(fn fragment ->
-      Scope.fragment?(fragment, opts) and fallback_match?.(fragment, partial_name)
+      Scope.fragment?(fragment, opts) and
+        fragment.kind in [:def, :defp, :defmacro, :defmacrop] and
+        fragment.name != nil and
+        String.contains?(String.downcase(fragment.name), partial_lower)
     end)
-    |> Enum.map(&hit_module.new(fragment: &1, score: 1.0))
+    |> Enum.map(&DefinitionHit.new(fragment: &1, score: 1.0))
+    |> Enum.take(limit)
+    |> ok()
+  end
+
+  defp search_references_seq(%Index{} = index, opts) do
+    limit = Keyword.get(opts, :limit, 50)
+
+    index.fragment_store_backend.all(index.fragment_store)
+    |> Enum.filter(fn fragment -> Scope.fragment?(fragment, opts) end)
+    |> Enum.map(&ReferenceHit.new(fragment: &1, score: 1.0))
     |> Enum.take(limit)
     |> ok()
   end
@@ -330,19 +328,4 @@ defmodule Exograph do
   defp comments_text(source) when is_binary(source), do: Exograph.File.comments_text(source)
 
   defp comments_text(_source), do: ""
-
-  defp definition_match?(fragment, partial_name) do
-    partial_name = String.downcase(partial_name)
-
-    (fragment.kind in [:def, :defp, :defmacro, :defmacrop] and fragment.name) &&
-      String.contains?(String.downcase(fragment.name), partial_name)
-  end
-
-  defp reference_match?(fragment, partial_name) do
-    partial_name = String.downcase(partial_name)
-
-    Enum.any?(fragment.refs, fn reference ->
-      reference |> String.downcase() |> String.contains?(partial_name)
-    end)
-  end
 end

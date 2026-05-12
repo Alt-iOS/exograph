@@ -38,7 +38,6 @@ defmodule ExographBackendTest do
     assert [_ | _] = Exograph.tree_nodes(index, fragment.id)
     fragments = index.fragment_store_backend.all(index.fragment_store)
     assert Enum.any?(fragments, &(MapSet.size(&1.terms) > 0))
-    assert "first_fun/0" in fragment.defs
   end
 
   test "finds structurally similar fragments", %{opts: opts} do

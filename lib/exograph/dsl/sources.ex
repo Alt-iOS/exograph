@@ -14,9 +14,6 @@ defmodule Exograph.DSL.Sources do
                         :name,
                         :arity,
                         :qualified_name,
-                        :mfa_module,
-                        :mfa_name,
-                        :mfa_arity,
                         :line,
                         :column
                       ])
@@ -27,7 +24,6 @@ defmodule Exograph.DSL.Sources do
                      :package_version_id,
                      :file_id,
                      :kind,
-                     :module,
                      :name,
                      :arity,
                      :line,

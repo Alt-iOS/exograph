@@ -73,17 +73,14 @@ defmodule Exograph.Postgres.Migrations.CreateSchema do
       add(:content_hash, :binary)
       add(:ast, :binary, null: false)
       add(:kind, :text, null: false)
-      add(:module, :text)
       add(:name, :text)
       add(:arity, :integer)
       add(:line, :integer, null: false)
       add(:end_line, :integer)
       add(:mass, :integer, null: false)
       add(:exact_hash, :binary)
-      add(:abstract_hash, :binary)
       add(:terms, {:array, :integer}, null: false, default: [])
       add(:sub_hashes, {:array, :bigint}, null: false, default: [])
-      add(:symbols, :map, null: false, default: %{})
       timestamps(type: :utc_datetime_usec)
     end
 
@@ -95,13 +92,6 @@ defmodule Exograph.Postgres.Migrations.CreateSchema do
 
     create_if_not_exists(
       index(name("fragments"), [:terms], using: :gin, name: index_name("fragments", "terms_gin"))
-    )
-
-    create_if_not_exists(
-      index(name("fragments"), [:symbols],
-        using: :gin,
-        name: index_name("fragments", "symbols_gin")
-      )
     )
 
     create_if_not_exists(
@@ -156,9 +146,6 @@ defmodule Exograph.Postgres.Migrations.CreateSchema do
       add(:name, :text, null: false)
       add(:arity, :integer)
       add(:qualified_name, :text, null: false)
-      add(:mfa_module, :text)
-      add(:mfa_name, :text)
-      add(:mfa_arity, :integer)
       add(:line, :integer)
       add(:column, :integer)
       timestamps(type: :utc_datetime_usec)
@@ -186,9 +173,6 @@ defmodule Exograph.Postgres.Migrations.CreateSchema do
       add(:name, :text, null: false)
       add(:arity, :integer)
       add(:qualified_name, :text, null: false)
-      add(:mfa_module, :text)
-      add(:mfa_name, :text)
-      add(:mfa_arity, :integer)
       add(:line, :integer)
       add(:column, :integer)
       timestamps(type: :utc_datetime_usec)

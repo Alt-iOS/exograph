@@ -22,17 +22,14 @@ defmodule Exograph.Postgres.FragmentRecord do
       values: [:unknown, :module, :expression, :def, :defp, :defmacro, :defmacrop]
     )
 
-    field(:module, :string)
     field(:name, :string)
     field(:arity, :integer)
     field(:line, :integer)
     field(:end_line, :integer)
     field(:mass, :integer)
     field(:exact_hash, :binary)
-    field(:abstract_hash, :binary)
     field(:terms, {:array, :integer}, default: [])
     field(:sub_hashes, {:array, :integer}, default: [])
-    field(:symbols, :map, default: %{})
 
     timestamps(type: :utc_datetime_usec)
   end
@@ -51,17 +48,14 @@ defmodule Exograph.Postgres.FragmentRecord do
       content_hash: fragment.content_hash,
       ast: compressed_binary(fragment.ast),
       kind: fragment.kind,
-      module: fragment.module,
       name: fragment.name,
       arity: fragment.arity,
       line: fragment.line,
       end_line: fragment.end_line,
       mass: fragment.mass,
       exact_hash: encode_hash(fragment.exact_hash),
-      abstract_hash: encode_hash(fragment.abstract_hash),
       terms: MapSet.to_list(fragment.terms),
-      sub_hashes: MapSet.to_list(fragment.sub_hashes),
-      symbols: encode_symbols(fragment)
+      sub_hashes: MapSet.to_list(fragment.sub_hashes)
     }
   end
 
@@ -76,23 +70,14 @@ defmodule Exograph.Postgres.FragmentRecord do
       content_hash: record.content_hash,
       ast: :erlang.binary_to_term(record.ast),
       kind: record.kind,
-      module: record.module,
       name: record.name,
       arity: record.arity,
       line: record.line,
       end_line: record.end_line,
       mass: record.mass,
       exact_hash: record.exact_hash,
-      abstract_hash: record.abstract_hash,
       terms: mapset(record.terms),
-      sub_hashes: mapset(record.sub_hashes),
-      defs: decoded_symbol(record.symbols, "defs"),
-      refs: decoded_symbol(record.symbols, "refs"),
-      modules: decoded_symbol(record.symbols, "modules"),
-      functions: decoded_symbol(record.symbols, "functions"),
-      aliases: decoded_symbol(record.symbols, "aliases"),
-      structs: decoded_symbol(record.symbols, "structs"),
-      atoms: decoded_symbol(record.symbols, "atoms")
+      sub_hashes: mapset(record.sub_hashes)
     }
   end
 
@@ -107,23 +92,7 @@ defmodule Exograph.Postgres.FragmentRecord do
 
   defp encode_hash(hash), do: to_string(hash)
 
-  defp encode_symbols(fragment) do
-    %{
-      defs: strings(fragment.defs),
-      refs: strings(fragment.refs),
-      modules: strings(fragment.modules),
-      functions: strings(fragment.functions),
-      aliases: strings(fragment.aliases),
-      structs: strings(fragment.structs),
-      atoms: strings(fragment.atoms)
-    }
-  end
-
-  defp decoded_symbol(nil, _key), do: MapSet.new()
-  defp decoded_symbol(symbols, key), do: symbols |> Map.get(key, []) |> MapSet.new()
-
   defp compressed_binary(term), do: :erlang.term_to_binary(term, [:compressed])
-  defp strings(set), do: set |> MapSet.to_list() |> Enum.sort()
   defp mapset(nil), do: MapSet.new()
   defp mapset(values), do: MapSet.new(values)
 end

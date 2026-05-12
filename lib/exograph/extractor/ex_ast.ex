@@ -5,8 +5,8 @@ defmodule Exograph.Extractor.ExAST do
 
   @behaviour Exograph.Extractor
 
-  alias ExDNA.AST.{Fingerprint, Normalizer}
-  alias Exograph.{Fragment, Package, PackageVersion, Symbols}
+  alias ExDNA.AST.Fingerprint
+  alias Exograph.{Fragment, Package, PackageVersion}
   alias Exograph.File, as: SourceFile
 
   @default_opts [min_mass: 15, literal_mode: :keep, normalize_pipes: true]
@@ -60,12 +60,7 @@ defmodule Exograph.Extractor.ExAST do
     {kind, name, arity} = classify(ast)
     line = Map.get(fingerprint, :line, line(ast))
     exact_hash = fingerprint.hash
-
-    abstract_hash =
-      ast |> Normalizer.normalize(literal_mode: :abstract) |> Fingerprint.compute_hash()
-
     terms = ExAST.Index.Terms.from_ast(ast)
-    symbols = Symbols.extract(ast)
 
     content_hash =
       compute_content_hash(package_context.package_version_id, fingerprint.file, line, exact_hash)
@@ -85,16 +80,8 @@ defmodule Exograph.Extractor.ExAST do
       line: line,
       mass: fingerprint.mass,
       exact_hash: exact_hash,
-      abstract_hash: abstract_hash,
       terms: terms,
-      sub_hashes: fingerprint.sub_hashes,
-      defs: symbols.defs,
-      refs: symbols.refs,
-      modules: symbols.modules,
-      functions: symbols.functions,
-      aliases: symbols.aliases,
-      structs: symbols.structs,
-      atoms: symbols.atoms
+      sub_hashes: fingerprint.sub_hashes
     }
   end
 
@@ -177,7 +164,7 @@ defmodule Exograph.Extractor.ExAST do
   end
 
   defp compute_content_hash(package_version_id, file, line, hash) do
-    :crypto.hash(:blake2b, :erlang.term_to_binary({package_version_id, file, line, hash}))
+    :crypto.hash(:sha256, :erlang.term_to_binary({package_version_id, file, line, hash}))
   end
 
   defp expand_path(path) do

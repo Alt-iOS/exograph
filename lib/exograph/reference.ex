@@ -12,9 +12,6 @@ defmodule Exograph.Reference do
           name: String.t(),
           arity: non_neg_integer() | nil,
           qualified_name: String.t(),
-          mfa_module: String.t() | nil,
-          mfa_name: String.t() | nil,
-          mfa_arity: non_neg_integer() | nil,
           line: pos_integer() | nil,
           column: pos_integer() | nil
         }

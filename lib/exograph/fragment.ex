@@ -6,6 +6,8 @@ defmodule Exograph.Fragment do
   fingerprints, and the inverted index backend.
   """
 
+  @type id :: integer()
+
   @type t :: %__MODULE__{
           id: integer() | nil,
           file: String.t(),

@@ -1,6 +1,6 @@
 defmodule Exograph do
   @moduledoc """
-  Structural search and code intelligence for Elixir.
+  Local CodeQL-style code search for Elixir, backed by Postgres and ExAST.
   """
 
   alias Exograph.{

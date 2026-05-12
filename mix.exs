@@ -1,16 +1,23 @@
 defmodule Exograph.MixProject do
   use Mix.Project
 
+  @version "0.1.0"
+  @source_url "https://github.com/elixir-vibe/exograph"
+
   def project do
     [
       app: :exograph,
-      version: "0.1.0",
+      version: @version,
       elixir: "~> 1.19",
+      description: "Local CodeQL-style code search for Elixir, backed by Postgres and ExAST.",
       start_permanent: Mix.env() == :prod,
       deps: deps(),
       docs: docs(),
+      package: package(),
       elixirc_paths: elixirc_paths(Mix.env()),
-      aliases: aliases()
+      aliases: aliases(),
+      source_url: @source_url,
+      homepage_url: @source_url
     ]
   end
 
@@ -41,10 +48,20 @@ defmodule Exograph.MixProject do
     ]
   end
 
+  defp package do
+    [
+      licenses: ["MIT"],
+      links: %{"GitHub" => @source_url},
+      files: ~w(lib guides mix.exs README.md LICENSE CHANGELOG.md .formatter.exs)
+    ]
+  end
+
   defp docs do
     [
       main: "readme",
+      source_ref: "v#{@version}",
       extras: [
+        "CHANGELOG.md",
         "README.md",
         "guides/getting-started.md",
         "guides/querying.md",

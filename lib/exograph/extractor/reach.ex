@@ -30,7 +30,13 @@ defmodule Exograph.Extractor.Reach do
   end
 
   defp extract_file(file, fragments) do
-    with {:ok, graph} <- Reach.string_to_graph(file.source, file: file.path) do
+    with {:ok, ast} <-
+           Code.string_to_quoted(file.source,
+             columns: true,
+             file: file.path,
+             emit_warnings: false
+           ),
+         {:ok, graph} <- Reach.ast_to_graph(ast, file: file.path) do
       definitions = function_definitions(file.source)
       local_nodes = local_nodes(file, fragments, definitions, graph)
 

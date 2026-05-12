@@ -71,7 +71,7 @@ defmodule Exograph.FragmentStore.Postgres do
       {source(store), FragmentRecord},
       entries,
       conflict_target: [:id],
-      on_conflict: {:replace_all_except, [:id, :inserted_at]},
+      on_conflict: :nothing,
       timeout: :infinity
     )
 
@@ -161,9 +161,9 @@ defmodule Exograph.FragmentStore.Postgres do
       store.repo,
       files_source(store),
       entries,
-      chunk_size: 500,
+      chunk_size: 2_000,
       conflict_target: [:id],
-      on_conflict: {:replace_all_except, [:id, :inserted_at]},
+      on_conflict: :nothing,
       timeout: :infinity
     )
 
@@ -175,9 +175,20 @@ defmodule Exograph.FragmentStore.Postgres do
   defp upsert_code_facts(store, files, fragments, now) do
     fragments_by_file = Enum.group_by(fragments, & &1.file_id)
 
+    files_with_ast =
+      Enum.map(files, fn file ->
+        ast =
+          case Code.string_to_quoted(file.source, line: 1, columns: true, emit_warnings: false) do
+            {:ok, ast} -> ast
+            _ -> nil
+          end
+
+        {file, ast}
+      end)
+
     comments =
-      files
-      |> Enum.flat_map(fn file ->
+      files_with_ast
+      |> Enum.flat_map(fn {file, _ast} ->
         file.source
         |> extract_comments()
         |> Enum.map(fn comment ->
@@ -191,10 +202,9 @@ defmodule Exograph.FragmentStore.Postgres do
       |> Enum.uniq_by(& &1.id)
 
     definitions =
-      files
-      |> Enum.flat_map(fn file ->
-        file.source
-        |> ExAST.Symbols.definitions()
+      files_with_ast
+      |> Enum.flat_map(fn {file, ast} ->
+        symbols_from(ast, file.source, &ExAST.Symbols.definitions/1)
         |> Enum.map(fn definition ->
           Definition.new(
             file,
@@ -206,10 +216,9 @@ defmodule Exograph.FragmentStore.Postgres do
       |> Enum.uniq_by(& &1.id)
 
     references =
-      files
-      |> Enum.flat_map(fn file ->
-        file.source
-        |> ExAST.Symbols.references()
+      files_with_ast
+      |> Enum.flat_map(fn {file, ast} ->
+        symbols_from(ast, file.source, &ExAST.Symbols.references/1)
         |> Enum.map(fn reference ->
           Reference.new(
             file,
@@ -278,6 +287,18 @@ defmodule Exograph.FragmentStore.Postgres do
     _ -> []
   end
 
+  defp symbols_from(nil, source, fun) do
+    fun.(source)
+  rescue
+    _ -> []
+  end
+
+  defp symbols_from(ast, _source, fun) do
+    fun.(ast)
+  rescue
+    _ -> []
+  end
+
   defp insert_code_facts(_store, _source, [], _record, _mapper, _now), do: :ok
 
   defp insert_code_facts(store, source, facts, record, mapper, now) do
@@ -292,9 +313,9 @@ defmodule Exograph.FragmentStore.Postgres do
       store.repo,
       source,
       entries,
-      chunk_size: 1_000,
+      chunk_size: 3_000,
       conflict_target: [:id],
-      on_conflict: {:replace_all_except, [:id, :inserted_at]},
+      on_conflict: :nothing,
       timeout: :infinity
     )
   end
@@ -308,7 +329,7 @@ defmodule Exograph.FragmentStore.Postgres do
       {"#{store.prefix}_packages", PackageRecord},
       [PackageRecord.from_package(package) |> Map.merge(%{inserted_at: now, updated_at: now})],
       conflict_target: [:id],
-      on_conflict: {:replace_all_except, [:id, :inserted_at]},
+      on_conflict: :nothing,
       timeout: :infinity
     )
 
@@ -320,7 +341,7 @@ defmodule Exograph.FragmentStore.Postgres do
           |> Map.merge(%{inserted_at: now, updated_at: now})
         ],
         conflict_target: [:id],
-        on_conflict: {:replace_all_except, [:id, :inserted_at]},
+        on_conflict: :nothing,
         timeout: :infinity
       )
     end

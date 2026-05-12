@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.2.0
+
+- Populate `fragment.module` with containing module name (97% coverage)
+- Drop redundant `symbols` jsonb, `abstract_hash`, `mfa_*` columns
+- Filter operator/structural noise from references (26% fewer rows)
+- Use SHA-256 for content hash (32B vs 64B)
+- Add `examples/index_hex_corpus.exs`
+
+### Breaking
+
+Schema changes require a fresh index. Drop existing tables and re-migrate.
+
 ## 0.1.0
 
 Initial public release.

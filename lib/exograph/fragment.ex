@@ -6,15 +6,14 @@ defmodule Exograph.Fragment do
   fingerprints, and the inverted index backend.
   """
 
-  @type id :: non_neg_integer() | binary()
-
   @type t :: %__MODULE__{
-          id: id() | nil,
+          id: integer() | nil,
           file: String.t(),
           source: String.t() | nil,
-          package_id: String.t() | nil,
-          package_version_id: String.t() | nil,
-          file_id: String.t() | nil,
+          package_id: integer() | nil,
+          package_version_id: integer() | nil,
+          file_id: integer() | nil,
+          content_hash: binary() | nil,
           ast: Macro.t(),
           kind: atom(),
           module: String.t() | nil,
@@ -42,6 +41,7 @@ defmodule Exograph.Fragment do
             package_id: nil,
             package_version_id: nil,
             file_id: nil,
+            content_hash: nil,
             ast: nil,
             kind: :unknown,
             module: nil,

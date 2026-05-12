@@ -4,9 +4,9 @@ defmodule Exograph.File do
   """
 
   @type t :: %__MODULE__{
-          id: String.t(),
-          package_id: String.t() | nil,
-          package_version_id: String.t() | nil,
+          id: integer() | nil,
+          package_id: integer() | nil,
+          package_version_id: integer() | nil,
           path: String.t(),
           source: String.t(),
           comments_text: String.t(),
@@ -16,13 +16,12 @@ defmodule Exograph.File do
   defstruct [:id, :package_id, :package_version_id, :path, :source, :comments_text, :sha256]
 
   def new(path, source, context \\ %{}) do
-    package_version_id = Map.get(context, :package_version_id)
     sha256 = :crypto.hash(:sha256, source) |> Base.encode16(case: :lower)
 
     %__MODULE__{
-      id: id(package_version_id, path, sha256),
+      id: nil,
       package_id: Map.get(context, :package_id),
-      package_version_id: package_version_id,
+      package_version_id: Map.get(context, :package_version_id),
       path: path,
       source: source,
       comments_text: comments_text(source),
@@ -34,10 +33,5 @@ defmodule Exograph.File do
     ExAST.Comments.text(source)
   rescue
     _ -> ""
-  end
-
-  def id(package_version_id, path, sha256) do
-    :crypto.hash(:blake2b, :erlang.term_to_binary({package_version_id, path, sha256}))
-    |> Base.encode16(case: :lower)
   end
 end

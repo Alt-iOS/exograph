@@ -6,7 +6,7 @@ defmodule Exograph.Package do
   @type ecosystem :: atom() | String.t()
 
   @type t :: %__MODULE__{
-          id: String.t(),
+          id: integer() | nil,
           ecosystem: ecosystem(),
           name: String.t(),
           metadata: map()
@@ -21,13 +21,10 @@ defmodule Exograph.Package do
     name = Map.fetch!(attrs, :name)
 
     %__MODULE__{
-      id: Map.get(attrs, :id) || id(ecosystem, name),
+      id: Map.get(attrs, :id),
       ecosystem: ecosystem,
       name: name,
       metadata: Map.get(attrs, :metadata, %{})
     }
   end
-
-  @spec id(ecosystem(), String.t()) :: String.t()
-  def id(ecosystem, name), do: "#{ecosystem}:#{name}"
 end

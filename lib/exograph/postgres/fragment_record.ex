@@ -7,14 +7,15 @@ defmodule Exograph.Postgres.FragmentRecord do
 
   alias Exograph.Fragment
 
-  @primary_key {:id, :string, autogenerate: false}
+  @primary_key {:id, :id, autogenerate: true}
   @schema_prefix nil
   schema "exograph_fragments" do
-    field(:package_id, :string)
-    field(:package_version_id, :string)
-    field(:file_id, :string)
+    field(:package_id, :integer)
+    field(:package_version_id, :integer)
+    field(:file_id, :integer)
     field(:file, :string, virtual: true)
     field(:source, :string, virtual: true)
+    field(:content_hash, :binary)
     field(:ast, :binary)
 
     field(:kind, Ecto.Enum,
@@ -29,7 +30,7 @@ defmodule Exograph.Postgres.FragmentRecord do
     field(:mass, :integer)
     field(:exact_hash, :binary)
     field(:abstract_hash, :binary)
-    field(:terms, {:array, :string}, default: [])
+    field(:terms, {:array, :integer}, default: [])
     field(:sub_hashes, {:array, :integer}, default: [])
     field(:symbols, :map, default: %{})
 
@@ -39,15 +40,15 @@ defmodule Exograph.Postgres.FragmentRecord do
   def changeset(record, attrs) do
     record
     |> cast(attrs, __schema__(:fields))
-    |> validate_required([:id, :ast, :kind, :line, :mass])
+    |> validate_required([:ast, :kind, :line, :mass])
   end
 
   def from_fragment(%Fragment{} = fragment) do
     %{
-      id: fragment.id,
       package_id: fragment.package_id,
       package_version_id: fragment.package_version_id,
       file_id: fragment.file_id,
+      content_hash: fragment.content_hash,
       ast: compressed_binary(fragment.ast),
       kind: fragment.kind,
       module: fragment.module,
@@ -58,7 +59,7 @@ defmodule Exograph.Postgres.FragmentRecord do
       mass: fragment.mass,
       exact_hash: encode_hash(fragment.exact_hash),
       abstract_hash: encode_hash(fragment.abstract_hash),
-      terms: strings(fragment.terms),
+      terms: MapSet.to_list(fragment.terms),
       sub_hashes: MapSet.to_list(fragment.sub_hashes),
       symbols: encode_symbols(fragment)
     }
@@ -72,6 +73,7 @@ defmodule Exograph.Postgres.FragmentRecord do
       file_id: record.file_id,
       file: record.file,
       source: record.source,
+      content_hash: record.content_hash,
       ast: :erlang.binary_to_term(record.ast),
       kind: record.kind,
       module: record.module,

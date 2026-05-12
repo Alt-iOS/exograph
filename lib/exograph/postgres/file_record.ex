@@ -5,10 +5,10 @@ defmodule Exograph.Postgres.FileRecord do
 
   alias Exograph.File
 
-  @primary_key {:id, :string, autogenerate: false}
+  @primary_key {:id, :id, autogenerate: true}
   schema "exograph_files" do
-    field(:package_id, :string)
-    field(:package_version_id, :string)
+    field(:package_id, :integer)
+    field(:package_version_id, :integer)
     field(:path, :string)
     field(:source, :string)
     field(:comments_text, :string)
@@ -19,7 +19,6 @@ defmodule Exograph.Postgres.FileRecord do
 
   def from_file(%File{} = file) do
     %{
-      id: file.id,
       package_id: file.package_id,
       package_version_id: file.package_version_id,
       path: file.path,

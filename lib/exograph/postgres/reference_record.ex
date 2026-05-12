@@ -5,13 +5,13 @@ defmodule Exograph.Postgres.ReferenceRecord do
 
   alias Exograph.Reference
 
-  @primary_key {:id, :string, autogenerate: false}
+  @primary_key {:id, :id, autogenerate: true}
   @schema_prefix nil
   schema "exograph_references" do
-    field(:package_id, :string)
-    field(:package_version_id, :string)
-    field(:file_id, :string)
-    field(:fragment_id, :string)
+    field(:package_id, :integer)
+    field(:package_version_id, :integer)
+    field(:file_id, :integer)
+    field(:fragment_id, :integer)
     field(:kind, Ecto.Enum, values: [:local_call, :remote_call, :alias, :module_attribute])
     field(:module, :string)
     field(:name, :string)
@@ -44,7 +44,7 @@ defmodule Exograph.Postgres.ReferenceRecord do
     :column
   ]
 
-  def from_reference(%Reference{} = reference), do: Map.take(reference, @fields)
+  def from_reference(%Reference{} = reference), do: Map.take(reference, @fields -- [:id])
 
   def to_reference(%__MODULE__{} = record) do
     struct(Reference, Map.take(record, @fields))

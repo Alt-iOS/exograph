@@ -7,7 +7,7 @@ defmodule Exograph.Postgres.PackageRecord do
 
   alias Exograph.Package
 
-  @primary_key {:id, :string, autogenerate: false}
+  @primary_key {:id, :id, autogenerate: true}
   @schema_prefix nil
   schema "exograph_packages" do
     field(:ecosystem, :string)
@@ -19,13 +19,12 @@ defmodule Exograph.Postgres.PackageRecord do
 
   def changeset(record, attrs) do
     record
-    |> cast(attrs, [:id, :ecosystem, :name, :metadata])
-    |> validate_required([:id, :ecosystem, :name])
+    |> cast(attrs, [:ecosystem, :name, :metadata])
+    |> validate_required([:ecosystem, :name])
   end
 
   def from_package(%Package{} = package) do
     %{
-      id: package.id,
       ecosystem: to_string(package.ecosystem),
       name: package.name,
       metadata: package.metadata

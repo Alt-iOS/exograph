@@ -2,9 +2,8 @@ defmodule Exograph.InvertedIndex.Postgres do
   @moduledoc """
   Postgres/ParadeDB candidate retrieval backend implemented with Ecto queries.
 
-  Structural lookups use the `terms text[]` GIN index. Text relevance fields are
-  stored alongside the same rows so deployments with `pg_search` can add a BM25
-  index without changing Exograph's logical verification pipeline.
+  Structural lookups use the `terms integer[]` GIN index. Term strings are
+  normalized to integer IDs in the terms table before querying.
   """
 
   @behaviour Exograph.InvertedIndex
@@ -38,15 +37,21 @@ defmodule Exograph.InvertedIndex.Postgres do
     required = MapSet.to_list(query.required_terms)
     optional = MapSet.to_list(query.optional_terms)
 
+    required_ids = resolve_term_ids(index, required)
+    optional_ids = resolve_term_ids(index, optional)
+
+    required_id_set = MapSet.new(required_ids)
+    optional_id_set = MapSet.new(optional_ids)
+
     records =
       base_query(index)
-      |> where_terms(required, optional)
+      |> where_term_ids(required_ids, optional_ids)
       |> where_scope(opts)
       |> limit(^limit)
       |> with_file(index, include_source?(query))
       |> index.repo.all()
 
-    hits = Enum.map(records, &hit(&1, query))
+    hits = Enum.map(records, &hit(&1, query, required_id_set, optional_id_set))
     {:ok, hits}
   end
 
@@ -87,6 +92,22 @@ defmodule Exograph.InvertedIndex.Postgres do
       |> index.repo.all()
 
     {:ok, Enum.map(records, &CallEdgeRecord.to_call_edge/1)}
+  end
+
+  defp resolve_term_ids(_index, []), do: []
+
+  defp resolve_term_ids(index, terms) when is_list(terms) do
+    rows =
+      Ecto.Adapters.SQL.query!(
+        index.repo,
+        "SELECT id FROM #{Exograph.Postgres.table(index.prefix, "terms")} WHERE term = ANY($1)",
+        [terms],
+        timeout: :infinity
+      ).rows
+
+    Enum.map(rows, fn [id] -> id end)
+  rescue
+    _ -> []
   end
 
   defp include_source?(%ExographQuery{verifier: {:selector, _selector}} = query),
@@ -219,24 +240,24 @@ defmodule Exograph.InvertedIndex.Postgres do
   defp maybe_where_package_version(queryable, package_version_id),
     do: where(queryable, [fragment], fragment.package_version_id == ^package_version_id)
 
-  defp where_terms(queryable, [], []), do: queryable
+  defp where_term_ids(queryable, [], []), do: queryable
 
-  defp where_terms(queryable, required, []) do
-    where(queryable, [fragment], fragment("? @> ?", fragment.terms, ^required))
+  defp where_term_ids(queryable, required_ids, []) when required_ids != [] do
+    where(queryable, [fragment], fragment("? @> ?", fragment.terms, ^required_ids))
   end
 
-  defp where_terms(queryable, [], optional) do
-    where(queryable, [fragment], fragment("? && ?", fragment.terms, ^optional))
+  defp where_term_ids(queryable, [], optional_ids) when optional_ids != [] do
+    where(queryable, [fragment], fragment("? && ?", fragment.terms, ^optional_ids))
   end
 
-  defp where_terms(queryable, required, _optional) do
-    where(queryable, [fragment], fragment("? @> ?", fragment.terms, ^required))
+  defp where_term_ids(queryable, required_ids, _optional_ids) do
+    where(queryable, [fragment], fragment("? @> ?", fragment.terms, ^required_ids))
   end
 
-  defp hit({%FragmentRecord{} = record, source, path}, query) do
+  defp hit({%FragmentRecord{} = record, source, path}, _query, required_id_set, optional_id_set) do
     fragment = Options.hydrate_fragment(record, source, path)
-    required_matches = MapSet.intersection(fragment.terms, query.required_terms)
-    optional_matches = MapSet.intersection(fragment.terms, query.optional_terms)
+    required_matches = MapSet.intersection(fragment.terms, required_id_set)
+    optional_matches = MapSet.intersection(fragment.terms, optional_id_set)
 
     Hit.new(
       fragment: fragment,

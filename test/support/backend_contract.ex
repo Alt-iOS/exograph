@@ -57,17 +57,32 @@ defmodule Exograph.BackendContract do
   def assert_postgres_package_rows(opts) do
     repo = Keyword.fetch!(opts, :repo)
     prefix = Keyword.fetch!(opts, :prefix)
-    version = Exograph.PackageVersion.new(Keyword.fetch!(opts, :package_version))
+    version_attrs = Keyword.fetch!(opts, :package_version)
+    ecosystem = to_string(Keyword.get(version_attrs, :ecosystem, :hex))
+    package_name = Keyword.get(version_attrs, :name)
+    version_str = Keyword.get(version_attrs, :version, "1.0.0")
 
     packages = {"#{prefix}_packages", PackageRecord}
     package_versions = {"#{prefix}_package_versions", PackageVersionRecord}
 
-    package_query = from(package in packages, where: package.id == ^version.package_id)
+    package_query =
+      from(package in packages,
+        where: package.ecosystem == ^ecosystem and package.name == ^package_name
+      )
+
+    package_id =
+      repo.one!(
+        from(p in packages,
+          where: p.ecosystem == ^ecosystem and p.name == ^package_name,
+          select: p.id
+        )
+      )
 
     package_version_query =
       from(package_version in package_versions,
         where:
-          package_version.id == ^version.id and package_version.package_id == ^version.package_id
+          package_version.package_id == ^package_id and
+            package_version.version == ^version_str
       )
 
     assert repo.aggregate(package_query, :count) == 1
@@ -114,6 +129,7 @@ defmodule Exograph.BackendContract do
           "definitions",
           "comments",
           "fragments",
+          "terms",
           "files",
           "package_versions",
           "packages",
@@ -141,19 +157,20 @@ defmodule Exograph.BackendContract do
     assert Enum.any?(fragments, &(&1.file == path and &1.name == "update_user"))
   end
 
-  defp assert_package_scope(index, opts) do
-    package_version = Exograph.PackageVersion.new(Keyword.fetch!(opts, :package_version))
+  defp assert_package_scope(index, _opts) do
+    all_fragments = index.fragment_store_backend.all(index.fragment_store)
 
-    assert Enum.all?(index.fragment_store_backend.all(index.fragment_store), fn fragment ->
-             fragment.package_id == package_version.package_id and
-               fragment.package_version_id == package_version.id
+    assert Enum.all?(all_fragments, fn fragment ->
+             is_integer(fragment.package_id) and is_integer(fragment.package_version_id)
            end)
 
+    package_version_id = hd(all_fragments).package_version_id
+
     assert {:ok, [_ | _]} =
-             Exograph.search(index, "Repo.get!(_, _)", package_version_id: package_version.id)
+             Exograph.search(index, "Repo.get!(_, _)", package_version_id: package_version_id)
 
     assert {:ok, []} =
-             Exograph.search(index, "Repo.get!(_, _)", package_version_id: "hex:other@0.1.0")
+             Exograph.search(index, "Repo.get!(_, _)", package_version_id: -1)
   end
 
   defp assert_structural_search(index, path) do

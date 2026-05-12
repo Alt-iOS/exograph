@@ -5,13 +5,13 @@ defmodule Exograph.Postgres.CommentRecord do
 
   alias Exograph.Comment
 
-  @primary_key {:id, :string, autogenerate: false}
+  @primary_key {:id, :id, autogenerate: true}
   @schema_prefix nil
   schema "exograph_comments" do
-    field(:package_id, :string)
-    field(:package_version_id, :string)
-    field(:file_id, :string)
-    field(:fragment_id, :string)
+    field(:package_id, :integer)
+    field(:package_version_id, :integer)
+    field(:file_id, :integer)
+    field(:fragment_id, :integer)
     field(:text, :string)
     field(:line, :integer)
     field(:column, :integer)
@@ -21,7 +21,6 @@ defmodule Exograph.Postgres.CommentRecord do
 
   def from_comment(%Comment{} = comment) do
     Map.take(comment, [
-      :id,
       :package_id,
       :package_version_id,
       :file_id,

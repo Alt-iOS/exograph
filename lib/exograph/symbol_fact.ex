@@ -25,7 +25,7 @@ defmodule Exograph.SymbolFact do
     {mfa_module, mfa_name, mfa_arity} = split_mfa(symbol.mfa)
 
     struct(module, %{
-      id: module.id(file.id, symbol.qualified_name, symbol.line, symbol.column),
+      id: nil,
       package_id: file.package_id,
       package_version_id: file.package_version_id,
       file_id: file.id,
@@ -41,11 +41,6 @@ defmodule Exograph.SymbolFact do
       line: symbol.line,
       column: symbol.column
     })
-  end
-
-  def id(file_id, qualified_name, line, column) do
-    :crypto.hash(:blake2b, :erlang.term_to_binary({file_id, qualified_name, line, column}))
-    |> Base.encode16(case: :lower)
   end
 
   defp split_mfa({module, name, arity}) do

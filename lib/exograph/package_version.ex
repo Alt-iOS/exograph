@@ -6,8 +6,8 @@ defmodule Exograph.PackageVersion do
   alias Exograph.Package
 
   @type t :: %__MODULE__{
-          id: String.t(),
-          package_id: String.t(),
+          id: integer() | nil,
+          package_id: integer() | nil,
           ecosystem: Package.ecosystem(),
           package_name: String.t(),
           version: String.t(),
@@ -30,11 +30,11 @@ defmodule Exograph.PackageVersion do
     attrs = Map.new(attrs)
     ecosystem = Map.get(attrs, :ecosystem, :hex)
     package_name = Map.get(attrs, :package_name) || Map.fetch!(attrs, :name)
-    package_id = Map.get(attrs, :package_id) || Package.id(ecosystem, package_name)
+    package_id = Map.get(attrs, :package_id)
     version = Map.fetch!(attrs, :version)
 
     %__MODULE__{
-      id: Map.get(attrs, :id) || id(package_id, version),
+      id: Map.get(attrs, :id),
       package_id: package_id,
       ecosystem: ecosystem,
       package_name: package_name,
@@ -44,7 +44,4 @@ defmodule Exograph.PackageVersion do
       metadata: Map.get(attrs, :metadata, %{})
     }
   end
-
-  @spec id(String.t(), String.t()) :: String.t()
-  def id(package_id, version), do: "#{package_id}@#{version}"
 end

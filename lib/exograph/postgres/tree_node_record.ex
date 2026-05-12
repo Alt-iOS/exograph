@@ -10,7 +10,7 @@ defmodule Exograph.Postgres.TreeNodeRecord do
   @primary_key false
   @schema_prefix nil
   schema "exograph_tree_nodes" do
-    field(:fragment_id, :string, primary_key: true)
+    field(:fragment_id, :integer, primary_key: true)
     field(:id, :integer, primary_key: true)
     field(:parent_id, :integer)
     field(:ordinal, :integer)

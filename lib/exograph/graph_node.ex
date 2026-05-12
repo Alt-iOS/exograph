@@ -2,11 +2,11 @@ defmodule Exograph.GraphNode do
   @moduledoc "Reach-derived semantic graph node."
 
   @type t :: %__MODULE__{
-          id: String.t(),
-          package_id: String.t() | nil,
-          package_version_id: String.t() | nil,
-          file_id: String.t() | nil,
-          fragment_id: String.t() | nil,
+          id: integer() | nil,
+          package_id: integer() | nil,
+          package_version_id: integer() | nil,
+          file_id: integer() | nil,
+          fragment_id: integer() | nil,
           engine: String.t(),
           external_id: String.t() | nil,
           kind: atom(),
@@ -40,27 +40,11 @@ defmodule Exograph.GraphNode do
   def new(attrs) do
     attrs = Map.new(attrs)
     qualified_name = Map.fetch!(attrs, :qualified_name)
+    kind = Map.get(attrs, :kind)
+    external_id = Map.get(attrs, :external_id)
 
-    struct(
-      __MODULE__,
-      Map.put_new_lazy(attrs, :id, fn ->
-        id(
-          Map.get(attrs, :package_version_id),
-          Map.get(attrs, :file_id),
-          Map.get(attrs, :kind),
-          qualified_name,
-          Map.get(attrs, :line),
-          Map.get(attrs, :column)
-        )
-      end)
-    )
-  end
+    temp_id = :erlang.phash2({external_id, qualified_name, kind})
 
-  def id(package_version_id, file_id, kind, qualified_name, line, column) do
-    :crypto.hash(
-      :blake2b,
-      :erlang.term_to_binary({package_version_id, file_id, kind, qualified_name, line, column})
-    )
-    |> Base.encode16(case: :lower)
+    struct(__MODULE__, Map.put_new(attrs, :id, temp_id))
   end
 end

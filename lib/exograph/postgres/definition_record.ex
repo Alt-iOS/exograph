@@ -5,13 +5,13 @@ defmodule Exograph.Postgres.DefinitionRecord do
 
   alias Exograph.Definition
 
-  @primary_key {:id, :string, autogenerate: false}
+  @primary_key {:id, :id, autogenerate: true}
   @schema_prefix nil
   schema "exograph_definitions" do
-    field(:package_id, :string)
-    field(:package_version_id, :string)
-    field(:file_id, :string)
-    field(:fragment_id, :string)
+    field(:package_id, :integer)
+    field(:package_version_id, :integer)
+    field(:file_id, :integer)
+    field(:fragment_id, :integer)
 
     field(:kind, Ecto.Enum,
       values: [
@@ -58,7 +58,7 @@ defmodule Exograph.Postgres.DefinitionRecord do
     :column
   ]
 
-  def from_definition(%Definition{} = definition), do: Map.take(definition, @fields)
+  def from_definition(%Definition{} = definition), do: Map.take(definition, @fields -- [:id])
 
   def to_definition(%__MODULE__{} = record) do
     struct(Definition, Map.take(record, @fields))

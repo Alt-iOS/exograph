@@ -54,28 +54,29 @@ defmodule Exograph.FragmentStore.Postgres do
   def put(%__MODULE__{} = store, fragments) when is_list(fragments) do
     now = DateTime.utc_now(:microsecond)
 
-    upsert_package_context(store, now)
+    store = ensure_package_context(store, now)
     files = upsert_files(store, fragments, now)
+    files_by_path = Map.new(files, &{&1.path, &1})
 
-    entries =
-      fragments
-      |> Enum.map(fn fragment ->
-        fragment
-        |> FragmentRecord.from_fragment()
-        |> Map.merge(%{inserted_at: now, updated_at: now})
+    package_id = store.package && store.package.id
+    package_version_id = store.package_version && store.package_version.id
+
+    resolved_fragments =
+      Enum.map(fragments, fn fragment ->
+        file = files_by_path[fragment.file]
+        file_id = if file, do: file.id, else: fragment.file_id
+
+        %{
+          fragment
+          | file_id: file_id,
+            package_id: package_id || fragment.package_id,
+            package_version_id: package_version_id || fragment.package_version_id
+        }
       end)
-      |> Enum.uniq_by(& &1.id)
 
-    Postgres.bulk_insert_all(
-      store.repo,
-      {source(store), FragmentRecord},
-      entries,
-      conflict_target: [:id],
-      on_conflict: :nothing,
-      timeout: :infinity
-    )
+    resolved_fragments = upsert_fragments(store, resolved_fragments, now)
 
-    upsert_code_facts(store, files, fragments, now)
+    upsert_code_facts(store, files, resolved_fragments, now)
 
     {:ok, store}
   end
@@ -121,64 +122,297 @@ defmodule Exograph.FragmentStore.Postgres do
   @impl true
   def term_frequencies(_store, []), do: %{}
 
-  def term_frequencies(%__MODULE__{} = store, terms) do
-    sql = """
-    SELECT term, count(*)::bigint
-    FROM #{Exograph.Postgres.table(store.prefix, "fragments")}, unnest(terms) AS term
-    WHERE term = ANY($1)
-    GROUP BY term
-    """
+  def term_frequencies(%__MODULE__{} = store, terms) when is_list(terms) do
+    term_to_id = load_term_ids(store, terms)
 
-    store.repo
-    |> Ecto.Adapters.SQL.query!(sql, [terms], timeout: :infinity)
-    |> Map.fetch!(:rows)
-    |> Map.new(fn [term, count] -> {term, count} end)
+    if map_size(term_to_id) == 0 do
+      %{}
+    else
+      ids = Map.values(term_to_id)
+      id_to_term = Map.new(term_to_id, fn {term, id} -> {id, term} end)
+
+      sql = """
+      SELECT term_id, count(*)::bigint
+      FROM #{Exograph.Postgres.table(store.prefix, "fragments")}, unnest(terms) AS term_id
+      WHERE term_id = ANY($1)
+      GROUP BY term_id
+      """
+
+      store.repo
+      |> Ecto.Adapters.SQL.query!(sql, [ids], timeout: :infinity)
+      |> Map.fetch!(:rows)
+      |> Map.new(fn [id, count] -> {Map.fetch!(id_to_term, id), count} end)
+    end
+  end
+
+  defp ensure_package_context(%__MODULE__{package: nil, package_version: nil} = store, _now),
+    do: store
+
+  defp ensure_package_context(%__MODULE__{} = store, now) do
+    package = store.package || package_from_version(store.package_version)
+
+    {_count, pkg_returning} =
+      store.repo.insert_all(
+        {"#{store.prefix}_packages", PackageRecord},
+        [PackageRecord.from_package(package) |> Map.merge(%{inserted_at: now, updated_at: now})],
+        conflict_target: [:ecosystem, :name],
+        on_conflict: :nothing,
+        returning: [:id],
+        timeout: :infinity
+      )
+
+    package_id =
+      case pkg_returning do
+        [%{id: id}] ->
+          id
+
+        [] ->
+          from(p in {"#{store.prefix}_packages", PackageRecord},
+            where: p.ecosystem == ^to_string(package.ecosystem) and p.name == ^package.name,
+            select: p.id
+          )
+          |> store.repo.one!()
+      end
+
+    package = %{package | id: package_id}
+    store = %{store | package: package}
+
+    if store.package_version do
+      pv = %{store.package_version | package_id: package_id}
+
+      {_count, pv_returning} =
+        store.repo.insert_all(
+          {"#{store.prefix}_package_versions", PackageVersionRecord},
+          [
+            PackageVersionRecord.from_package_version(pv)
+            |> Map.merge(%{inserted_at: now, updated_at: now})
+          ],
+          conflict_target: [:package_id, :version],
+          on_conflict: :nothing,
+          returning: [:id],
+          timeout: :infinity
+        )
+
+      pv_version = pv.version
+
+      package_version_id =
+        case pv_returning do
+          [%{id: id}] ->
+            id
+
+          [] ->
+            from(pv_row in {"#{store.prefix}_package_versions", PackageVersionRecord},
+              where: pv_row.package_id == ^package_id and pv_row.version == ^pv_version,
+              select: pv_row.id
+            )
+            |> store.repo.one!()
+        end
+
+      %{store | package_version: %{pv | id: package_version_id}}
+    else
+      store
+    end
   end
 
   defp upsert_files(_store, [], _now), do: []
 
   defp upsert_files(store, fragments, now) do
-    files =
+    package_id = store.package && store.package.id
+    package_version_id = store.package_version && store.package_version.id
+
+    raw_files =
       fragments
-      |> Enum.uniq_by(& &1.file_id)
-      |> Enum.reject(&is_nil(&1.file_id))
+      |> Enum.reject(&is_nil(&1.file))
+      |> Enum.uniq_by(& &1.file)
       |> Enum.map(fn fragment ->
-        File.new(fragment.file, fragment.source || "", %{
-          package_id: fragment.package_id,
-          package_version_id: fragment.package_version_id
+        source = fragment.source || ""
+
+        File.new(fragment.file, source, %{
+          package_id: package_id || fragment.package_id,
+          package_version_id: package_version_id || fragment.package_version_id
         })
-        |> Map.put(:id, fragment.file_id)
       end)
 
-    entries =
-      Enum.map(files, fn file ->
-        file
-        |> FileRecord.from_file()
-        |> Map.merge(%{inserted_at: now, updated_at: now})
-      end)
+    if raw_files == [] do
+      []
+    else
+      entries =
+        Enum.map(raw_files, fn file ->
+          file
+          |> FileRecord.from_file()
+          |> Map.merge(%{inserted_at: now, updated_at: now})
+        end)
 
-    Postgres.bulk_insert_all(
+      Postgres.bulk_insert_all(
+        store.repo,
+        files_source(store),
+        entries,
+        chunk_size: 2_000,
+        conflict_target: [:package_version_id, :sha256],
+        on_conflict: :nothing,
+        timeout: :infinity
+      )
+
+      sha256s = Enum.map(raw_files, & &1.sha256)
+      fetch_files_by_sha256(store, sha256s)
+    end
+  end
+
+  defp fetch_files_by_sha256(store, sha256s) do
+    from(f in files_source(store),
+      where: f.sha256 in ^sha256s,
+      select: {f.id, f.path, f.source, f.package_id, f.package_version_id, f.sha256}
+    )
+    |> store.repo.all()
+    |> Enum.map(fn {id, path, source, package_id, package_version_id, sha256} ->
+      %File{
+        id: id,
+        path: path,
+        source: source,
+        package_id: package_id,
+        package_version_id: package_version_id,
+        sha256: sha256,
+        comments_text: ""
+      }
+    end)
+  end
+
+  defp upsert_fragments(store, fragments, now) do
+    fragments_with_term_ids = normalize_terms(store, fragments)
+
+    hashed = Enum.reject(fragments_with_term_ids, &is_nil(&1.content_hash))
+    unhashed = Enum.filter(fragments_with_term_ids, &is_nil(&1.content_hash))
+
+    hashed_unique = Enum.uniq_by(hashed, & &1.content_hash)
+
+    resolved_hashed =
+      if hashed_unique != [] do
+        entries =
+          Enum.map(hashed_unique, fn fragment ->
+            fragment
+            |> FragmentRecord.from_fragment()
+            |> Map.merge(%{inserted_at: now, updated_at: now})
+          end)
+
+        {_count, returning} =
+          store.repo.insert_all(
+            {source(store), FragmentRecord},
+            entries,
+            conflict_target: [:content_hash],
+            on_conflict: :nothing,
+            returning: [:id, :content_hash],
+            timeout: :infinity
+          )
+
+        inserted_by_hash = Map.new(returning, fn r -> {r.content_hash, r.id} end)
+
+        all_hashes = Enum.map(hashed_unique, & &1.content_hash)
+
+        existing =
+          from(f in {source(store), FragmentRecord},
+            where: f.content_hash in ^all_hashes,
+            select: {f.content_hash, f.id}
+          )
+          |> store.repo.all()
+          |> Map.new()
+
+        hash_to_id = Map.merge(existing, inserted_by_hash)
+
+        Enum.map(hashed, fn fragment ->
+          %{fragment | id: Map.get(hash_to_id, fragment.content_hash)}
+        end)
+      else
+        []
+      end
+
+    if unhashed != [] do
+      entries =
+        Enum.map(unhashed, fn fragment ->
+          fragment
+          |> FragmentRecord.from_fragment()
+          |> Map.merge(%{inserted_at: now, updated_at: now})
+        end)
+
+      Postgres.bulk_insert_all(
+        store.repo,
+        {source(store), FragmentRecord},
+        entries,
+        on_conflict: :nothing,
+        timeout: :infinity
+      )
+    end
+
+    resolved_hashed ++ unhashed
+  end
+
+  defp normalize_terms(store, fragments) do
+    all_terms =
+      fragments
+      |> Enum.flat_map(fn f -> MapSet.to_list(f.terms) end)
+      |> Enum.filter(&is_binary/1)
+      |> Enum.uniq()
+
+    if all_terms == [] do
+      fragments
+    else
+      upsert_terms(store, all_terms)
+      term_to_id = load_term_ids(store, all_terms)
+
+      Enum.map(fragments, fn fragment ->
+        if Enum.all?(MapSet.to_list(fragment.terms), &is_integer/1) do
+          fragment
+        else
+          term_ids =
+            fragment.terms
+            |> MapSet.to_list()
+            |> Enum.flat_map(fn term ->
+              case Map.fetch(term_to_id, term) do
+                {:ok, id} -> [id]
+                :error -> []
+              end
+            end)
+            |> MapSet.new()
+
+          %{fragment | terms: term_ids}
+        end
+      end)
+    end
+  end
+
+  defp upsert_terms(store, terms) do
+    Ecto.Adapters.SQL.query!(
       store.repo,
-      files_source(store),
-      entries,
-      chunk_size: 2_000,
-      conflict_target: [:id],
-      on_conflict: :nothing,
+      "INSERT INTO #{Exograph.Postgres.table(store.prefix, "terms")} (term) SELECT unnest($1::text[]) ON CONFLICT (term) DO NOTHING",
+      [terms],
       timeout: :infinity
     )
+  end
 
-    files
+  defp load_term_ids(store, terms) do
+    rows =
+      Ecto.Adapters.SQL.query!(
+        store.repo,
+        "SELECT term, id FROM #{Exograph.Postgres.table(store.prefix, "terms")} WHERE term = ANY($1)",
+        [terms],
+        timeout: :infinity
+      ).rows
+
+    Map.new(rows, fn [term, id] -> {term, id} end)
   end
 
   defp upsert_code_facts(_store, [], _fragments, _now), do: :ok
 
   defp upsert_code_facts(store, files, fragments, now) do
-    fragments_by_file = Enum.group_by(fragments, & &1.file_id)
+    fragments_by_file_id = Enum.group_by(fragments, & &1.file_id)
 
     files_with_ast =
       Enum.map(files, fn file ->
         ast =
-          case Code.string_to_quoted(file.source, line: 1, columns: true, emit_warnings: false) do
+          case Code.string_to_quoted(file.source || "",
+                 line: 1,
+                 columns: true,
+                 emit_warnings: false
+               ) do
             {:ok, ast} -> ast
             _ -> nil
           end
@@ -189,45 +423,48 @@ defmodule Exograph.FragmentStore.Postgres do
     comments =
       files_with_ast
       |> Enum.flat_map(fn {file, _ast} ->
-        file.source
+        (file.source || "")
         |> extract_comments()
         |> Enum.map(fn comment ->
           Comment.new(
             file,
             comment,
-            FragmentLocator.containing_fragment_id(fragments_by_file[file.id], comment.line)
+            FragmentLocator.containing_fragment_id(fragments_by_file_id[file.id], comment.line)
           )
         end)
       end)
-      |> Enum.uniq_by(& &1.id)
 
     definitions =
       files_with_ast
       |> Enum.flat_map(fn {file, ast} ->
-        symbols_from(ast, file.source, &ExAST.Symbols.definitions/1)
+        symbols_from(ast, file.source || "", &ExAST.Symbols.definitions/1)
         |> Enum.map(fn definition ->
           Definition.new(
             file,
             definition,
-            FragmentLocator.containing_fragment_id(fragments_by_file[file.id], definition.line)
+            FragmentLocator.containing_fragment_id(
+              fragments_by_file_id[file.id],
+              definition.line
+            )
           )
         end)
       end)
-      |> Enum.uniq_by(& &1.id)
 
     references =
       files_with_ast
       |> Enum.flat_map(fn {file, ast} ->
-        symbols_from(ast, file.source, &ExAST.Symbols.references/1)
+        symbols_from(ast, file.source || "", &ExAST.Symbols.references/1)
         |> Enum.map(fn reference ->
           Reference.new(
             file,
             reference,
-            FragmentLocator.containing_fragment_id(fragments_by_file[file.id], reference.line)
+            FragmentLocator.containing_fragment_id(
+              fragments_by_file_id[file.id],
+              reference.line
+            )
           )
         end)
       end)
-      |> Enum.uniq_by(& &1.id)
 
     insert_code_facts(store, comments_source(store), comments, CommentRecord, :from_comment, now)
 
@@ -251,26 +488,72 @@ defmodule Exograph.FragmentStore.Postgres do
 
     if extractor_enabled?(store, :reach) do
       %{graph_nodes: graph_nodes, call_edges: call_edges} =
-        ReachExtractor.extract_files(files, fragments_by_file)
+        ReachExtractor.extract_files(files, fragments_by_file_id)
 
-      insert_code_facts(
-        store,
-        graph_nodes_source(store),
-        graph_nodes,
-        GraphNodeRecord,
-        :from_graph_node,
-        now
-      )
-
-      insert_code_facts(
-        store,
-        call_edges_source(store),
-        call_edges,
-        CallEdgeRecord,
-        :from_call_edge,
-        now
-      )
+      insert_graph_nodes_and_edges(store, graph_nodes, call_edges, now)
     end
+  end
+
+  defp insert_graph_nodes_and_edges(store, graph_nodes, call_edges, now) do
+    if graph_nodes != [] do
+      entries =
+        Enum.map(graph_nodes, fn node ->
+          GraphNodeRecord.from_graph_node(node)
+          |> Map.merge(%{inserted_at: now, updated_at: now})
+        end)
+
+      store.repo.insert_all(
+        graph_nodes_source(store),
+        entries,
+        on_conflict: :nothing,
+        timeout: :infinity
+      )
+
+      external_ids = graph_nodes |> Enum.map(& &1.external_id) |> Enum.reject(&is_nil/1)
+      qualified_names = Enum.map(graph_nodes, & &1.qualified_name)
+
+      db_nodes =
+        from(n in graph_nodes_source(store),
+          where: n.external_id in ^external_ids or n.qualified_name in ^qualified_names
+        )
+        |> store.repo.all()
+
+      node_id_map = build_node_id_map(db_nodes, graph_nodes)
+
+      if call_edges != [] do
+        resolved_edges =
+          Enum.map(call_edges, fn edge ->
+            %{
+              edge
+              | caller_node_id: Map.get(node_id_map, edge.caller_node_id),
+                callee_node_id: Map.get(node_id_map, edge.callee_node_id)
+            }
+          end)
+          |> Enum.reject(fn e -> is_nil(e.caller_node_id) or is_nil(e.callee_node_id) end)
+
+        insert_code_facts(
+          store,
+          call_edges_source(store),
+          resolved_edges,
+          CallEdgeRecord,
+          :from_call_edge,
+          now
+        )
+      end
+    end
+  end
+
+  defp build_node_id_map(returning, original_nodes) do
+    external_to_db = Map.new(returning, fn r -> {r.external_id, r.id} end)
+    qualified_to_db = Map.new(returning, fn r -> {{r.qualified_name, r.kind}, r.id} end)
+
+    Enum.reduce(original_nodes, %{}, fn node, acc ->
+      db_id =
+        Map.get(external_to_db, node.external_id) ||
+          Map.get(qualified_to_db, {node.qualified_name, node.kind})
+
+      if db_id, do: Map.put(acc, node.id, db_id), else: acc
+    end)
   end
 
   defp extractor_enabled?(store, name) do
@@ -314,44 +597,14 @@ defmodule Exograph.FragmentStore.Postgres do
       source,
       entries,
       chunk_size: 3_000,
-      conflict_target: [:id],
       on_conflict: :nothing,
       timeout: :infinity
     )
-  end
-
-  defp upsert_package_context(%__MODULE__{package: nil, package_version: nil}, _now), do: :ok
-
-  defp upsert_package_context(%__MODULE__{} = store, now) do
-    package = store.package || package_from_version(store.package_version)
-
-    store.repo.insert_all(
-      {"#{store.prefix}_packages", PackageRecord},
-      [PackageRecord.from_package(package) |> Map.merge(%{inserted_at: now, updated_at: now})],
-      conflict_target: [:id],
-      on_conflict: :nothing,
-      timeout: :infinity
-    )
-
-    if store.package_version do
-      store.repo.insert_all(
-        {"#{store.prefix}_package_versions", PackageVersionRecord},
-        [
-          PackageVersionRecord.from_package_version(store.package_version)
-          |> Map.merge(%{inserted_at: now, updated_at: now})
-        ],
-        conflict_target: [:id],
-        on_conflict: :nothing,
-        timeout: :infinity
-      )
-    end
-
-    :ok
   end
 
   defp package_from_version(%PackageVersion{} = version) do
     %Package{
-      id: version.package_id,
+      id: nil,
       ecosystem: version.ecosystem,
       name: version.package_name,
       metadata: %{}

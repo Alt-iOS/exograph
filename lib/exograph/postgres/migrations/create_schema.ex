@@ -9,8 +9,7 @@ defmodule Exograph.Postgres.Migrations.CreateSchema do
       add(:inserted_at, :naive_datetime, null: false, default: fragment("now()"))
     end
 
-    create_if_not_exists table(name("packages"), primary_key: false) do
-      add(:id, :text, primary_key: true)
+    create_if_not_exists table(name("packages")) do
       add(:ecosystem, :text, null: false)
       add(:name, :text, null: false)
       add(:metadata, :map, null: false, default: %{})
@@ -23,13 +22,8 @@ defmodule Exograph.Postgres.Migrations.CreateSchema do
       )
     )
 
-    create_if_not_exists table(name("package_versions"), primary_key: false) do
-      add(:id, :text, primary_key: true)
-
-      add(:package_id, references(name("packages"), type: :text, on_delete: :delete_all),
-        null: false
-      )
-
+    create_if_not_exists table(name("package_versions")) do
+      add(:package_id, references(name("packages"), on_delete: :delete_all), null: false)
       add(:version, :text, null: false)
       add(:source_ref, :text)
       add(:checksum, :text)
@@ -43,15 +37,9 @@ defmodule Exograph.Postgres.Migrations.CreateSchema do
       )
     )
 
-    create_if_not_exists table(name("files"), primary_key: false) do
-      add(:id, :text, primary_key: true)
-      add(:package_id, references(name("packages"), type: :text, on_delete: :delete_all))
-
-      add(
-        :package_version_id,
-        references(name("package_versions"), type: :text, on_delete: :delete_all)
-      )
-
+    create_if_not_exists table(name("files")) do
+      add(:package_id, references(name("packages"), on_delete: :delete_all))
+      add(:package_version_id, references(name("package_versions"), on_delete: :delete_all))
       add(:path, :text, null: false)
       add(:source, :text, null: false)
       add(:comments_text, :text, null: false, default: "")
@@ -65,16 +53,24 @@ defmodule Exograph.Postgres.Migrations.CreateSchema do
       )
     )
 
-    create_if_not_exists table(name("fragments"), primary_key: false) do
-      add(:id, :text, primary_key: true)
-      add(:package_id, references(name("packages"), type: :text, on_delete: :delete_all))
-
-      add(
-        :package_version_id,
-        references(name("package_versions"), type: :text, on_delete: :delete_all)
+    create_if_not_exists(
+      unique_index(name("files"), [:package_version_id, :sha256],
+        name: index_name("files", "package_version_sha256")
       )
+    )
 
-      add(:file_id, references(name("files"), type: :text, on_delete: :delete_all))
+    create_if_not_exists table(name("terms"), primary_key: false) do
+      add(:id, :serial, primary_key: true)
+      add(:term, :text, null: false)
+    end
+
+    create_if_not_exists(unique_index(name("terms"), [:term], name: index_name("terms", "term")))
+
+    create_if_not_exists table(name("fragments")) do
+      add(:package_id, references(name("packages"), on_delete: :delete_all))
+      add(:package_version_id, references(name("package_versions"), on_delete: :delete_all))
+      add(:file_id, references(name("files"), on_delete: :delete_all))
+      add(:content_hash, :binary)
       add(:ast, :binary, null: false)
       add(:kind, :text, null: false)
       add(:module, :text)
@@ -85,11 +81,17 @@ defmodule Exograph.Postgres.Migrations.CreateSchema do
       add(:mass, :integer, null: false)
       add(:exact_hash, :binary)
       add(:abstract_hash, :binary)
-      add(:terms, {:array, :text}, null: false, default: [])
+      add(:terms, {:array, :integer}, null: false, default: [])
       add(:sub_hashes, {:array, :bigint}, null: false, default: [])
       add(:symbols, :map, null: false, default: %{})
       timestamps(type: :utc_datetime_usec)
     end
+
+    create_if_not_exists(
+      unique_index(name("fragments"), [:content_hash],
+        name: index_name("fragments", "content_hash")
+      )
+    )
 
     create_if_not_exists(
       index(name("fragments"), [:terms], using: :gin, name: index_name("fragments", "terms_gin"))
@@ -112,17 +114,11 @@ defmodule Exograph.Postgres.Migrations.CreateSchema do
       index(name("fragments"), [:file_id], name: index_name("fragments", "file"))
     )
 
-    create_if_not_exists table(name("comments"), primary_key: false) do
-      add(:id, :text, primary_key: true)
-      add(:package_id, references(name("packages"), type: :text, on_delete: :delete_all))
-
-      add(
-        :package_version_id,
-        references(name("package_versions"), type: :text, on_delete: :delete_all)
-      )
-
-      add(:file_id, references(name("files"), type: :text, on_delete: :delete_all), null: false)
-      add(:fragment_id, references(name("fragments"), type: :text, on_delete: :nilify_all))
+    create_if_not_exists table(name("comments")) do
+      add(:package_id, references(name("packages"), on_delete: :delete_all))
+      add(:package_version_id, references(name("package_versions"), on_delete: :delete_all))
+      add(:file_id, references(name("files"), on_delete: :delete_all), null: false)
+      add(:fragment_id, references(name("fragments"), on_delete: :nilify_all))
       add(:text, :text, null: false)
       add(:line, :integer)
       add(:column, :integer)
@@ -137,17 +133,11 @@ defmodule Exograph.Postgres.Migrations.CreateSchema do
       index(name("comments"), [:fragment_id], name: index_name("comments", "fragment"))
     )
 
-    create_if_not_exists table(name("definitions"), primary_key: false) do
-      add(:id, :text, primary_key: true)
-      add(:package_id, references(name("packages"), type: :text, on_delete: :delete_all))
-
-      add(
-        :package_version_id,
-        references(name("package_versions"), type: :text, on_delete: :delete_all)
-      )
-
-      add(:file_id, references(name("files"), type: :text, on_delete: :delete_all), null: false)
-      add(:fragment_id, references(name("fragments"), type: :text, on_delete: :nilify_all))
+    create_if_not_exists table(name("definitions")) do
+      add(:package_id, references(name("packages"), on_delete: :delete_all))
+      add(:package_version_id, references(name("package_versions"), on_delete: :delete_all))
+      add(:file_id, references(name("files"), on_delete: :delete_all), null: false)
+      add(:fragment_id, references(name("fragments"), on_delete: :nilify_all))
       add(:kind, :text, null: false)
       add(:module, :text)
       add(:name, :text, null: false)
@@ -169,17 +159,11 @@ defmodule Exograph.Postgres.Migrations.CreateSchema do
       index(name("definitions"), [:fragment_id], name: index_name("definitions", "fragment"))
     )
 
-    create_if_not_exists table(name("references"), primary_key: false) do
-      add(:id, :text, primary_key: true)
-      add(:package_id, references(name("packages"), type: :text, on_delete: :delete_all))
-
-      add(
-        :package_version_id,
-        references(name("package_versions"), type: :text, on_delete: :delete_all)
-      )
-
-      add(:file_id, references(name("files"), type: :text, on_delete: :delete_all), null: false)
-      add(:fragment_id, references(name("fragments"), type: :text, on_delete: :nilify_all))
+    create_if_not_exists table(name("references")) do
+      add(:package_id, references(name("packages"), on_delete: :delete_all))
+      add(:package_version_id, references(name("package_versions"), on_delete: :delete_all))
+      add(:file_id, references(name("files"), on_delete: :delete_all), null: false)
+      add(:fragment_id, references(name("fragments"), on_delete: :nilify_all))
       add(:kind, :text, null: false)
       add(:module, :text)
       add(:name, :text, null: false)
@@ -201,17 +185,11 @@ defmodule Exograph.Postgres.Migrations.CreateSchema do
       index(name("references"), [:fragment_id], name: index_name("references", "fragment"))
     )
 
-    create_if_not_exists table(name("graph_nodes"), primary_key: false) do
-      add(:id, :text, primary_key: true)
-      add(:package_id, references(name("packages"), type: :text, on_delete: :delete_all))
-
-      add(
-        :package_version_id,
-        references(name("package_versions"), type: :text, on_delete: :delete_all)
-      )
-
-      add(:file_id, references(name("files"), type: :text, on_delete: :delete_all))
-      add(:fragment_id, references(name("fragments"), type: :text, on_delete: :nilify_all))
+    create_if_not_exists table(name("graph_nodes")) do
+      add(:package_id, references(name("packages"), on_delete: :delete_all))
+      add(:package_version_id, references(name("package_versions"), on_delete: :delete_all))
+      add(:file_id, references(name("files"), on_delete: :delete_all))
+      add(:fragment_id, references(name("fragments"), on_delete: :nilify_all))
       add(:engine, :text, null: false)
       add(:external_id, :text)
       add(:kind, :text, null: false)
@@ -233,29 +211,15 @@ defmodule Exograph.Postgres.Migrations.CreateSchema do
       index(name("graph_nodes"), [:file_id], name: index_name("graph_nodes", "file"))
     )
 
-    create_if_not_exists table(name("call_edges"), primary_key: false) do
-      add(:id, :text, primary_key: true)
-      add(:package_id, references(name("packages"), type: :text, on_delete: :delete_all))
+    create_if_not_exists table(name("call_edges")) do
+      add(:package_id, references(name("packages"), on_delete: :delete_all))
+      add(:package_version_id, references(name("package_versions"), on_delete: :delete_all))
+      add(:file_id, references(name("files"), on_delete: :delete_all))
 
-      add(
-        :package_version_id,
-        references(name("package_versions"), type: :text, on_delete: :delete_all)
-      )
+      add(:caller_node_id, references(name("graph_nodes"), on_delete: :delete_all), null: false)
+      add(:callee_node_id, references(name("graph_nodes"), on_delete: :delete_all), null: false)
 
-      add(:file_id, references(name("files"), type: :text, on_delete: :delete_all))
-
-      add(:caller_node_id, references(name("graph_nodes"), type: :text, on_delete: :delete_all),
-        null: false
-      )
-
-      add(:callee_node_id, references(name("graph_nodes"), type: :text, on_delete: :delete_all),
-        null: false
-      )
-
-      add(
-        :call_site_fragment_id,
-        references(name("fragments"), type: :text, on_delete: :nilify_all)
-      )
+      add(:call_site_fragment_id, references(name("fragments"), on_delete: :nilify_all))
 
       add(:caller_qualified_name, :text, null: false)
       add(:callee_qualified_name, :text, null: false)
@@ -282,7 +246,7 @@ defmodule Exograph.Postgres.Migrations.CreateSchema do
     )
 
     create_if_not_exists table(name("tree_nodes"), primary_key: false) do
-      add(:fragment_id, references(name("fragments"), type: :text, on_delete: :delete_all),
+      add(:fragment_id, references(name("fragments"), on_delete: :delete_all),
         null: false,
         primary_key: true
       )
@@ -312,6 +276,7 @@ defmodule Exograph.Postgres.Migrations.CreateSchema do
     drop_if_exists(table(name("definitions")))
     drop_if_exists(table(name("comments")))
     drop_if_exists(table(name("fragments")))
+    drop_if_exists(table(name("terms")))
     drop_if_exists(table(name("files")))
     drop_if_exists(table(name("package_versions")))
     drop_if_exists(table(name("packages")))

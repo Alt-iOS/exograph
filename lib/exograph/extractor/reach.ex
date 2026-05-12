@@ -25,8 +25,14 @@ defmodule Exograph.Extractor.Reach do
         call_edges: [facts.call_edges | acc.call_edges]
       }
     end)
-    |> Map.update!(:graph_nodes, &(&1 |> List.flatten() |> Enum.uniq_by(fn node -> node.id end)))
-    |> Map.update!(:call_edges, &(&1 |> List.flatten() |> Enum.uniq_by(fn edge -> edge.id end)))
+    |> Map.update!(:graph_nodes, fn nodes ->
+      nodes |> List.flatten() |> Enum.uniq_by(&external_key/1)
+    end)
+    |> Map.update!(:call_edges, fn edges -> List.flatten(edges) end)
+  end
+
+  defp external_key(%GraphNode{external_id: ext, qualified_name: qn, kind: kind}) do
+    {ext, qn, kind}
   end
 
   defp extract_file(file, fragments) do
@@ -64,7 +70,7 @@ defmodule Exograph.Extractor.Reach do
           end
         end)
 
-      %{graph_nodes: Enum.uniq_by(nodes, & &1.id), call_edges: Enum.uniq_by(edges, & &1.id)}
+      %{graph_nodes: Enum.uniq_by(nodes, &external_key/1), call_edges: edges}
     else
       _ -> %{graph_nodes: [], call_edges: []}
     end

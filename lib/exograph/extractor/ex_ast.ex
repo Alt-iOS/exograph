@@ -66,13 +66,17 @@ defmodule Exograph.Extractor.ExAST do
     terms = ExAST.Index.Terms.from_ast(ast)
     symbols = Symbols.extract(ast)
 
+    content_hash =
+      compute_content_hash(package_context.package_version_id, fingerprint.file, line, exact_hash)
+
     %Fragment{
-      id: fragment_id(package_context.package_version_id, fingerprint.file, line, exact_hash),
+      id: nil,
+      content_hash: content_hash,
       file: fingerprint.file,
       source: source_file.source,
       package_id: package_context.package_id,
       package_version_id: package_context.package_version_id,
-      file_id: source_file.id,
+      file_id: nil,
       ast: ast,
       kind: kind,
       name: name,
@@ -150,9 +154,8 @@ defmodule Exograph.Extractor.ExAST do
     end
   end
 
-  defp fragment_id(package_version_id, file, line, hash) do
+  defp compute_content_hash(package_version_id, file, line, hash) do
     :crypto.hash(:blake2b, :erlang.term_to_binary({package_version_id, file, line, hash}))
-    |> Base.encode16(case: :lower)
   end
 
   defp expand_path(path) do

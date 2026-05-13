@@ -1,6 +1,5 @@
 defmodule Exograph.Web.Router do
   @moduledoc false
-
   use Phoenix.Router
   import Phoenix.LiveView.Router
 
@@ -15,7 +14,6 @@ defmodule Exograph.Web.Router do
 
   scope "/", Exograph.Web do
     pipe_through(:browser)
-
     live("/", QueryLive, :index)
   end
 end

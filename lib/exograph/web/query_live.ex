@@ -1,7 +1,7 @@
 defmodule Exograph.Web.QueryLive do
   @moduledoc false
 
-  use Phoenix.LiveView, layout: {Exograph.Web.Layouts, :app}
+  use Exograph.Web, :live_view
 
   @default_query """
   from(f in Fragment,
@@ -206,74 +206,61 @@ defmodule Exograph.Web.QueryLive do
   @impl true
   def render(assigns) do
     ~H"""
-    <div class="flex flex-col h-full">
-      <header class="flex items-center justify-between px-6 py-3 border-b border-zinc-800">
-        <div class="flex items-center gap-3">
-          <h1 class="text-lg font-semibold tracking-tight">Exograph</h1>
-          <span class="text-xs text-zinc-500">{@prefix}</span>
+    <div class="layout">
+      <header class="header">
+        <div style="display:flex;align-items:center">
+          <h1>Exograph</h1>
+          <span class="prefix">{@prefix}</span>
         </div>
-        <div class="flex items-center gap-4 text-sm text-zinc-400">
-          <span :if={@result_count}>
+        <div class="meta">
+          <span :if={@result_count} class="stats">
             {to_string(@result_count)} results in {@elapsed_ms}ms
           </span>
-          <button
-            phx-click="run"
-            phx-value-query={@query}
-            class="px-3 py-1.5 text-sm font-medium bg-blue-600 text-white rounded-md hover:bg-blue-500 transition-colors"
-          >
-            Run
+          <button phx-click="run" phx-value-query={@query} class="run-btn">
+            Run ⌘↵
           </button>
         </div>
       </header>
 
-      <div class="flex flex-1 min-h-0">
-        <div class="flex flex-col w-full">
-          <div class="border-b border-zinc-800">
-            <div
-              id="editor"
-              phx-hook="Editor"
-              phx-update="ignore"
-              class="h-48"
-              data-query={@query}
-            />
-          </div>
+      <div class="content">
+        <div class="editor-wrap">
+          <div
+            id="editor"
+            phx-hook="Editor"
+            phx-update="ignore"
+            style="height:100%"
+            data-query={@query}
+          />
+        </div>
 
-          <div class="flex-1 overflow-auto">
-            <div :if={@error} class="p-4 text-red-400 font-mono text-sm whitespace-pre-wrap">{@error}</div>
+        <div class="results-wrap">
+          <div :if={@error} class="error">{@error}</div>
 
-            <table :if={@results && @results != []} class="w-full text-sm">
-              <thead class="text-xs text-zinc-500 uppercase tracking-wider">
-                <tr class="border-b border-zinc-800">
-                  <th class="px-4 py-2 text-left font-medium">Kind</th>
-                  <th class="px-4 py-2 text-left font-medium">Module</th>
-                  <th class="px-4 py-2 text-left font-medium">Name</th>
-                  <th class="px-4 py-2 text-left font-medium">File</th>
-                  <th class="px-4 py-2 text-right font-medium">Line</th>
-                  <th :if={has_joined?(@results)} class="px-4 py-2 text-left font-medium">Joined</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr :for={row <- @results} class="border-b border-zinc-800/50 hover:bg-zinc-900/50">
-                  <td class="px-4 py-2">
-                    <span class={"inline-block px-1.5 py-0.5 text-xs rounded #{kind_color(row.kind)}"}>{to_string(row.kind)}</span>
-                  </td>
-                  <td class="px-4 py-2 text-zinc-400 font-mono text-xs">{row.module}</td>
-                  <td class="px-4 py-2 font-mono text-xs">{display_name(row)}</td>
-                  <td class="px-4 py-2 text-zinc-500 text-xs">{row.file}</td>
-                  <td class="px-4 py-2 text-right text-zinc-500 tabular-nums">{row.line}</td>
-                  <td :if={has_joined?(@results)} class="px-4 py-2 text-zinc-400 font-mono text-xs">{row[:joined_name]}</td>
-                </tr>
-              </tbody>
-            </table>
+          <table :if={@results && @results != []}>
+            <thead>
+              <tr>
+                <th>Kind</th>
+                <th>Module</th>
+                <th>Name</th>
+                <th>File</th>
+                <th class="right">Line</th>
+                <th :if={has_joined?(@results)}>Joined</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr :for={row <- @results}>
+                <td><span class={"badge badge-" <> badge_class(row.kind)}>{to_string(row.kind)}</span></td>
+                <td class="mono dim">{row.module}</td>
+                <td class="mono">{display_name(row)}</td>
+                <td class="dim" style="font-size:12px">{row.file}</td>
+                <td class="right dim" style="font-variant-numeric:tabular-nums">{row.line}</td>
+                <td :if={has_joined?(@results)} class="mono dim">{row[:joined_name]}</td>
+              </tr>
+            </tbody>
+          </table>
 
-            <div :if={@results == []} class="p-8 text-center text-zinc-500">
-              No results
-            </div>
-
-            <div :if={is_nil(@results) && is_nil(@error)} class="p-8 text-center text-zinc-600">
-              Write a query and press Run
-            </div>
-          </div>
+          <div :if={@results == []} class="placeholder">No results</div>
+          <div :if={is_nil(@results) && is_nil(@error)} class="placeholder">Write a query and press Run</div>
         </div>
       </div>
     </div>
@@ -288,13 +275,19 @@ defmodule Exograph.Web.QueryLive do
   defp display_name(%{name: name}) when not is_nil(name), do: name
   defp display_name(_), do: nil
 
-  defp kind_color(:def), do: "bg-emerald-900/60 text-emerald-300"
-  defp kind_color(:defp), do: "bg-emerald-900/40 text-emerald-400"
-  defp kind_color(:defmacro), do: "bg-purple-900/60 text-purple-300"
-  defp kind_color(:module), do: "bg-blue-900/60 text-blue-300"
-  defp kind_color(:expression), do: "bg-zinc-800 text-zinc-400"
-  defp kind_color(:definition), do: "bg-amber-900/60 text-amber-300"
-  defp kind_color(:reference), do: "bg-cyan-900/60 text-cyan-300"
-  defp kind_color(:call), do: "bg-rose-900/60 text-rose-300"
-  defp kind_color(_), do: "bg-zinc-800 text-zinc-400"
+  defp badge_class(kind)
+       when kind in [
+              :def,
+              :defp,
+              :defmacro,
+              :defmacrop,
+              :module,
+              :expression,
+              :definition,
+              :reference,
+              :call
+            ],
+       do: to_string(kind)
+
+  defp badge_class(_), do: "default"
 end

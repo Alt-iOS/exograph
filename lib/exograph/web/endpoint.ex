@@ -1,6 +1,5 @@
 defmodule Exograph.Web.Endpoint do
   @moduledoc false
-
   use Phoenix.Endpoint, otp_app: :exograph
 
   @session_options [
@@ -19,7 +18,7 @@ defmodule Exograph.Web.Endpoint do
     at: "/",
     from: :exograph,
     gzip: false,
-    only: ~w(assets)
+    only: Exograph.Web.static_paths()
   )
 
   plug(Volt.DevServer, root: "assets")

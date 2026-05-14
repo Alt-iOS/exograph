@@ -66,7 +66,6 @@ export const Editor = {
       provideCompletionItems: (model: any, position: any) => {
         const line = model.getLineContent(position.lineNumber)
         const hint = line.slice(0, position.column - 1)
-        console.log('[Exograph] completion requested:', hint)
         const word = model.getWordUntilPosition(position)
         const range = new m.Range(position.lineNumber, word.startColumn, position.lineNumber, word.endColumn)
 

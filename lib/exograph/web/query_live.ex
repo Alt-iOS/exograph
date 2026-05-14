@@ -68,10 +68,11 @@ defmodule Exograph.Web.QueryLive do
     end
   end
 
-  defp eval_env do
-    import Exograph.DSL
-    __ENV__
-  end
+  # Import DSL macros into the eval environment for Code.eval_string
+  import Exograph.DSL
+  @eval_env __ENV__
+
+  defp eval_env, do: @eval_env
 
   defp run_parsed(index, %Exograph.DSL.Query{} = query) do
     Exograph.all(index, query, limit: 50)

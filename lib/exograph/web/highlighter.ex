@@ -15,10 +15,11 @@ defmodule Exograph.Web.Highlighter do
     end)
   end
 
+  @makeup_available Code.ensure_loaded?(Makeup) and Code.ensure_loaded?(Makeup.Lexers.ElixirLexer)
+
   defp highlight_line(text) do
-    if Code.ensure_loaded?(Makeup) and Code.ensure_loaded?(Makeup.Lexers.ElixirLexer) do
-      text
-      |> Makeup.highlight_inner_html(lexer: Makeup.Lexers.ElixirLexer)
+    if @makeup_available do
+      Makeup.highlight_inner_html(text, lexer: Makeup.Lexers.ElixirLexer)
     else
       Phoenix.HTML.html_escape(text) |> Phoenix.HTML.safe_to_string()
     end

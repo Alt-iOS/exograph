@@ -1,13 +1,21 @@
-import * as monaco from "../../node_modules/monaco-editor/esm/vs/editor/editor.api.js"
+let monaco: any = null
+let completionProvider: any = null
 
-let completionProvider: monaco.IDisposable | null = null
+async function loadMonaco() {
+  if (!monaco) {
+    const url = "/assets/vendor/monaco.js"
+    monaco = await import(/* webpackIgnore: true */ url)
+  }
+  return monaco
+}
 
 export const Editor = {
-  mounted(this: any) {
+  async mounted(this: any) {
+    const m = await loadMonaco()
     const container = this.el as HTMLElement
     const query = container.dataset.query || ""
 
-    monaco.editor.defineTheme("exograph", {
+    m.editor.defineTheme("exograph", {
       base: "vs-dark",
       inherit: true,
       rules: [
@@ -32,9 +40,9 @@ export const Editor = {
       },
     })
 
-    const editor = monaco.editor.create(container, {
+    const editor = m.editor.create(container, {
       value: query,
-      language: "elixir",
+      language: "plaintext",
       theme: "exograph",
       fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
       fontSize: 13,
@@ -49,25 +57,25 @@ export const Editor = {
       automaticLayout: true,
     })
 
-    editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter, () => {
+    editor.addCommand(m.KeyMod.CtrlCmd | m.KeyCode.Enter, () => {
       this.pushEvent("run", { query: editor.getValue() })
     })
 
     if (completionProvider) completionProvider.dispose()
-    completionProvider = monaco.languages.registerCompletionItemProvider("elixir", {
+    completionProvider = m.languages.registerCompletionItemProvider("plaintext", {
       triggerCharacters: [".", ":", '"', " "],
-      provideCompletionItems: (model, position) => {
+      provideCompletionItems: (model: any, position: any) => {
         const line = model.getLineContent(position.lineNumber)
         const hint = line.slice(0, position.column - 1)
         const word = model.getWordUntilPosition(position)
-        const range = new monaco.Range(position.lineNumber, word.startColumn, position.lineNumber, word.endColumn)
+        const range = new m.Range(position.lineNumber, word.startColumn, position.lineNumber, word.endColumn)
 
-        return new Promise((resolve) => {
+        return new Promise((resolve: any) => {
           const ref = String(Date.now())
           this.pushEvent("completion", { hint, ref }, (reply: any) => {
             const suggestions = (reply.items || []).map((item: any) => ({
               label: item.label,
-              kind: mapKind(item.kind),
+              kind: mapKind(m, item.kind),
               detail: item.detail,
               insertText: item.insert_text,
               range,
@@ -87,12 +95,12 @@ export const Editor = {
   },
 }
 
-function mapKind(kind: string): monaco.languages.CompletionItemKind {
+function mapKind(m: any, kind: string) {
   switch (kind) {
-    case "module": return monaco.languages.CompletionItemKind.Module
-    case "function": return monaco.languages.CompletionItemKind.Function
-    case "field": return monaco.languages.CompletionItemKind.Field
-    case "variable": return monaco.languages.CompletionItemKind.Variable
-    default: return monaco.languages.CompletionItemKind.Text
+    case "module": return m.languages.CompletionItemKind.Module
+    case "function": return m.languages.CompletionItemKind.Function
+    case "field": return m.languages.CompletionItemKind.Field
+    case "variable": return m.languages.CompletionItemKind.Variable
+    default: return m.languages.CompletionItemKind.Text
   }
 }

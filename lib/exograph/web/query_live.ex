@@ -223,7 +223,7 @@ defmodule Exograph.Web.QueryLive do
       </header>
 
       <div class="content">
-        <div class="editor-wrap">
+        <div style="height:200px;border-bottom:1px solid #27272a">
           <div
             id="editor"
             phx-hook="Editor"

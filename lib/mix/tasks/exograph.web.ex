@@ -105,13 +105,18 @@ defmodule Mix.Tasks.Exograph.Web do
   end
 
   defp build_assets! do
+    outdir = Volt.Config.build().outdir |> to_string()
+    File.mkdir_p!(outdir)
+
+    build_tailwind!(outdir)
+    build_monaco!(outdir)
+  end
+
+  defp build_tailwind!(outdir) do
     tw = Volt.Config.tailwind()
     css_path = Keyword.get(tw, :css)
 
     if css_path && File.regular?(css_path) do
-      outdir = Volt.Config.build().outdir |> to_string()
-      File.mkdir_p!(outdir)
-
       case Volt.Tailwind.build(
              css: File.read!(css_path),
              css_base: Path.dirname(css_path),
@@ -119,6 +124,35 @@ defmodule Mix.Tasks.Exograph.Web do
            ) do
         {:ok, css} -> File.write!(Path.join(outdir, "app.css"), css)
         {:error, reason} -> Mix.shell().error("Tailwind build failed: #{inspect(reason)}")
+      end
+    end
+  end
+
+  defp build_monaco!(outdir) do
+    vendor_dir = Path.join(outdir, "vendor")
+    monaco_path = Path.join(vendor_dir, "monaco.js")
+
+    if File.regular?(monaco_path) do
+      :ok
+    else
+      Mix.shell().info("Pre-bundling Monaco Editor...")
+      File.mkdir_p!(vendor_dir)
+
+      entry = "assets/node_modules/monaco-editor/esm/vs/editor/editor.api.js"
+
+      case OXC.bundle(entry,
+             cwd: File.cwd!(),
+             format: :esm,
+             modules: ["assets/node_modules"],
+             loader: %{".css" => :empty, ".ttf" => :empty},
+             define: %{"process.env.NODE_ENV" => ~s("production")}
+           ) do
+        {:ok, code} when is_binary(code) ->
+          File.write!(monaco_path, code)
+          Mix.shell().info("Monaco bundled: #{div(byte_size(code), 1024)}KB")
+
+        {:error, errors} ->
+          Mix.shell().error("Monaco bundle failed: #{inspect(errors)}")
       end
     end
   end

@@ -14,8 +14,6 @@ defmodule Exograph.Web.Completion do
   @predicates ~w(matches contains prefix_search)
 
   def complete(hint, index) do
-    hint = String.trim(hint)
-
     cond do
       String.ends_with?(hint, "in ") ->
         sources()

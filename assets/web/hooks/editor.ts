@@ -1,19 +1,16 @@
-let monaco: any = null
 let completionProvider: any = null
 
 async function loadMonaco() {
-  if (!monaco) {
-    const url = "/assets/vendor/monaco.js"
-    monaco = await import(/* webpackIgnore: true */ url)
-  }
-  return monaco
+  const url = "/assets/vendor/monaco.js"
+  return await import(/* webpackIgnore: true */ url)
 }
 
 export const Editor = {
   async mounted(this: any) {
-    const m = await loadMonaco()
+    const hook = this
     const container = this.el as HTMLElement
     const query = container.dataset.query || ""
+    const m = await loadMonaco()
 
     m.editor.defineTheme("exograph", {
       base: "vs-dark",
@@ -55,10 +52,12 @@ export const Editor = {
       tabSize: 2,
       wordWrap: "on",
       automaticLayout: true,
+      quickSuggestions: true,
+      suggestOnTriggerCharacters: true,
     })
 
     editor.addCommand(m.KeyMod.CtrlCmd | m.KeyCode.Enter, () => {
-      this.pushEvent("run", { query: editor.getValue() })
+      hook.pushEvent("run", { query: editor.getValue() })
     })
 
     if (completionProvider) completionProvider.dispose()
@@ -67,12 +66,12 @@ export const Editor = {
       provideCompletionItems: (model: any, position: any) => {
         const line = model.getLineContent(position.lineNumber)
         const hint = line.slice(0, position.column - 1)
+        console.log('[Exograph] completion requested:', hint)
         const word = model.getWordUntilPosition(position)
         const range = new m.Range(position.lineNumber, word.startColumn, position.lineNumber, word.endColumn)
 
         return new Promise((resolve: any) => {
-          const ref = String(Date.now())
-          this.pushEvent("completion", { hint, ref }, (reply: any) => {
+          hook.pushEvent("completion", { hint }, (reply: any) => {
             const suggestions = (reply.items || []).map((item: any) => ({
               label: item.label,
               kind: mapKind(m, item.kind),
@@ -87,7 +86,7 @@ export const Editor = {
     })
 
     this.editor = editor
-    ;(this.el as any)._monacoEditor = editor
+    ;(container as any)._monacoEditor = editor
   },
 
   destroyed(this: any) {

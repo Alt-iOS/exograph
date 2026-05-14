@@ -6,25 +6,23 @@ defmodule Exograph.Web.Highlighter do
     start = max(line - context_lines - 1, 0)
     finish = min(line + context_lines - 1, length(lines) - 1)
 
-    context =
-      lines
-      |> Enum.with_index(1)
-      |> Enum.slice(start..finish)
+    lines
+    |> Enum.with_index(1)
+    |> Enum.slice(start..finish)
+    |> Enum.map(fn {text, line_num} ->
+      html = highlight_line(text)
+      {line_num, html, line_num == line}
+    end)
+  end
 
-    highlighted_html =
-      if Code.ensure_loaded?(Makeup) and Code.ensure_loaded?(Makeup.Lexers.ElixirLexer) do
-        context
-        |> Enum.map(fn {text, line_num} ->
-          html = Makeup.highlight(text, lexer: Makeup.Lexers.ElixirLexer)
-          {line_num, html, line_num == line}
-        end)
-      else
-        Enum.map(context, fn {text, line_num} ->
-          escaped = Phoenix.HTML.html_escape(text) |> Phoenix.HTML.safe_to_string()
-          {line_num, escaped, line_num == line}
-        end)
-      end
-
-    highlighted_html
+  defp highlight_line(text) do
+    if Code.ensure_loaded?(Makeup) and Code.ensure_loaded?(Makeup.Lexers.ElixirLexer) do
+      text
+      |> Makeup.highlight_inner_html(lexer: Makeup.Lexers.ElixirLexer)
+    else
+      Phoenix.HTML.html_escape(text) |> Phoenix.HTML.safe_to_string()
+    end
+  rescue
+    _ -> Phoenix.HTML.html_escape(text) |> Phoenix.HTML.safe_to_string()
   end
 end

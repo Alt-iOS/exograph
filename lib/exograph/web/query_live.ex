@@ -112,7 +112,7 @@ defmodule Exograph.Web.QueryLive do
   defp normalize_result(%Exograph.Hit{fragment: f, match: m}) do
     %{
       type: :fragment,
-      file: f.file || "",
+      file: relative_path(f.file),
       package: extract_package(f.file),
       module: f.module,
       kind: f.kind,
@@ -128,7 +128,7 @@ defmodule Exograph.Web.QueryLive do
   defp normalize_result({%Exograph.Hit{fragment: f, match: m}, joined}) do
     %{
       type: :joined,
-      file: f.file || "",
+      file: relative_path(f.file),
       package: extract_package(f.file),
       module: f.module,
       kind: f.kind,
@@ -242,14 +242,29 @@ defmodule Exograph.Web.QueryLive do
 
   defp format_joined(_), do: nil
 
+  defp relative_path(nil), do: ""
+
+  defp relative_path(path) do
+    case Regex.run(~r"/sources/[^/]+/(.+)$", path) do
+      [_, rel] -> rel
+      _ -> Path.basename(path)
+    end
+  end
+
   defp extract_package(nil), do: "unknown"
   defp extract_package(""), do: "unknown"
 
   defp extract_package(file) do
-    file
-    |> String.split("/")
-    |> Enum.reject(&(&1 in ["", "."]))
-    |> List.first("unknown")
+    case Regex.run(~r"/sources/([^/]+)/", file) do
+      [_, pkg_dir] ->
+        case Regex.run(~r/^(.+)-\d/, pkg_dir) do
+          [_, name] -> name
+          _ -> pkg_dir
+        end
+
+      _ ->
+        file |> Path.basename() |> Path.rootname()
+    end
   end
 
   defp build_preview(nil, _, _), do: nil
@@ -263,14 +278,7 @@ defmodule Exograph.Web.QueryLive do
     source
     |> Exograph.Web.Highlighter.highlight(relative, 2)
     |> Enum.map(fn {rel_num, html, is_matched} ->
-      inner =
-        html
-        |> String.replace(~r/<pre[^>]*>/, "")
-        |> String.replace("</pre>", "")
-        |> String.replace(~r/<code[^>]*>/, "")
-        |> String.replace("</code>", "")
-
-      {rel_num + fline - 1, inner, is_matched}
+      {rel_num + fline - 1, html, is_matched}
     end)
   end
 

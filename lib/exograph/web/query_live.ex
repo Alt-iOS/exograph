@@ -56,7 +56,7 @@ defmodule Exograph.Web.QueryLive do
     {elapsed_us, result} =
       :timer.tc(fn ->
         try do
-          {parsed, _bindings} = Code.eval_string(query_string, [], __ENV__)
+          {parsed, _bindings} = Code.eval_string(query_string, [], eval_env())
           run_parsed(index, parsed)
         rescue
           e -> {:error, Exception.message(e)}
@@ -67,6 +67,11 @@ defmodule Exograph.Web.QueryLive do
       {:ok, results} -> {:ok, results, Float.round(elapsed_us / 1000, 1)}
       {:error, message} -> {:error, message}
     end
+  end
+
+  defp eval_env do
+    import Exograph.DSL
+    __ENV__
   end
 
   defp run_parsed(index, %Exograph.DSL.Query{} = query) do
@@ -206,61 +211,67 @@ defmodule Exograph.Web.QueryLive do
   @impl true
   def render(assigns) do
     ~H"""
-    <div class="layout">
-      <header class="header">
-        <div style="display:flex;align-items:center">
-          <h1>Exograph</h1>
-          <span class="prefix">{@prefix}</span>
+    <div class="flex flex-col h-full">
+      <header class="flex items-center justify-between px-6 py-3 border-b border-zinc-800">
+        <div class="flex items-center gap-3">
+          <h1 class="text-lg font-semibold tracking-tight">Exograph</h1>
+          <span class="text-xs text-zinc-500">{@prefix}</span>
         </div>
-        <div class="meta">
-          <span :if={@result_count} class="stats">
+        <div class="flex items-center gap-4 text-sm text-zinc-400">
+          <span :if={@result_count} class="tabular-nums">
             {to_string(@result_count)} results in {@elapsed_ms}ms
           </span>
-          <button phx-click="run" phx-value-query={@query} class="run-btn">
+          <button
+            id="run-btn"
+            phx-hook="RunButton"
+            class="px-3 py-1.5 text-sm font-medium bg-blue-600 text-white rounded-md hover:bg-blue-500 cursor-pointer transition-colors"
+          >
             Run ⌘↵
           </button>
         </div>
       </header>
 
-      <div class="content">
-        <div style="height:200px;border-bottom:1px solid #27272a">
+      <div class="flex flex-col flex-1 min-h-0">
+        <div class="h-[200px] border-b border-zinc-800">
           <div
             id="editor"
             phx-hook="Editor"
             phx-update="ignore"
-            style="height:100%"
+            class="h-full"
             data-query={@query}
           />
         </div>
 
-        <div class="results-wrap">
-          <div :if={@error} class="error">{@error}</div>
+        <div class="flex-1 overflow-auto">
+          <div :if={@error} class="p-4 text-red-400 font-mono text-sm whitespace-pre-wrap">{@error}</div>
 
-          <table :if={@results && @results != []}>
-            <thead>
-              <tr>
-                <th>Kind</th>
-                <th>Module</th>
-                <th>Name</th>
-                <th>File</th>
-                <th class="right">Line</th>
-                <th :if={has_joined?(@results)}>Joined</th>
+          <table :if={@results && @results != []} class="w-full text-sm">
+            <thead class="text-xs text-zinc-500 uppercase tracking-wider">
+              <tr class="border-b border-zinc-800">
+                <th class="px-4 py-2 text-left font-medium">Kind</th>
+                <th class="px-4 py-2 text-left font-medium">Module</th>
+                <th class="px-4 py-2 text-left font-medium">Name</th>
+                <th class="px-4 py-2 text-left font-medium">File</th>
+                <th class="px-4 py-2 text-right font-medium">Line</th>
+                <th :if={has_joined?(@results)} class="px-4 py-2 text-left font-medium">Joined</th>
               </tr>
             </thead>
             <tbody>
-              <tr :for={row <- @results}>
-                <td><span class={"badge badge-" <> badge_class(row.kind)}>{to_string(row.kind)}</span></td>
-                <td class="mono dim">{row.module}</td>
-                <td class="mono">{display_name(row)}</td>
-                <td class="dim" style="font-size:12px">{row.file}</td>
-                <td class="right dim" style="font-variant-numeric:tabular-nums">{row.line}</td>
-                <td :if={has_joined?(@results)} class="mono dim">{row[:joined_name]}</td>
+              <tr :for={row <- @results} class="border-b border-zinc-800/50 hover:bg-zinc-900/50">
+                <td class="px-4 py-2">
+                  <span class={"inline-block px-1.5 py-0.5 text-xs rounded " <> badge_class(row.kind)}>{to_string(row.kind)}</span>
+                </td>
+                <td class="px-4 py-2 text-zinc-400 font-mono text-xs">{row.module}</td>
+                <td class="px-4 py-2 font-mono text-xs">{display_name(row)}</td>
+                <td class="px-4 py-2 text-zinc-500 text-xs">{row.file}</td>
+                <td class="px-4 py-2 text-right text-zinc-500 tabular-nums">{row.line}</td>
+                <td :if={has_joined?(@results)} class="px-4 py-2 text-zinc-400 font-mono text-xs">{row[:joined_name]}</td>
               </tr>
             </tbody>
           </table>
 
-          <div :if={@results == []} class="placeholder">No results</div>
-          <div :if={is_nil(@results) && is_nil(@error)} class="placeholder">Write a query and press Run</div>
+          <div :if={@results == []} class="p-8 text-center text-zinc-500">No results</div>
+          <div :if={is_nil(@results) && is_nil(@error)} class="p-8 text-center text-zinc-600">Write a query and press Run</div>
         </div>
       </div>
     </div>

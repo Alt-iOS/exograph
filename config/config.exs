@@ -19,3 +19,5 @@ config :volt, :server,
   watch_dirs: ["lib/", "assets/"]
 
 config :phoenix, :json_library, Jason
+
+config :exograph, Exograph.Web.Endpoint, code_reloader: false

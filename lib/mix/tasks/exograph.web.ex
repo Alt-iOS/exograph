@@ -64,8 +64,7 @@ defmodule Mix.Tasks.Exograph.Web do
         live_view: [signing_salt: :crypto.strong_rand_bytes(8) |> Base.encode64()],
         pubsub_server: Exograph.Web.PubSub,
         render_errors: [formats: [html: Exograph.Web.ErrorHTML], layout: false],
-        check_origin: false,
-        code_reloader: true
+        check_origin: false
       )
 
     Application.put_env(:exograph, Exograph.Web.Endpoint, endpoint_config)
@@ -131,6 +130,13 @@ defmodule Mix.Tasks.Exograph.Web do
   defp build_monaco!(outdir) do
     vendor_dir = Path.join(outdir, "vendor")
     monaco_path = Path.join(vendor_dir, "monaco.js")
+    monaco_css = Path.join(vendor_dir, "monaco.css")
+
+    unless File.regular?(monaco_css) do
+      File.mkdir_p!(vendor_dir)
+      src_css = "assets/node_modules/monaco-editor/min/vs/editor/editor.main.css"
+      if File.regular?(src_css), do: File.cp!(src_css, monaco_css)
+    end
 
     if File.regular?(monaco_path) do
       :ok

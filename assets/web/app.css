@@ -1,3 +1,26 @@
 @import "tailwindcss";
 @source "../../lib";
 @source ".";
+
+/* Makeup syntax highlighting — Atom One Dark palette */
+code span.kd,
+code span.k { color: #c678dd; }         /* keywords: def, do, end, fn */
+code span.nc { color: #e5c07b; }        /* module names */
+code span.na { color: #e06c75; }        /* attributes: @doc, @spec */
+code span.nf { color: #61afef; }        /* function names */
+code span.n  { color: #abb2bf; }        /* variables */
+code span.s,
+code span.s1,
+code span.s2 { color: #98c379; }        /* strings */
+code span.ss { color: #56b6c2; }        /* atoms */
+code span.mi,
+code span.mf { color: #d19a66; }        /* numbers */
+code span.o  { color: #abb2bf; }        /* operators */
+code span.p  { color: #abb2bf; }        /* punctuation */
+code span.c,
+code span.c1,
+code span.cs,
+code span.cm { color: #5c6370; font-style: italic; } /* comments */
+code span.bp { color: #d19a66; }        /* true / false / nil */
+code span.nb { color: #56b6c2; }        /* builtins */
+code span.w  { color: inherit; }        /* whitespace */

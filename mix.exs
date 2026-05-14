@@ -49,7 +49,9 @@ defmodule Exograph.MixProject do
       {:phoenix_live_view, "~> 1.1", optional: true},
       {:volt, "~> 0.10", optional: true},
       {:bandit, "~> 1.5", optional: true},
-      {:jason, "~> 1.2"}
+      {:jason, "~> 1.2"},
+      {:makeup, "~> 1.0", optional: true},
+      {:makeup_elixir, "~> 1.0", optional: true}
     ]
   end
 

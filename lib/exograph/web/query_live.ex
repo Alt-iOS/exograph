@@ -48,7 +48,6 @@ defmodule Exograph.Web.QueryLive do
   @impl true
   def handle_event("completion", %{"hint" => hint, "ref" => ref}, socket) do
     items = Exograph.Web.Completion.complete(hint, socket.assigns.index)
-
     {:reply, %{ref: ref, items: items}, socket}
   end
 
@@ -87,126 +86,195 @@ defmodule Exograph.Web.QueryLive do
   end
 
   defp format_results(results) when is_list(results) do
-    Enum.map(results, &format_result/1)
+    results
+    |> Enum.map(&normalize_result/1)
+    |> Enum.group_by(& &1.package)
+    |> Enum.sort_by(fn {pkg, _} -> pkg end)
+    |> Enum.map(fn {package, pkg_results} ->
+      files =
+        pkg_results
+        |> Enum.group_by(& &1.file)
+        |> Enum.sort_by(fn {file, _} -> file end)
+        |> Enum.map(fn {file, file_results} ->
+          %{
+            file: file,
+            results:
+              Enum.map(file_results, fn r ->
+                Map.put(r, :preview, build_preview(r.source, r.fragment_line, r.line))
+              end)
+          }
+        end)
+
+      %{package: package, count: length(pkg_results), files: files}
+    end)
   end
 
-  defp format_result(%Exograph.Hit{fragment: f, match: m}) do
+  defp normalize_result(%Exograph.Hit{fragment: f, match: m}) do
     %{
       type: :fragment,
-      file: Path.basename(f.file || ""),
+      file: f.file || "",
+      package: extract_package(f.file),
       module: f.module,
       kind: f.kind,
       name: f.name,
       arity: f.arity,
-      line: match_line(m) || f.line
+      line: match_line(m) || f.line,
+      source: f.source,
+      fragment_line: f.line,
+      joined_label: nil
     }
   end
 
-  defp format_result({%Exograph.Hit{fragment: f, match: m}, joined}) do
-    base = %{
+  defp normalize_result({%Exograph.Hit{fragment: f, match: m}, joined}) do
+    %{
       type: :joined,
-      file: Path.basename(f.file || ""),
+      file: f.file || "",
+      package: extract_package(f.file),
       module: f.module,
       kind: f.kind,
       name: f.name,
       arity: f.arity,
-      line: match_line(m) || f.line
+      line: match_line(m) || f.line,
+      source: f.source,
+      fragment_line: f.line,
+      joined_label: format_joined(joined)
     }
-
-    case joined do
-      %Exograph.Definition{} = d ->
-        Map.merge(base, %{joined_type: :definition, joined_name: d.qualified_name})
-
-      %Exograph.Reference{} = r ->
-        Map.merge(base, %{joined_type: :reference, joined_name: r.qualified_name})
-
-      %Exograph.CallEdge{} = e ->
-        Map.merge(base, %{
-          joined_type: :call_edge,
-          joined_name: "#{e.caller_qualified_name} → #{e.callee_qualified_name}"
-        })
-
-      _ ->
-        base
-    end
   end
 
-  defp format_result({%Exograph.Hit{} = hit, j1, j2}) do
-    format_result({hit, j1}) |> Map.put(:extra_joined, inspect(j2, limit: 80))
+  defp normalize_result({%Exograph.Hit{} = hit, j1, j2}) do
+    normalize_result({hit, j1})
+    |> Map.update(:joined_label, nil, fn lbl ->
+      [lbl, inspect(j2, limit: 60)] |> Enum.reject(&is_nil/1) |> Enum.join(", ")
+    end)
   end
 
-  defp format_result({%Exograph.Hit{} = hit, j1, j2, j3}) do
-    format_result({hit, j1})
-    |> Map.put(:extra_joined, "#{inspect(j2, limit: 60)}, #{inspect(j3, limit: 60)}")
+  defp normalize_result({%Exograph.Hit{} = hit, j1, j2, j3}) do
+    normalize_result({hit, j1})
+    |> Map.update(:joined_label, nil, fn lbl ->
+      [lbl, inspect(j2, limit: 40), inspect(j3, limit: 40)]
+      |> Enum.reject(&is_nil/1)
+      |> Enum.join(", ")
+    end)
   end
 
-  defp format_result(%Exograph.DefinitionHit{definition: d}) do
+  defp normalize_result(%Exograph.DefinitionHit{definition: d, fragment: f}) do
+    file = if f, do: f.file || "", else: ""
+
     %{
       type: :definition,
+      file: file,
+      package: extract_package(file),
+      module: d.module,
       kind: d.kind,
       name: d.qualified_name,
+      arity: d.arity,
       line: d.line,
-      file: nil,
-      module: nil,
-      arity: nil
+      source: if(f, do: f.source, else: nil),
+      fragment_line: if(f, do: f.line, else: nil),
+      joined_label: nil
     }
   end
 
-  defp format_result(%Exograph.ReferenceHit{reference: r}) do
+  defp normalize_result(%Exograph.ReferenceHit{reference: r, fragment: f}) do
+    file = if f, do: f.file || "", else: ""
+
     %{
       type: :reference,
+      file: file,
+      package: extract_package(file),
+      module: r.module,
       kind: r.kind,
       name: r.qualified_name,
+      arity: r.arity,
       line: r.line,
-      file: nil,
-      module: nil,
-      arity: nil
+      source: if(f, do: f.source, else: nil),
+      fragment_line: if(f, do: f.line, else: nil),
+      joined_label: nil
     }
   end
 
-  defp format_result(%Exograph.CallEdgeHit{call_edge: e}) do
+  defp normalize_result(%Exograph.CallEdgeHit{call_edge: e}) do
     %{
       type: :call_edge,
+      file: "",
+      package: "call_edges",
+      module: nil,
       kind: :call,
       name: "#{e.caller_qualified_name} → #{e.callee_qualified_name}",
+      arity: nil,
       line: e.line,
-      file: nil,
-      module: nil,
-      arity: nil
+      source: nil,
+      fragment_line: nil,
+      joined_label: nil
     }
   end
 
-  defp format_result(tuple) when is_tuple(tuple) do
-    list = Tuple.to_list(tuple)
-
-    case List.first(list) do
-      %Exograph.Hit{} ->
-        format_result({List.first(list), Enum.at(list, 1)})
-
-      _ ->
-        %{
-          type: :unknown,
-          name: inspect(tuple, limit: 200),
-          kind: nil,
-          line: nil,
-          file: nil,
-          module: nil,
-          arity: nil
-        }
+  defp normalize_result(tuple) when is_tuple(tuple) do
+    case Tuple.to_list(tuple) do
+      [%Exograph.Hit{} = hit | rest] -> normalize_result({hit, List.first(rest)})
+      _ -> unknown_result(inspect(tuple, limit: 200))
     end
   end
 
-  defp format_result(other) do
+  defp normalize_result(other), do: unknown_result(inspect(other, limit: 200))
+
+  defp unknown_result(label) do
     %{
       type: :unknown,
-      name: inspect(other, limit: 200),
-      kind: nil,
-      line: nil,
-      file: nil,
+      file: "",
+      package: "unknown",
       module: nil,
-      arity: nil
+      kind: nil,
+      name: label,
+      arity: nil,
+      line: nil,
+      source: nil,
+      fragment_line: nil,
+      joined_label: nil
     }
   end
+
+  defp format_joined(%Exograph.Definition{} = d), do: "def #{d.qualified_name}"
+  defp format_joined(%Exograph.Reference{} = r), do: "ref #{r.qualified_name}"
+
+  defp format_joined(%Exograph.CallEdge{} = e),
+    do: "#{e.caller_qualified_name} → #{e.callee_qualified_name}"
+
+  defp format_joined(_), do: nil
+
+  defp extract_package(nil), do: "unknown"
+  defp extract_package(""), do: "unknown"
+
+  defp extract_package(file) do
+    file
+    |> String.split("/")
+    |> Enum.reject(&(&1 in ["", "."]))
+    |> List.first("unknown")
+  end
+
+  defp build_preview(nil, _, _), do: nil
+  defp build_preview(_, _, nil), do: nil
+
+  defp build_preview(source, fragment_line, match_line)
+       when is_binary(source) and is_integer(match_line) do
+    fline = if is_integer(fragment_line), do: fragment_line, else: 1
+    relative = max(match_line - fline + 1, 1)
+
+    source
+    |> Exograph.Web.Highlighter.highlight(relative, 2)
+    |> Enum.map(fn {rel_num, html, is_matched} ->
+      inner =
+        html
+        |> String.replace(~r/<pre[^>]*>/, "")
+        |> String.replace("</pre>", "")
+        |> String.replace(~r/<code[^>]*>/, "")
+        |> String.replace("</code>", "")
+
+      {rel_num + fline - 1, inner, is_matched}
+    end)
+  end
+
+  defp build_preview(_, _, _), do: nil
 
   @impl true
   def render(assigns) do
@@ -219,7 +287,7 @@ defmodule Exograph.Web.QueryLive do
         </div>
         <div class="flex items-center gap-4 text-sm text-zinc-400">
           <span :if={@result_count} class="tabular-nums">
-            {to_string(@result_count)} results in {@elapsed_ms}ms
+            {@result_count} results across {length(@results || [])} packages in {@elapsed_ms}ms
           </span>
           <button
             id="run-btn"
@@ -242,43 +310,87 @@ defmodule Exograph.Web.QueryLive do
           />
         </div>
 
-        <div class="flex-1 overflow-auto">
-          <div :if={@error} class="p-4 text-red-400 font-mono text-sm whitespace-pre-wrap">{@error}</div>
+        <div class="flex-1 overflow-auto p-4 space-y-3">
+          <div :if={@error} class="p-4 text-red-400 font-mono text-sm whitespace-pre-wrap">
+            {@error}
+          </div>
 
-          <table :if={@results && @results != []} class="w-full text-sm">
-            <thead class="text-xs text-zinc-500 uppercase tracking-wider">
-              <tr class="border-b border-zinc-800">
-                <th class="px-4 py-2 text-left font-medium">Kind</th>
-                <th class="px-4 py-2 text-left font-medium">Module</th>
-                <th class="px-4 py-2 text-left font-medium">Name</th>
-                <th class="px-4 py-2 text-left font-medium">File</th>
-                <th class="px-4 py-2 text-right font-medium">Line</th>
-                <th :if={has_joined?(@results)} class="px-4 py-2 text-left font-medium">Joined</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr :for={row <- @results} class="border-b border-zinc-800/50 hover:bg-zinc-900/50">
-                <td class="px-4 py-2">
-                  <span class={"inline-block px-1.5 py-0.5 text-xs rounded " <> badge_class(row.kind)}>{to_string(row.kind)}</span>
-                </td>
-                <td class="px-4 py-2 text-zinc-400 font-mono text-xs">{row.module}</td>
-                <td class="px-4 py-2 font-mono text-xs">{display_name(row)}</td>
-                <td class="px-4 py-2 text-zinc-500 text-xs">{row.file}</td>
-                <td class="px-4 py-2 text-right text-zinc-500 tabular-nums">{row.line}</td>
-                <td :if={has_joined?(@results)} class="px-4 py-2 text-zinc-400 font-mono text-xs">{row[:joined_name]}</td>
-              </tr>
-            </tbody>
-          </table>
+          <div :for={group <- (@results || [])} class="rounded-lg border border-zinc-800 overflow-hidden">
+            <div class="flex items-center gap-3 px-4 py-2.5 bg-zinc-900 border-b border-zinc-800">
+              <span class="text-sm font-semibold text-zinc-200">{group.package}</span>
+              <span class="text-xs text-zinc-500 bg-zinc-800 rounded-full px-2 py-0.5 tabular-nums">
+                {group.count} results
+              </span>
+            </div>
+
+            <div class="divide-y divide-zinc-800">
+              <div :for={file_group <- group.files}>
+                <div class="flex items-center gap-2 px-4 py-2 bg-zinc-900/40 border-b border-zinc-800/50">
+                  <svg
+                    class="w-3.5 h-3.5 text-zinc-500 flex-shrink-0"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                      stroke-width="2"
+                      d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+                    />
+                  </svg>
+                  <span class="text-blue-400 font-mono text-xs">{file_group.file}</span>
+                </div>
+
+                <div class="divide-y divide-zinc-800/40">
+                  <div :for={result <- file_group.results} class="px-4 py-3">
+                    <div class="flex items-center gap-2 mb-2 flex-wrap">
+                      <span class={"inline-flex items-center px-1.5 py-0.5 text-xs rounded font-medium " <> badge_class(result.kind)}>
+                        {to_string(result.kind)}
+                      </span>
+                      <span class="text-zinc-200 font-mono text-sm">{display_name(result)}</span>
+                      <span :if={result.module} class="text-zinc-500 text-xs font-mono">
+                        {result.module}
+                      </span>
+                      <span class="ml-auto text-zinc-600 text-xs tabular-nums">
+                        line {result.line}
+                      </span>
+                      <span
+                        :if={result.joined_label}
+                        class="text-zinc-500 text-xs font-mono ml-2"
+                      >
+                        {result.joined_label}
+                      </span>
+                    </div>
+
+                    <div :if={result.preview} class="rounded border border-zinc-800 overflow-hidden">
+                      <div
+                        :for={{line_num, html, is_matched} <- result.preview}
+                        class={"flex items-stretch font-mono text-xs" <> if(is_matched, do: " bg-blue-900/20 border-l-2 border-l-blue-500", else: "")}
+                      >
+                        <span class="w-10 text-right pr-3 py-1 text-zinc-600 select-none flex-shrink-0 bg-zinc-900/50 border-r border-zinc-800/50 tabular-nums leading-5">
+                          {line_num}
+                        </span>
+                        <code class="py-1 px-3 flex-1 overflow-x-hidden text-zinc-300 leading-5 whitespace-pre">
+                          {raw(html)}
+                        </code>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
 
           <div :if={@results == []} class="p-8 text-center text-zinc-500">No results</div>
-          <div :if={is_nil(@results) && is_nil(@error)} class="p-8 text-center text-zinc-600">Write a query and press Run</div>
+          <div :if={is_nil(@results) && is_nil(@error)} class="p-8 text-center text-zinc-600">
+            Write a query and press Run
+          </div>
         </div>
       </div>
     </div>
     """
   end
-
-  defp has_joined?(results), do: Enum.any?(results, &Map.has_key?(&1, :joined_name))
 
   defp display_name(%{name: name, arity: arity}) when not is_nil(name) and not is_nil(arity),
     do: "#{name}/#{arity}"
@@ -291,19 +403,14 @@ defmodule Exograph.Web.QueryLive do
   defp match_line(%{node: {_, meta, _}}) when is_list(meta), do: Keyword.get(meta, :line)
   defp match_line(_), do: nil
 
-  defp badge_class(kind)
-       when kind in [
-              :def,
-              :defp,
-              :defmacro,
-              :defmacrop,
-              :module,
-              :expression,
-              :definition,
-              :reference,
-              :call
-            ],
-       do: to_string(kind)
-
-  defp badge_class(_), do: "default"
+  defp badge_class(:def), do: "bg-blue-900/40 text-blue-300"
+  defp badge_class(:defp), do: "bg-zinc-800 text-zinc-400"
+  defp badge_class(:defmacro), do: "bg-purple-900/40 text-purple-300"
+  defp badge_class(:defmacrop), do: "bg-purple-900/30 text-purple-400"
+  defp badge_class(:module), do: "bg-yellow-900/40 text-yellow-300"
+  defp badge_class(:expression), do: "bg-green-900/40 text-green-300"
+  defp badge_class(:definition), do: "bg-indigo-900/40 text-indigo-300"
+  defp badge_class(:reference), do: "bg-orange-900/40 text-orange-300"
+  defp badge_class(:call), do: "bg-teal-900/40 text-teal-300"
+  defp badge_class(_), do: "bg-zinc-800 text-zinc-400"
 end

@@ -53,16 +53,15 @@ defmodule Exograph.Web.Completion do
     end
   end
 
+  defp item(label, kind, detail),
+    do: %{label: label, kind: kind, detail: detail, insert_text: label}
+
   defp sources do
-    Enum.map(@sources, fn s ->
-      %{label: s, kind: "module", detail: "Exograph source", insert_text: s}
-    end)
+    Enum.map(@sources, fn s -> item(s, "module", "Exograph source") end)
   end
 
   defp assocs do
-    Enum.map(@assocs, fn a ->
-      %{label: a, kind: "field", detail: "association", insert_text: a}
-    end)
+    Enum.map(@assocs, fn a -> item(a, "field", "association") end)
   end
 
   defp fields(:fragment), do: field_items(@fragment_fields)
@@ -71,15 +70,11 @@ defmodule Exograph.Web.Completion do
   defp fields(:call_edge), do: field_items(@call_edge_fields)
 
   defp field_items(fields) do
-    Enum.map(fields, fn f ->
-      %{label: f, kind: "field", detail: "field", insert_text: f}
-    end)
+    Enum.map(fields, fn f -> item(f, "field", "field") end)
   end
 
   defp predicates do
-    Enum.map(@predicates, fn p ->
-      %{label: p, kind: "function", detail: "predicate", insert_text: p}
-    end)
+    Enum.map(@predicates, fn p -> item(p, "function", "predicate") end)
   end
 
   defp suggest_qualified_names(index, partial) do
@@ -93,9 +88,7 @@ defmodule Exograph.Web.Completion do
       select: r.qualified_name
     )
     |> index.inverted.repo.all(timeout: 10_000)
-    |> Enum.map(fn name ->
-      %{label: name, kind: "variable", detail: "reference", insert_text: name}
-    end)
+    |> Enum.map(fn name -> item(name, "variable", "reference") end)
   rescue
     _ -> []
   end
@@ -111,9 +104,7 @@ defmodule Exograph.Web.Completion do
       select: e.callee_qualified_name
     )
     |> index.inverted.repo.all(timeout: 10_000)
-    |> Enum.map(fn name ->
-      %{label: name, kind: "variable", detail: "callee", insert_text: name}
-    end)
+    |> Enum.map(fn name -> item(name, "variable", "callee") end)
   rescue
     _ -> []
   end
@@ -130,9 +121,7 @@ defmodule Exograph.Web.Completion do
       select: f.module
     )
     |> index.inverted.repo.all(timeout: 10_000)
-    |> Enum.map(fn name ->
-      %{label: name, kind: "module", detail: "module", insert_text: name}
-    end)
+    |> Enum.map(fn name -> item(name, "module", "module") end)
   rescue
     _ -> []
   end

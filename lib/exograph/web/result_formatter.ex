@@ -1,0 +1,63 @@
+defmodule Exograph.Web.ResultFormatter do
+  @moduledoc false
+
+  alias Exograph.Web.SearchResult
+
+  def format(results) when is_list(results) do
+    results
+    |> Enum.map(&SearchResult.from/1)
+    |> Enum.group_by(& &1.package)
+    |> Enum.sort_by(fn {pkg, _} -> pkg end)
+    |> Enum.map(fn {package, pkg_results} ->
+      files =
+        pkg_results
+        |> Enum.group_by(& &1.file)
+        |> Enum.sort_by(fn {file, _} -> file end)
+        |> Enum.map(fn {file, file_results} ->
+          %{
+            file: file,
+            results:
+              Enum.map(file_results, fn r ->
+                %{r | preview: build_preview(r.source, r.fragment_line, r.line)}
+              end)
+          }
+        end)
+
+      %{package: package, count: length(pkg_results), files: files}
+    end)
+  end
+
+  def display_name(%{name: name, arity: arity}) when not is_nil(name) and not is_nil(arity),
+    do: "#{name}/#{arity}"
+
+  def display_name(%{name: name}) when not is_nil(name), do: name
+  def display_name(_), do: nil
+
+  def badge_class(:def), do: "bg-blue-900/40 text-blue-300"
+  def badge_class(:defp), do: "bg-zinc-800 text-zinc-400"
+  def badge_class(:defmacro), do: "bg-purple-900/40 text-purple-300"
+  def badge_class(:defmacrop), do: "bg-purple-900/30 text-purple-400"
+  def badge_class(:module), do: "bg-yellow-900/40 text-yellow-300"
+  def badge_class(:expression), do: "bg-green-900/40 text-green-300"
+  def badge_class(:definition), do: "bg-indigo-900/40 text-indigo-300"
+  def badge_class(:reference), do: "bg-orange-900/40 text-orange-300"
+  def badge_class(:call), do: "bg-teal-900/40 text-teal-300"
+  def badge_class(_), do: "bg-zinc-800 text-zinc-400"
+
+  defp build_preview(nil, _, _), do: nil
+  defp build_preview(_, _, nil), do: nil
+
+  defp build_preview(source, fragment_line, match_line)
+       when is_binary(source) and is_integer(match_line) do
+    fline = if is_integer(fragment_line), do: fragment_line, else: 1
+    relative = max(match_line - fline + 1, 1)
+
+    source
+    |> Exograph.Web.Highlighter.highlight(relative, 2)
+    |> Enum.map(fn {rel_num, html, is_matched} ->
+      {rel_num + fline - 1, html, is_matched}
+    end)
+  end
+
+  defp build_preview(_, _, _), do: nil
+end

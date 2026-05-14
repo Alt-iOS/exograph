@@ -46,9 +46,9 @@ defmodule Exograph.Web.QueryLive do
   end
 
   @impl true
-  def handle_event("completion", %{"hint" => hint, "ref" => ref}, socket) do
+  def handle_event("completion", %{"hint" => hint}, socket) do
     items = Exograph.Web.Completion.complete(hint, socket.assigns.index)
-    {:reply, %{ref: ref, items: items}, socket}
+    {:reply, %{items: items}, socket}
   end
 
   defp execute_query(index, query_string) do

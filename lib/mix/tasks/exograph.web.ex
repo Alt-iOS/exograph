@@ -166,13 +166,13 @@ defmodule Mix.Tasks.Exograph.Web do
       Mix.shell().info("Pre-bundling Monaco Editor...")
       File.mkdir_p!(vendor_dir)
 
-      entry = "assets/node_modules/monaco-editor/esm/vs/editor/editor.api.js"
+      entry = "assets/node_modules/monaco-editor/esm/vs/editor/edcore.main.js"
 
       case OXC.bundle(entry,
              cwd: File.cwd!(),
              format: :esm,
              modules: ["assets/node_modules"],
-             loader: %{".css" => :empty, ".ttf" => :empty},
+             module_types: %{".css" => :empty, ".ttf" => :empty},
              define: %{"process.env.NODE_ENV" => ~s("production")}
            ) do
         {:ok, code} when is_binary(code) ->

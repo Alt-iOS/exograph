@@ -51,7 +51,8 @@ defmodule Exograph.MixProject do
       {:bandit, "~> 1.5", optional: true},
       {:jason, "~> 1.2"},
       {:makeup, "~> 1.0", optional: true},
-      {:makeup_elixir, "~> 1.0", optional: true}
+      {:makeup_elixir, "~> 1.0", optional: true},
+      {:oxc, "~> 0.13.0", override: true}
     ]
   end
 

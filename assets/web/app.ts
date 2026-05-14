@@ -3,27 +3,18 @@ import { Socket } from "phoenix"
 import { LiveSocket } from "phoenix_live_view"
 import { Editor } from "./hooks/editor"
 
-let currentEditor: any = null
-
 const RunButton = {
   mounted(this: any) {
     this.el.addEventListener("click", () => {
-      if (currentEditor) {
-        this.pushEvent("run", { query: currentEditor.getValue() })
+      const editorEl = document.querySelector("#editor") as any
+      if (editorEl?._monacoEditor) {
+        this.pushEvent("run", { query: editorEl._monacoEditor.getValue() })
       }
     })
   },
 }
 
-const WrappedEditor = {
-  ...Editor,
-  async mounted(this: any) {
-    await Editor.mounted.call(this)
-    currentEditor = this.editor
-  },
-}
-
-const Hooks = { Editor: WrappedEditor, RunButton }
+const Hooks = { Editor, RunButton }
 const csrfToken = document.querySelector("meta[name='csrf-token']")?.getAttribute("content") ?? ""
 const liveSocket = new LiveSocket("/live", Socket, { params: { _csrf_token: csrfToken }, hooks: Hooks })
 liveSocket.connect()

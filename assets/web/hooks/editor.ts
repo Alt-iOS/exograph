@@ -87,6 +87,7 @@ export const Editor = {
     })
 
     this.editor = editor
+    ;(this.el as any)._monacoEditor = editor
   },
 
   destroyed(this: any) {

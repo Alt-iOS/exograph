@@ -109,6 +109,28 @@ defmodule Mix.Tasks.Exograph.Web do
 
     build_tailwind!(outdir)
     build_monaco!(outdir)
+    build_js!()
+  end
+
+  defp build_js! do
+    config = Volt.Config.build()
+
+    case Volt.Builder.build(
+           entry: config.entry,
+           outdir: to_string(config.outdir),
+           target: config.target,
+           hash: false,
+           sourcemap: false,
+           format: :esm,
+           external: [],
+           resolve_dirs: config.resolve_dirs,
+           aliases: config.aliases,
+           plugins: config.plugins,
+           minify: false
+         ) do
+      {:ok, _} -> :ok
+      {:error, reason} -> Mix.shell().error("JS build failed: #{inspect(reason)}")
+    end
   end
 
   defp build_tailwind!(outdir) do

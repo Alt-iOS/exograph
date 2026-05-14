@@ -98,7 +98,7 @@ defmodule Exograph.Web.QueryLive do
       kind: f.kind,
       name: f.name,
       arity: f.arity,
-      line: (m && m.line) || f.line
+      line: match_line(m) || f.line
     }
   end
 
@@ -110,7 +110,7 @@ defmodule Exograph.Web.QueryLive do
       kind: f.kind,
       name: f.name,
       arity: f.arity,
-      line: (m && m.line) || f.line
+      line: match_line(m) || f.line
     }
 
     case joined do
@@ -285,6 +285,11 @@ defmodule Exograph.Web.QueryLive do
 
   defp display_name(%{name: name}) when not is_nil(name), do: name
   defp display_name(_), do: nil
+
+  defp match_line(nil), do: nil
+  defp match_line(%{line: line}), do: line
+  defp match_line(%{node: {_, meta, _}}) when is_list(meta), do: Keyword.get(meta, :line)
+  defp match_line(_), do: nil
 
   defp badge_class(kind)
        when kind in [

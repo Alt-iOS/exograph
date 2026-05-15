@@ -47,16 +47,9 @@ defmodule Exograph.Web.ResultFormatter do
   defp build_preview(nil, _, _), do: nil
   defp build_preview(_, _, nil), do: nil
 
-  defp build_preview(source, fragment_line, match_line)
+  defp build_preview(source, _fragment_line, match_line)
        when is_binary(source) and is_integer(match_line) do
-    fline = if is_integer(fragment_line), do: fragment_line, else: 1
-    relative = max(match_line - fline + 1, 1)
-
-    source
-    |> Exograph.Web.Highlighter.highlight(relative, 4)
-    |> Enum.map(fn {rel_num, html, is_matched} ->
-      {rel_num + fline - 1, html, is_matched}
-    end)
+    Exograph.Web.Highlighter.highlight(source, match_line, 4)
   end
 
   defp build_preview(_, _, _), do: nil

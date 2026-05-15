@@ -23,12 +23,15 @@ defmodule Exograph.Web.QueryExecutor do
 
   defp eval_env, do: @eval_env
 
+  @default_limit 100
+
   defp run_parsed(index, %Exograph.DSL.Query{} = query) do
-    Exograph.all(index, query, limit: 50)
+    limit = query.limit || @default_limit
+    Exograph.all(index, query, limit: limit)
   end
 
   defp run_parsed(index, pattern) when is_binary(pattern) do
-    Exograph.search(index, pattern, limit: 50)
+    Exograph.search(index, pattern, limit: @default_limit)
   end
 
   defp run_parsed(_index, other) do

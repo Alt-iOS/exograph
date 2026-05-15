@@ -22,8 +22,9 @@ defmodule Exograph.DSL.Query do
           binding: atom(),
           predicates: [predicate()],
           joins: [join()],
-          select: select()
+          select: select(),
+          limit: pos_integer() | nil
         }
 
-  defstruct [:source, :binding, :select, predicates: [], joins: []]
+  defstruct [:source, :binding, :select, :limit, predicates: [], joins: []]
 end

@@ -107,14 +107,39 @@ defmodule Exograph.DSL.Executor do
   defp filtered_fragment_batch(index, plan, opts, offset) do
     base_fragment_query(index, offset)
     |> where_structural_terms(index, plan)
+    |> where_pattern_kind(plan)
     |> where_source_predicates(predicates(plan, plan.binding), plan.binding, :fragment)
     |> where_fragment_scope(opts)
     |> hydrate_fragment_batch(index)
   end
 
+  @def_kinds [:def, :defp, :defmacro, :defmacrop]
+
+  defp where_pattern_kind(queryable, %Plan{query: %{predicates: predicates}}) do
+    case Enum.find_value(predicates, &pattern_kind/1) do
+      kind when kind in @def_kinds ->
+        Ecto.Query.where(queryable, [fragment], fragment.kind == ^kind)
+
+      _ ->
+        queryable
+    end
+  end
+
+  defp pattern_kind({:matches, _binding, pattern}) when is_binary(pattern) do
+    case ExAST.Pattern.compile(pattern) do
+      {kind, _, _} when kind in @def_kinds -> kind
+      _ -> nil
+    end
+  rescue
+    _ -> nil
+  end
+
+  defp pattern_kind(_), do: nil
+
   def stream_structural(index, %Exograph.StructuralQuery{} = compiled_query, opts) do
     term_strings = MapSet.to_list(compiled_query.required_terms)
     term_ids = PostgresInvertedIndex.resolve_term_ids(index.inverted, term_strings)
+    kind_filter = structural_query_kind(compiled_query)
 
     Stream.resource(
       fn -> {0, false} end,
@@ -123,7 +148,7 @@ defmodule Exograph.DSL.Executor do
           {:halt, :done}
 
         {offset, false} ->
-          batch = structural_fragment_batch(index, term_ids, opts, offset)
+          batch = structural_fragment_batch(index, term_ids, kind_filter, opts, offset)
           done = length(batch) < @stream_batch_size
           {batch, {offset + length(batch), done}}
       end,
@@ -131,12 +156,28 @@ defmodule Exograph.DSL.Executor do
     )
   end
 
-  defp structural_fragment_batch(index, term_ids, opts, offset) do
+  defp structural_query_kind(%StructuralQuery{source: pattern}) when is_binary(pattern) do
+    case ExAST.Pattern.compile(pattern) do
+      {kind, _, _} when kind in @def_kinds -> kind
+      _ -> nil
+    end
+  rescue
+    _ -> nil
+  end
+
+  defp structural_query_kind(_), do: nil
+
+  defp structural_fragment_batch(index, term_ids, kind_filter, opts, offset) do
     query = base_fragment_query(index, offset)
 
     query =
       if term_ids != [],
         do: where(query, [fragment], fragment("? @> ?", fragment.terms, ^term_ids)),
+        else: query
+
+    query =
+      if kind_filter,
+        do: where(query, [fragment], fragment.kind == ^kind_filter),
         else: query
 
     query

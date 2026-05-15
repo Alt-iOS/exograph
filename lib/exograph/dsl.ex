@@ -24,13 +24,15 @@ defmodule Exograph.DSL do
 
     predicates = predicates!(clauses, binding, bindings)
     select = select!(Keyword.get(clauses, :select), bindings)
+    limit = Keyword.get(clauses, :limit)
 
     Macro.escape(%Query{
       source: source,
       binding: binding,
       predicates: predicates,
       joins: joins,
-      select: select
+      select: select,
+      limit: limit
     })
   end
 

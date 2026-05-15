@@ -4,13 +4,13 @@ defmodule Exograph.BackendContract do
   import ExUnit.Assertions
   import Ecto.Query, only: [from: 2]
 
+  alias Exograph.FragmentStore.Postgres, as: PostgresFragmentStore
   alias Exograph.Postgres.{PackageRecord, PackageVersionRecord}
 
   def assert_real_indexing_and_search(opts) do
     path = fixture(opts)
     {:ok, index} = Exograph.index(path, Keyword.merge(opts, min_mass: 4))
 
-    assert_postgres_modules(index)
     assert_fragments(index, path)
     assert_package_scope(index, opts)
     assert_structural_search(index, path)
@@ -145,20 +145,14 @@ defmodule Exograph.BackendContract do
     :ok
   end
 
-  defp assert_postgres_modules(index) do
-    assert index.inverted_backend == Exograph.InvertedIndex.Postgres
-    assert index.fragment_store_backend == Exograph.FragmentStore.Postgres
-    assert index.tree_store_backend == Exograph.TreeStore.Postgres
-  end
-
   defp assert_fragments(index, path) do
-    assert [_ | _] = fragments = index.fragment_store_backend.all(index.fragment_store)
+    assert [_ | _] = fragments = PostgresFragmentStore.all(index.fragment_store)
     assert Enum.any?(fragments, &(&1.file == path and &1.name == "get_user"))
     assert Enum.any?(fragments, &(&1.file == path and &1.name == "update_user"))
   end
 
   defp assert_package_scope(index, _opts) do
-    all_fragments = index.fragment_store_backend.all(index.fragment_store)
+    all_fragments = PostgresFragmentStore.all(index.fragment_store)
 
     assert Enum.all?(all_fragments, fn fragment ->
              is_integer(fragment.package_id) and is_integer(fragment.package_version_id)
@@ -178,10 +172,10 @@ defmodule Exograph.BackendContract do
              Exograph.search(index, "Repo.get!(_, _)")
 
     assert fragment.file == path
-    assert {:ok, ^fragment} = index.fragment_store_backend.get(index.fragment_store, fragment.id)
+    assert {:ok, ^fragment} = PostgresFragmentStore.get(index.fragment_store, fragment.id)
 
     tree_fragment =
-      index.fragment_store_backend.all(index.fragment_store)
+      PostgresFragmentStore.all(index.fragment_store)
       |> Enum.find(
         &(&1.file == path and &1.kind in [:module, :def, :defp, :defmacro, :defmacrop])
       )

@@ -3,8 +3,6 @@ defmodule Exograph.FragmentStore.Postgres do
   Durable fragment store backed by Ecto and Postgres.
   """
 
-  @behaviour Exograph.FragmentStore
-
   import Ecto.Query
 
   alias Exograph.{
@@ -51,10 +49,8 @@ defmodule Exograph.FragmentStore.Postgres do
           extractors: keyword() | [atom()]
         }
 
-  @impl true
   def new(opts \\ []), do: {:ok, Options.store(__MODULE__, opts)}
 
-  @impl true
   def put(%__MODULE__{} = store, fragments) when is_list(fragments) do
     now = DateTime.utc_now(:microsecond)
 
@@ -85,7 +81,6 @@ defmodule Exograph.FragmentStore.Postgres do
     {:ok, store}
   end
 
-  @impl true
   def get(%__MODULE__{} = store, fragment_id) do
     query =
       from(fragment in {source(store), FragmentRecord},
@@ -104,7 +99,6 @@ defmodule Exograph.FragmentStore.Postgres do
     end
   end
 
-  @impl true
   def all(%__MODULE__{} = store) do
     query =
       from(fragment in {source(store), FragmentRecord},
@@ -118,12 +112,10 @@ defmodule Exograph.FragmentStore.Postgres do
     |> Enum.map(fn {record, source, path} -> Options.hydrate_fragment(record, source, path) end)
   end
 
-  @impl true
   def count(%__MODULE__{} = store) do
     store.repo.aggregate({source(store), FragmentRecord}, :count)
   end
 
-  @impl true
   def page(%__MODULE__{} = store, offset, limit, opts \\ []) do
     import Ecto.Query
 
@@ -153,7 +145,6 @@ defmodule Exograph.FragmentStore.Postgres do
     |> Enum.map(fn {record, source, path} -> Options.hydrate_fragment(record, source, path) end)
   end
 
-  @impl true
   def term_frequencies(_store, []), do: %{}
 
   def term_frequencies(%__MODULE__{} = store, terms) when is_list(terms) do

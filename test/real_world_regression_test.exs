@@ -28,7 +28,7 @@ defmodule Exograph.RealWorldRegressionTest do
       """)
 
     assert {:ok, index} = Exograph.index(path, Keyword.merge(opts, min_mass: 4))
-    assert [_ | _] = index.fragment_store_backend.all(index.fragment_store)
+    assert [_ | _] = Exograph.FragmentStore.Postgres.all(index.fragment_store)
   end
 
   test "indexes dynamic aliases such as __MODULE__ without crashing", %{opts: opts} do
@@ -46,7 +46,7 @@ defmodule Exograph.RealWorldRegressionTest do
       """)
 
     assert {:ok, index} = Exograph.index(path, Keyword.merge(opts, min_mass: 4))
-    assert [_ | _] = index.fragment_store_backend.all(index.fragment_store)
+    assert [_ | _] = Exograph.FragmentStore.Postgres.all(index.fragment_store)
   end
 
   defp fixture(name, source) do

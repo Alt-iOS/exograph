@@ -67,7 +67,7 @@ defmodule Mix.Tasks.Exograph.Index do
         elapsed_ms =
           System.convert_time_unit(System.monotonic_time() - started_at, :native, :millisecond)
 
-        fragments = index.fragment_store_backend.all(index.fragment_store)
+        fragments = Exograph.FragmentStore.Postgres.all(index.fragment_store)
         summary = summary(paths, backend_name, fragments, elapsed_ms)
 
         if Keyword.get(opts, :json, false) do

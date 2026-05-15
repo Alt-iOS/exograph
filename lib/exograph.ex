@@ -59,11 +59,8 @@ defmodule Exograph do
            ) do
       {:ok,
        %Index{
-         inverted_backend: PostgresInvertedIndex,
          inverted: inverted,
-         fragment_store_backend: PostgresFragmentStore,
          fragment_store: fragment_store,
-         tree_store_backend: PostgresTreeStore,
          tree_store: tree_store
        }}
     end
@@ -128,8 +125,8 @@ defmodule Exograph do
   @doc false
   @spec search_text(Index.t(), String.t() | Regex.t(), keyword()) :: {:ok, [TextHit.t()]}
   def search_text(%Index{} = index, literal_or_regex, opts \\ []) do
-    if is_binary(literal_or_regex) and function_exported?(index.inverted_backend, :search_text, 3) do
-      case index.inverted_backend.search_text(index.inverted, literal_or_regex, opts) do
+    if is_binary(literal_or_regex) do
+      case PostgresInvertedIndex.search_text(index.inverted, literal_or_regex, opts) do
         {:ok, hits} ->
           hits
           |> Enum.filter(&text_match?(&1.fragment.source || "", literal_or_regex))
@@ -146,18 +143,14 @@ defmodule Exograph do
   @doc false
   @spec search_comments(Index.t(), String.t(), keyword()) :: {:ok, [CommentHit.t()]}
   def search_comments(%Index{} = index, literal, opts \\ []) when is_binary(literal) do
-    if function_exported?(index.inverted_backend, :search_comments, 3) do
-      case index.inverted_backend.search_comments(index.inverted, literal, opts) do
-        {:ok, hits} ->
-          hits
-          |> Enum.filter(&text_match?(comments_text(&1.fragment.source), literal))
-          |> typed_hits(CommentHit)
+    case PostgresInvertedIndex.search_comments(index.inverted, literal, opts) do
+      {:ok, hits} ->
+        hits
+        |> Enum.filter(&text_match?(comments_text(&1.fragment.source), literal))
+        |> typed_hits(CommentHit)
 
-        {:error, _reason} ->
-          search_comments_seq(index, literal, opts)
-      end
-    else
-      search_comments_seq(index, literal, opts)
+      {:error, _reason} ->
+        search_comments_seq(index, literal, opts)
     end
   end
 
@@ -165,13 +158,9 @@ defmodule Exograph do
   @spec search_definitions(Index.t(), String.t(), keyword()) :: {:ok, [DefinitionHit.t()]}
   def search_definitions(%Index{} = index, partial_name, opts \\ [])
       when is_binary(partial_name) do
-    if function_exported?(index.inverted_backend, :search_definitions, 3) do
-      case index.inverted_backend.search_definitions(index.inverted, partial_name, opts) do
-        {:ok, hits} -> typed_hits(hits, DefinitionHit)
-        {:error, _} -> search_definitions_seq(index, partial_name, opts)
-      end
-    else
-      search_definitions_seq(index, partial_name, opts)
+    case PostgresInvertedIndex.search_definitions(index.inverted, partial_name, opts) do
+      {:ok, hits} -> typed_hits(hits, DefinitionHit)
+      {:error, _} -> search_definitions_seq(index, partial_name, opts)
     end
   end
 
@@ -179,13 +168,9 @@ defmodule Exograph do
   @spec search_references(Index.t(), String.t(), keyword()) :: {:ok, [ReferenceHit.t()]}
   def search_references(%Index{} = index, partial_name, opts \\ [])
       when is_binary(partial_name) do
-    if function_exported?(index.inverted_backend, :search_references, 3) do
-      case index.inverted_backend.search_references(index.inverted, partial_name, opts) do
-        {:ok, hits} -> typed_hits(hits, ReferenceHit)
-        {:error, _} -> search_references_seq(index, opts)
-      end
-    else
-      search_references_seq(index, opts)
+    case PostgresInvertedIndex.search_references(index.inverted, partial_name, opts) do
+      {:ok, hits} -> typed_hits(hits, ReferenceHit)
+      {:error, _} -> search_references_seq(index, opts)
     end
   end
 
@@ -197,7 +182,7 @@ defmodule Exograph do
   @doc false
   @spec tree_nodes(Index.t(), Exograph.Fragment.id()) :: [Exograph.Tree.Node.t()]
   def tree_nodes(%Index{} = index, fragment_id) do
-    index.tree_store_backend.nodes(index.tree_store, fragment_id)
+    PostgresTreeStore.nodes(index.tree_store, fragment_id)
   end
 
   defp put_fragment_stream(fragments, batch_size, inverted, fragment_store, tree_store) do
@@ -256,7 +241,7 @@ defmodule Exograph do
     query_trigrams =
       if is_binary(literal_or_regex), do: Text.trigrams(literal_or_regex), else: MapSet.new()
 
-    index.fragment_store_backend.all(index.fragment_store)
+    PostgresFragmentStore.all(index.fragment_store)
     |> Enum.filter(fn fragment ->
       source = fragment.source || ""
 
@@ -275,7 +260,7 @@ defmodule Exograph do
   defp search_comments_seq(%Index{} = index, literal, opts) do
     limit = Keyword.get(opts, :limit, 50)
 
-    index.fragment_store_backend.all(index.fragment_store)
+    PostgresFragmentStore.all(index.fragment_store)
     |> Enum.filter(fn fragment ->
       Scope.fragment?(fragment, opts) and text_match?(comments_text(fragment.source), literal)
     end)
@@ -288,7 +273,7 @@ defmodule Exograph do
     partial_lower = String.downcase(partial_name)
     limit = Keyword.get(opts, :limit, 50)
 
-    index.fragment_store_backend.all(index.fragment_store)
+    PostgresFragmentStore.all(index.fragment_store)
     |> Enum.filter(fn fragment ->
       Scope.fragment?(fragment, opts) and
         fragment.kind in [:def, :defp, :defmacro, :defmacrop] and
@@ -303,7 +288,7 @@ defmodule Exograph do
   defp search_references_seq(%Index{} = index, opts) do
     limit = Keyword.get(opts, :limit, 50)
 
-    index.fragment_store_backend.all(index.fragment_store)
+    PostgresFragmentStore.all(index.fragment_store)
     |> Enum.filter(fn fragment -> Scope.fragment?(fragment, opts) end)
     |> Enum.map(&ReferenceHit.new(fragment: &1, score: 1.0))
     |> Enum.take(limit)

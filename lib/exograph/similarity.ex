@@ -2,6 +2,7 @@ defmodule Exograph.Similarity do
   @moduledoc false
 
   alias ExDNA.AST.{EditDistance, Fingerprint, Normalizer}
+  alias Exograph.FragmentStore.Postgres, as: PostgresFragmentStore
   alias Exograph.Index
 
   @default_opts [min_mass: 8, min_similarity: 0.8, limit: 20]
@@ -11,7 +12,7 @@ defmodule Exograph.Similarity do
     opts = Keyword.merge(@default_opts, opts)
 
     with {:ok, query_fragment} <- query_fragment(source_or_ast, opts) do
-      fragments = index.fragment_store_backend.all(index.fragment_store)
+      fragments = PostgresFragmentStore.all(index.fragment_store)
       query_norm = Normalizer.normalize(query_fragment.ast)
 
       results =

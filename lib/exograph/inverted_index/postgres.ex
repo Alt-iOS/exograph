@@ -6,8 +6,6 @@ defmodule Exograph.InvertedIndex.Postgres do
   normalized to integer IDs in the terms table before querying.
   """
 
-  @behaviour Exograph.InvertedIndex
-
   import Ecto.Query
 
   alias Exograph.{CodeFactQuery, Hit, Package, PackageVersion}
@@ -23,15 +21,12 @@ defmodule Exograph.InvertedIndex.Postgres do
           package_version: PackageVersion.t() | nil
         }
 
-  @impl true
   def new(opts \\ []), do: {:ok, Options.store(__MODULE__, opts)}
 
-  @impl true
   def add(%__MODULE__{} = index, fragments) when is_list(fragments) do
     {:ok, index}
   end
 
-  @impl true
   def search(%__MODULE__{} = index, %ExographQuery{} = query, opts \\ []) do
     limit = Keyword.get(opts, :limit, 50)
     required = MapSet.to_list(query.required_terms)

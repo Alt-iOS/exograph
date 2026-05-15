@@ -2,10 +2,13 @@ defmodule Exograph.DSL.Executor do
   @moduledoc false
 
   import Ecto.Query
+  import Exograph.DSL.Executor.Predicates
+  import Exograph.DSL.Executor.Scope
 
   alias Exograph.{CallEdgeHit, DefinitionHit, Hit, ReferenceHit}
   alias Exograph.DSL.{Compiler, JoinSemantics, Plan, Planner, Query, Sources}
   alias Exograph.DSL.Plan.Join
+  alias Exograph.FragmentStore.Postgres, as: PostgresFragmentStore
   alias Exograph.InvertedIndex.Postgres, as: PostgresInvertedIndex
   alias Exograph.Query, as: StructuralQuery
 
@@ -55,7 +58,7 @@ defmodule Exograph.DSL.Executor do
 
   defp fragment_all(index, plan, opts) do
     limit = Keyword.get(opts, :limit, 50)
-    compiled_query = plan.query |> Exograph.DSL.Compiler.compile() |> StructuralQuery.selector()
+    compiled_query = plan.query |> Compiler.compile() |> StructuralQuery.selector()
 
     hits =
       index
@@ -68,7 +71,7 @@ defmodule Exograph.DSL.Executor do
 
   defp fragment_join_all(index, plan, opts) do
     limit = Keyword.get(query_opts = opts, :limit, 50)
-    compiled_query = plan.query |> Exograph.DSL.Compiler.compile() |> StructuralQuery.selector()
+    compiled_query = plan.query |> Compiler.compile() |> StructuralQuery.selector()
 
     hits =
       index
@@ -184,7 +187,7 @@ defmodule Exograph.DSL.Executor do
       index,
       plan,
       Keyword.put_new_lazy(opts, :candidate_limit, fn ->
-        index.fragment_store_backend.count(index.fragment_store)
+        PostgresFragmentStore.count(index.fragment_store)
       end),
       0
     )
@@ -467,32 +470,12 @@ defmodule Exograph.DSL.Executor do
 
   defp candidate_limit(index, opts) do
     Keyword.get_lazy(opts, :candidate_limit, fn ->
-      index.fragment_store_backend.count(index.fragment_store)
+      PostgresFragmentStore.count(index.fragment_store)
     end)
   end
 
-  defp resolve_structural_term_ids(index, plan) do
-    required_terms = Compiler.required_terms(plan.query)
-
-    if required_terms == [] do
-      []
-    else
-      PostgresInvertedIndex.resolve_term_ids(index.inverted, required_terms)
-    end
-  end
-
-  defp where_structural_terms(queryable, index, plan) do
-    case resolve_structural_term_ids(index, plan) do
-      [] -> queryable
-      ids -> where(queryable, [fragment], fragment("? @> ?", fragment.terms, ^ids))
-    end
-  end
-
-  defp where_structural_terms_second(queryable, index, plan) do
-    case resolve_structural_term_ids(index, plan) do
-      [] -> queryable
-      ids -> where(queryable, [_first, fragment], fragment("? @> ?", fragment.terms, ^ids))
-    end
+  defp predicates(%Plan{predicates_by_binding: predicates_by_binding}, binding) do
+    Map.get(predicates_by_binding, binding, [])
   end
 
   defp symbol_fact_all(index, plan, opts, source_name) do
@@ -557,263 +540,6 @@ defmodule Exograph.DSL.Executor do
       score: 1.0
     )
   end
-
-  defp predicates(%Plan{predicates_by_binding: predicates_by_binding}, binding) do
-    Map.get(predicates_by_binding, binding, [])
-  end
-
-  defp where_first_binding_join_predicates(query, predicates, source) do
-    Enum.reduce(predicates, query, fn predicate, query ->
-      where_first_binding_predicate(query, predicate, source)
-    end)
-  end
-
-  defp where_fragment_scope_second(queryable, opts) do
-    package_id = Keyword.get(opts, :package_id)
-
-    package_version_id =
-      Keyword.get(opts, :package_version_id) || Keyword.get(opts, :package_version)
-
-    queryable
-    |> maybe_where_second_package(package_id)
-    |> maybe_where_second_package_version(package_version_id)
-  end
-
-  defp maybe_where_second_package(queryable, nil), do: queryable
-
-  defp maybe_where_second_package(queryable, package_id),
-    do: where(queryable, [_first, fragment], fragment.package_id == ^package_id)
-
-  defp maybe_where_second_package_version(queryable, nil), do: queryable
-
-  defp maybe_where_second_package_version(queryable, package_version_id),
-    do: where(queryable, [_first, fragment], fragment.package_version_id == ^package_version_id)
-
-  defp where_source_predicates(query, predicates, binding, source) do
-    predicates
-    |> predicates_for(binding)
-    |> Enum.reduce(query, fn predicate, query ->
-      where_first_binding_predicate(query, predicate, source)
-    end)
-  end
-
-  defp where_second_binding_call_edge_predicates(query, predicates, call_edge_binding) do
-    where_second_binding_predicates(query, predicates, call_edge_binding, :calls)
-  end
-
-  defp where_second_binding_predicates(query, predicates, binding, source) do
-    predicates
-    |> predicates_for(binding)
-    |> Enum.reduce(query, fn predicate, query ->
-      where_second_binding_predicate(query, predicate, source)
-    end)
-  end
-
-  defp where_third_binding_predicates(query, predicates, binding, source) do
-    predicates
-    |> predicates_for(binding)
-    |> Enum.reduce(query, fn predicate, query ->
-      where_third_binding_predicate(query, predicate, source)
-    end)
-  end
-
-  defp where_fourth_binding_predicates(query, predicates, binding, source) do
-    predicates
-    |> predicates_for(binding)
-    |> Enum.reduce(query, fn predicate, query ->
-      where_fourth_binding_predicate(query, predicate, source)
-    end)
-  end
-
-  defp where_call_edge_predicates(query, predicates) do
-    Enum.reduce(predicates, query, fn predicate, query ->
-      where_first_binding_predicate(query, predicate, :call_edge)
-    end)
-  end
-
-  defp where_first_binding_predicate(query, {:prefix_search, _binding, field, value}, source) do
-    Sources.assert_field!(source, field)
-    where(query, [row], ilike(field(row, ^field), ^"#{value}%"))
-  end
-
-  defp where_first_binding_predicate(query, {:eq, _binding, field, value}, source) do
-    Sources.assert_field!(source, field)
-    where(query, [row], field(row, ^field) == ^value)
-  end
-
-  defp where_first_binding_predicate(query, {:cmp, _binding, field, op, value}, source) do
-    Sources.assert_field!(source, field)
-    where_first_cmp(query, field, op, value)
-  end
-
-  defp where_first_binding_predicate(query, {:in, _binding, field, values}, source) do
-    Sources.assert_field!(source, field)
-    where(query, [row], field(row, ^field) in ^values)
-  end
-
-  defp where_second_binding_predicate(query, {:prefix_search, _binding, field, value}, source) do
-    Sources.assert_field!(source, field)
-    where(query, [_first, row], ilike(field(row, ^field), ^"#{value}%"))
-  end
-
-  defp where_second_binding_predicate(query, {:eq, _binding, field, value}, source) do
-    Sources.assert_field!(source, field)
-    where(query, [_first, row], field(row, ^field) == ^value)
-  end
-
-  defp where_second_binding_predicate(query, {:cmp, _binding, field, op, value}, source) do
-    Sources.assert_field!(source, field)
-    where_second_cmp(query, field, op, value)
-  end
-
-  defp where_second_binding_predicate(query, {:in, _binding, field, values}, source) do
-    Sources.assert_field!(source, field)
-    where(query, [_first, row], field(row, ^field) in ^values)
-  end
-
-  defp where_third_binding_predicate(query, {:prefix_search, _binding, field, value}, source) do
-    Sources.assert_field!(source, field)
-    where(query, [_first, _second, row], ilike(field(row, ^field), ^"#{value}%"))
-  end
-
-  defp where_third_binding_predicate(query, {:eq, _binding, field, value}, source) do
-    Sources.assert_field!(source, field)
-    where(query, [_first, _second, row], field(row, ^field) == ^value)
-  end
-
-  defp where_third_binding_predicate(query, {:cmp, _binding, field, op, value}, source) do
-    Sources.assert_field!(source, field)
-    where_third_cmp(query, field, op, value)
-  end
-
-  defp where_third_binding_predicate(query, {:in, _binding, field, values}, source) do
-    Sources.assert_field!(source, field)
-    where(query, [_first, _second, row], field(row, ^field) in ^values)
-  end
-
-  defp where_fourth_binding_predicate(query, {:prefix_search, _binding, field, value}, source) do
-    Sources.assert_field!(source, field)
-    where(query, [_first, _second, _third, row], ilike(field(row, ^field), ^"#{value}%"))
-  end
-
-  defp where_fourth_binding_predicate(query, {:eq, _binding, field, value}, source) do
-    Sources.assert_field!(source, field)
-    where(query, [_first, _second, _third, row], field(row, ^field) == ^value)
-  end
-
-  defp where_fourth_binding_predicate(query, {:cmp, _binding, field, op, value}, source) do
-    Sources.assert_field!(source, field)
-    where_fourth_cmp(query, field, op, value)
-  end
-
-  defp where_fourth_binding_predicate(query, {:in, _binding, field, values}, source) do
-    Sources.assert_field!(source, field)
-    where(query, [_first, _second, _third, row], field(row, ^field) in ^values)
-  end
-
-  defp where_first_cmp(query, field, :>, value),
-    do: where(query, [row], field(row, ^field) > ^value)
-
-  defp where_first_cmp(query, field, :<, value),
-    do: where(query, [row], field(row, ^field) < ^value)
-
-  defp where_first_cmp(query, field, :>=, value),
-    do: where(query, [row], field(row, ^field) >= ^value)
-
-  defp where_first_cmp(query, field, :<=, value),
-    do: where(query, [row], field(row, ^field) <= ^value)
-
-  defp where_second_cmp(query, field, :>, value),
-    do: where(query, [_first, row], field(row, ^field) > ^value)
-
-  defp where_second_cmp(query, field, :<, value),
-    do: where(query, [_first, row], field(row, ^field) < ^value)
-
-  defp where_second_cmp(query, field, :>=, value),
-    do: where(query, [_first, row], field(row, ^field) >= ^value)
-
-  defp where_second_cmp(query, field, :<=, value),
-    do: where(query, [_first, row], field(row, ^field) <= ^value)
-
-  defp where_third_cmp(query, field, :>, value),
-    do: where(query, [_first, _second, row], field(row, ^field) > ^value)
-
-  defp where_third_cmp(query, field, :<, value),
-    do: where(query, [_first, _second, row], field(row, ^field) < ^value)
-
-  defp where_third_cmp(query, field, :>=, value),
-    do: where(query, [_first, _second, row], field(row, ^field) >= ^value)
-
-  defp where_third_cmp(query, field, :<=, value),
-    do: where(query, [_first, _second, row], field(row, ^field) <= ^value)
-
-  defp where_fourth_cmp(query, field, :>, value),
-    do: where(query, [_first, _second, _third, row], field(row, ^field) > ^value)
-
-  defp where_fourth_cmp(query, field, :<, value),
-    do: where(query, [_first, _second, _third, row], field(row, ^field) < ^value)
-
-  defp where_fourth_cmp(query, field, :>=, value),
-    do: where(query, [_first, _second, _third, row], field(row, ^field) >= ^value)
-
-  defp where_fourth_cmp(query, field, :<=, value),
-    do: where(query, [_first, _second, _third, row], field(row, ^field) <= ^value)
-
-  defp predicates_for(predicates, nil), do: Enum.filter(predicates, &field_predicate?/1)
-
-  defp predicates_for(predicates, binding) do
-    Enum.filter(predicates, fn
-      {_kind, ^binding, _field, _value} -> true
-      {:cmp, ^binding, _field, _op, _value} -> true
-      _predicate -> false
-    end)
-  end
-
-  defp field_predicate?({_kind, _binding, _field, _value}), do: true
-  defp field_predicate?({:cmp, _binding, _field, _op, _value}), do: true
-  defp field_predicate?(_predicate), do: false
-
-  defp where_fragment_scope(queryable, opts) do
-    package_id = Keyword.get(opts, :package_id)
-
-    package_version_id =
-      Keyword.get(opts, :package_version_id) || Keyword.get(opts, :package_version)
-
-    queryable
-    |> maybe_where_fragment_package(package_id)
-    |> maybe_where_fragment_package_version(package_version_id)
-  end
-
-  defp maybe_where_fragment_package(queryable, nil), do: queryable
-
-  defp maybe_where_fragment_package(queryable, package_id),
-    do: where(queryable, [fragment], fragment.package_id == ^package_id)
-
-  defp maybe_where_fragment_package_version(queryable, nil), do: queryable
-
-  defp maybe_where_fragment_package_version(queryable, package_version_id),
-    do: where(queryable, [fragment], fragment.package_version_id == ^package_version_id)
-
-  defp where_scope(queryable, opts) do
-    package_id = Keyword.get(opts, :package_id)
-
-    package_version_id =
-      Keyword.get(opts, :package_version_id) || Keyword.get(opts, :package_version)
-
-    queryable
-    |> maybe_where_package(package_id)
-    |> maybe_where_package_version(package_version_id)
-  end
-
-  defp maybe_where_package(queryable, nil), do: queryable
-
-  defp maybe_where_package(queryable, package_id),
-    do: where(queryable, [row], row.package_id == ^package_id)
-
-  defp maybe_where_package_version(queryable, nil), do: queryable
-
-  defp maybe_where_package_version(queryable, package_version_id),
-    do: where(queryable, [row], row.package_version_id == ^package_version_id)
 
   defp hydrate_fragment(nil, _source, _path), do: nil
 

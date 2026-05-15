@@ -3,22 +3,18 @@ defmodule Exograph.Extractor.ExAST do
   Extracts ExAST-backed structural fragments from Elixir source files.
   """
 
-  @behaviour Exograph.Extractor
-
   alias ExDNA.AST.Fingerprint
   alias Exograph.{Fragment, Package, PackageVersion}
   alias Exograph.File, as: SourceFile
 
   @default_opts [min_mass: 15, literal_mode: :keep, normalize_pipes: true]
 
-  @impl true
   def index_paths(paths, opts \\ []) do
     paths
     |> stream_paths(opts)
     |> Enum.to_list()
   end
 
-  @impl true
   def stream_paths(paths, opts \\ []) do
     paths
     |> List.wrap()

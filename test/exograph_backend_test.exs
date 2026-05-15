@@ -31,12 +31,11 @@ defmodule ExographBackendTest do
     [%Exograph.Hit{fragment: fragment}] =
       elem(Exograph.search(index, "def first_fun do ... end"), 1)
 
-    assert index.inverted_backend == Exograph.InvertedIndex.Postgres
-    assert index.fragment_store_backend == Exograph.FragmentStore.Postgres
-    assert index.tree_store_backend == Exograph.TreeStore.Postgres
-    assert {:ok, ^fragment} = index.fragment_store_backend.get(index.fragment_store, fragment.id)
+    assert {:ok, ^fragment} =
+             Exograph.FragmentStore.Postgres.get(index.fragment_store, fragment.id)
+
     assert [_ | _] = Exograph.tree_nodes(index, fragment.id)
-    fragments = index.fragment_store_backend.all(index.fragment_store)
+    fragments = Exograph.FragmentStore.Postgres.all(index.fragment_store)
     assert Enum.any?(fragments, &(MapSet.size(&1.terms) > 0))
   end
 

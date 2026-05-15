@@ -2,23 +2,17 @@ defmodule Exograph.Index do
   @moduledoc """
   Runtime handle for an Exograph index.
 
-  The handle keeps the Postgres candidate retrieval, fragment storage, and tree
-  access modules together for query execution.
+  The handle keeps Postgres candidate retrieval, fragment storage, and tree
+  access state together for query execution.
   """
 
   @type t :: %__MODULE__{
-          inverted_backend: module(),
           inverted: term(),
-          fragment_store_backend: module(),
           fragment_store: term(),
-          tree_store_backend: module() | nil,
           tree_store: term() | nil
         }
 
-  defstruct inverted_backend: Exograph.InvertedIndex.Postgres,
-            inverted: nil,
-            fragment_store_backend: Exograph.FragmentStore.Postgres,
+  defstruct inverted: nil,
             fragment_store: nil,
-            tree_store_backend: Exograph.TreeStore.Postgres,
             tree_store: nil
 end

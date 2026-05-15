@@ -93,7 +93,12 @@ defmodule Exograph.Web.QueryLive do
         </div>
         <div class="flex items-center gap-4 text-sm text-zinc-400">
           <span :if={@result_count} class="tabular-nums">
-            {@result_count} results across {length(@results || [])} packages in {@elapsed_ms}ms
+            <span :if={@result_count == 1}>1 result</span>
+            <span :if={@result_count != 1}>{@result_count} results</span>
+            across {length(@results || [])}
+            <span :if={length(@results || []) == 1}>package</span>
+            <span :if={length(@results || []) != 1}>packages</span>
+            in {@elapsed_ms}ms
           </span>
           <button
             id="run-btn"

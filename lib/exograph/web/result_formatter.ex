@@ -53,7 +53,7 @@ defmodule Exograph.Web.ResultFormatter do
     relative = max(match_line - fline + 1, 1)
 
     source
-    |> Exograph.Web.Highlighter.highlight(relative, 2)
+    |> Exograph.Web.Highlighter.highlight(relative, 4)
     |> Enum.map(fn {rel_num, html, is_matched} ->
       {rel_num + fline - 1, html, is_matched}
     end)

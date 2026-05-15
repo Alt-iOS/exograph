@@ -28,6 +28,7 @@ defmodule Exograph.Web do
   defp html_helpers do
     quote do
       import Phoenix.HTML
+      import PhoenixIconify, only: [icon: 1]
       alias Phoenix.LiveView.JS
       unquote(verified_routes())
     end

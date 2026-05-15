@@ -10,6 +10,7 @@ defmodule Exograph.MixProject do
       version: @version,
       elixir: "~> 1.19",
       description: "Local CodeQL-style code search for Elixir, backed by Postgres and ExAST.",
+      compilers: Mix.compilers() ++ [:phoenix_iconify],
       start_permanent: Mix.env() == :prod,
       deps: deps(),
       docs: docs(),
@@ -51,7 +52,9 @@ defmodule Exograph.MixProject do
       {:bandit, "~> 1.5", optional: true},
       {:jason, "~> 1.2"},
       {:makeup, "~> 1.0", optional: true},
-      {:makeup_elixir, "~> 1.0", optional: true}
+      {:makeup_elixir, "~> 1.0", optional: true},
+      {:phoenix_iconify, "~> 0.1", optional: true},
+      {:oxc, "~> 0.13.0", override: true}
     ]
   end
 

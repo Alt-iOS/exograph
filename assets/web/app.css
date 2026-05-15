@@ -2,6 +2,12 @@
 @source "../../lib";
 @source ".";
 
+.code-preview,
+.code-preview * {
+  line-height: 1.25rem !important;
+  font-size: 0.75rem !important;
+}
+
 /* Makeup syntax highlighting — Atom One Dark palette */
 code span.kd,
 code span.k { color: #c678dd; }         /* keywords: def, do, end, fn */

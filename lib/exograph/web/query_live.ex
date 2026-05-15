@@ -15,6 +15,26 @@ defmodule Exograph.Web.QueryLive do
   )\
   """
 
+  @examples [
+    {"Pattern search", ~S'from(f in Fragment, where: matches(f, "Repo.get!(_, _)"), limit: 20)'},
+    {"GenServer callbacks",
+     ~S'from(f in Fragment, where: matches(f, "def handle_call(_, _, _) do ... end"), limit: 20)'},
+    {"Functions calling Enum.map",
+     ~S"""
+     from(f in Fragment,
+       join: r in assoc(f, :references),
+       where: r.qualified_name == "Enum.map/2",
+       where: f.kind == :def,
+       limit: 20)
+     """},
+    {"Public API definitions",
+     ~S'from(d in Definition, where: d.kind == :def, where: prefix_search(d.name, "fetch"))'},
+    {"Call graph: who calls Repo.transaction",
+     ~S'from(e in CallEdge, where: e.callee_qualified_name == "Ecto.Repo.transaction/2", limit: 20)'},
+    {"Functions with TODO comments",
+     ~S'from(f in Fragment, where: matches(f, "def _ do ... end"), where: contains(f, "# TODO"), limit: 20)'}
+  ]
+
   @impl true
   def mount(_params, _session, socket) do
     index = Application.get_env(:exograph, :web_index)
@@ -25,11 +45,17 @@ defmodule Exograph.Web.QueryLive do
        index: index,
        prefix: prefix,
        query: @default_query,
+       examples: @examples,
        results: nil,
        error: nil,
        elapsed_ms: nil,
        result_count: nil
      )}
+  end
+
+  @impl true
+  def handle_event("set_query", %{"query" => query}, socket) do
+    {:noreply, push_event(socket, "set_editor_value", %{value: String.trim(query)})}
   end
 
   @impl true
@@ -106,19 +132,7 @@ defmodule Exograph.Web.QueryLive do
             <div class="divide-y divide-zinc-800">
               <div :for={file_group <- group.files}>
                 <div class="flex items-center gap-2 px-4 py-2 bg-zinc-900/40 border-b border-zinc-800/50">
-                  <svg
-                    class="w-3.5 h-3.5 text-zinc-500 flex-shrink-0"
-                    fill="none"
-                    stroke="currentColor"
-                    viewBox="0 0 24 24"
-                  >
-                    <path
-                      stroke-linecap="round"
-                      stroke-linejoin="round"
-                      stroke-width="2"
-                      d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
-                    />
-                  </svg>
+                  <.icon name="heroicons:document-text" class="w-3.5 h-3.5 text-zinc-500 shrink-0" />
                   <span class="text-blue-400 font-mono text-xs">{file_group.file}</span>
                 </div>
 
@@ -143,17 +157,12 @@ defmodule Exograph.Web.QueryLive do
                       </span>
                     </div>
 
-                    <div :if={result.preview} class="rounded border border-zinc-800 overflow-hidden">
+                    <div :if={result.preview} class="code-preview rounded border border-zinc-800 overflow-hidden py-1">
                       <div
                         :for={{line_num, html, is_matched} <- result.preview}
-                        class={"flex items-stretch font-mono text-xs" <> if(is_matched, do: " bg-blue-900/20 border-l-2 border-l-blue-500", else: "")}
+                        class={"flex font-mono" <> if(is_matched, do: " bg-blue-900/20 border-l-2 border-l-blue-500", else: "")}
                       >
-                        <span class="w-10 text-right pr-3 py-1 text-zinc-600 select-none flex-shrink-0 bg-zinc-900/50 border-r border-zinc-800/50 tabular-nums leading-5">
-                          {line_num}
-                        </span>
-                        <code class="py-1 px-3 flex-1 overflow-x-hidden text-zinc-300 leading-5 whitespace-pre">
-                          {raw(html)}
-                        </code>
+                        <span class="w-10 text-right pr-3 text-zinc-600 select-none shrink-0 bg-zinc-900/50 border-r border-zinc-800/50 tabular-nums">{line_num}</span><code class="px-3 flex-1 overflow-x-hidden text-zinc-300 whitespace-pre">{raw(html)}</code>
                       </div>
                     </div>
                   </div>
@@ -163,8 +172,18 @@ defmodule Exograph.Web.QueryLive do
           </div>
 
           <div :if={@results == []} class="p-8 text-center text-zinc-500">No results</div>
-          <div :if={is_nil(@results) && is_nil(@error)} class="p-8 text-center text-zinc-600">
-            Write a query and press Run
+          <div :if={is_nil(@results) && is_nil(@error)} class="px-6 py-8">
+            <p class="text-sm text-zinc-500 mb-4">Try an example:</p>
+            <div class="flex flex-wrap gap-2">
+              <button
+                :for={{label, query} <- @examples}
+                phx-click="set_query"
+                phx-value-query={query}
+                class="px-3 py-1.5 text-xs font-medium text-zinc-300 bg-zinc-800 border border-zinc-700 rounded-md hover:bg-zinc-700 hover:border-zinc-600 cursor-pointer transition-colors"
+              >
+                {label}
+              </button>
+            </div>
           </div>
         </div>
       </div>

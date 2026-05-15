@@ -5,6 +5,70 @@ async function loadMonaco() {
   return await import(/* webpackIgnore: true */ url)
 }
 
+const ELIXIR_LANGUAGE = "elixir"
+
+function registerElixirLanguage(m: any) {
+  if (m.languages.getLanguages().some((l: any) => l.id === ELIXIR_LANGUAGE)) return
+
+  m.languages.register({ id: ELIXIR_LANGUAGE })
+  m.languages.setMonarchTokensProvider(ELIXIR_LANGUAGE, {
+    keywords: [
+      "def", "defp", "defmodule", "defmacro", "defmacrop", "defstruct", "defprotocol",
+      "defimpl", "defguard", "defdelegate", "defexception", "defoverridable",
+      "do", "end", "fn", "case", "cond", "if", "else", "unless", "when",
+      "with", "for", "receive", "try", "catch", "rescue", "after", "raise",
+      "throw", "import", "require", "alias", "use", "quote", "unquote",
+      "in", "not", "and", "or", "true", "false", "nil",
+    ],
+    operators: [
+      "=", ">", "<", "!", "~", "?", ":", "==", "<=", ">=", "!=",
+      "&&", "||", "++", "--", "<>", "->", "|>", "::", "..", "=~",
+      "===", "!==", "<<<", ">>>",
+    ],
+    tokenizer: {
+      root: [
+        [/#.*$/, "comment"],
+        [/@\w+/, "annotation"],
+        [/:[a-zA-Z_]\w*/, "atom"],
+        [/"/, "string", "@string_double"],
+        [/'/, "string", "@string_single"],
+        [/~[a-zA-Z]"""/, "string", "@heredoc"],
+        [/~[a-zA-Z]"/, "string", "@sigil_double"],
+        [/\d[\d_]*(\.\d[\d_]*)?(e[+-]?\d+)?/, "number"],
+        [/0[xXoObB][\da-fA-F_]+/, "number"],
+        [/[A-Z][\w.]*/, "type"],
+        [/[a-z_]\w*[?!]?/, { cases: { "@keywords": "keyword", "@default": "identifier" } }],
+        [/[{}()\[\]]/, "@brackets"],
+        [/[<>]=?|[!=]=?|&&?|\|\|?|\+\+?|--?|<>|\|>|->|::|\.\.|=~/, "operator"],
+        [/[;,.]/, "delimiter"],
+      ],
+      string_double: [
+        [/#\{/, "string.interpolation", "@interpolation"],
+        [/[^"#]+/, "string"],
+        [/"/, "string", "@pop"],
+      ],
+      string_single: [
+        [/[^']+/, "string"],
+        [/'/, "string", "@pop"],
+      ],
+      heredoc: [
+        [/#\{/, "string.interpolation", "@interpolation"],
+        [/"""/, "string", "@pop"],
+        [/./, "string"],
+      ],
+      sigil_double: [
+        [/#\{/, "string.interpolation", "@interpolation"],
+        [/"/, "string", "@pop"],
+        [/./, "string"],
+      ],
+      interpolation: [
+        [/\}/, "string.interpolation", "@pop"],
+        { include: "root" },
+      ],
+    },
+  })
+}
+
 export const Editor = {
   async mounted(this: any) {
     const hook = this
@@ -12,15 +76,23 @@ export const Editor = {
     const query = container.dataset.query || ""
     const m = await loadMonaco()
 
+    registerElixirLanguage(m)
+
     m.editor.defineTheme("exograph", {
       base: "vs-dark",
       inherit: true,
       rules: [
         { token: "keyword", foreground: "c792ea" },
+        { token: "type", foreground: "ffcb6b" },
+        { token: "atom", foreground: "82aaff" },
         { token: "string", foreground: "c3e88d" },
+        { token: "string.interpolation", foreground: "89ddff" },
         { token: "number", foreground: "f78c6c" },
         { token: "comment", foreground: "546e7a", fontStyle: "italic" },
         { token: "operator", foreground: "89ddff" },
+        { token: "annotation", foreground: "f07178" },
+        { token: "identifier", foreground: "eeffff" },
+        { token: "delimiter", foreground: "89ddff" },
       ],
       colors: {
         "editor.background": "#09090b",
@@ -39,7 +111,7 @@ export const Editor = {
 
     const editor = m.editor.create(container, {
       value: query,
-      language: "plaintext",
+      language: ELIXIR_LANGUAGE,
       theme: "exograph",
       fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
       fontSize: 13,
@@ -61,7 +133,7 @@ export const Editor = {
     })
 
     if (completionProvider) completionProvider.dispose()
-    completionProvider = m.languages.registerCompletionItemProvider("plaintext", {
+    completionProvider = m.languages.registerCompletionItemProvider(ELIXIR_LANGUAGE, {
       triggerCharacters: [".", ":", '"', " "],
       provideCompletionItems: (model: any, position: any) => {
         const line = model.getLineContent(position.lineNumber)
@@ -82,6 +154,11 @@ export const Editor = {
           })
         })
       },
+    })
+
+    hook.handleEvent("set_editor_value", ({ value }: { value: string }) => {
+      editor.setValue(value)
+      editor.focus()
     })
 
     this.editor = editor

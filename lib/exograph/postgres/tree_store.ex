@@ -1,4 +1,4 @@
-defmodule Exograph.TreeStore.Postgres do
+defmodule Exograph.Postgres.TreeStore do
   @moduledoc """
   Durable AST tree node store backed by Ecto and Postgres.
   """

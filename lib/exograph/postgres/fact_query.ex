@@ -1,4 +1,4 @@
-defmodule Exograph.CodeFactQuery do
+defmodule Exograph.Postgres.FactQuery do
   @moduledoc false
 
   import Ecto.Query

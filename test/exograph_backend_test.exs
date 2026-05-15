@@ -32,10 +32,10 @@ defmodule ExographBackendTest do
       elem(Exograph.search(index, "def first_fun do ... end"), 1)
 
     assert {:ok, ^fragment} =
-             Exograph.FragmentStore.Postgres.get(index.fragment_store, fragment.id)
+             Exograph.Postgres.FragmentStore.get(index.fragment_store, fragment.id)
 
     assert [_ | _] = Exograph.tree_nodes(index, fragment.id)
-    fragments = Exograph.FragmentStore.Postgres.all(index.fragment_store)
+    fragments = Exograph.Postgres.FragmentStore.all(index.fragment_store)
     assert Enum.any?(fragments, &(MapSet.size(&1.terms) > 0))
   end
 

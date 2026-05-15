@@ -1,4 +1,4 @@
-defmodule Exograph.FragmentStore.Postgres do
+defmodule Exograph.Postgres.FragmentStore do
   @moduledoc """
   Durable fragment store backed by Ecto and Postgres.
   """

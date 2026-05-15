@@ -4,7 +4,7 @@ defmodule Exograph.DSL.Executor.Scope do
   import Ecto.Query
 
   alias Exograph.DSL.Compiler
-  alias Exograph.InvertedIndex.Postgres, as: PostgresInvertedIndex
+  alias Exograph.Postgres.InvertedIndex, as: PostgresInvertedIndex
 
   @doc false
   def where_fragment_scope(queryable, opts) do

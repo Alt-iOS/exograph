@@ -4,7 +4,7 @@ defmodule Exograph.BackendContract do
   import ExUnit.Assertions
   import Ecto.Query, only: [from: 2]
 
-  alias Exograph.FragmentStore.Postgres, as: PostgresFragmentStore
+  alias Exograph.Postgres.FragmentStore, as: PostgresFragmentStore
   alias Exograph.Postgres.{PackageRecord, PackageVersionRecord}
 
   def assert_real_indexing_and_search(opts) do

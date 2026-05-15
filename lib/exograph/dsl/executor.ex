@@ -8,9 +8,9 @@ defmodule Exograph.DSL.Executor do
   alias Exograph.{CallEdgeHit, DefinitionHit, Hit, ReferenceHit}
   alias Exograph.DSL.{Compiler, JoinSemantics, Plan, Planner, Query, Sources}
   alias Exograph.DSL.Plan.Join
-  alias Exograph.FragmentStore.Postgres, as: PostgresFragmentStore
-  alias Exograph.InvertedIndex.Postgres, as: PostgresInvertedIndex
-  alias Exograph.Query, as: StructuralQuery
+  alias Exograph.Postgres.FragmentStore, as: PostgresFragmentStore
+  alias Exograph.Postgres.InvertedIndex, as: PostgresInvertedIndex
+  alias Exograph.StructuralQuery
 
   alias Exograph.Postgres.{
     CallEdgeRecord,
@@ -112,7 +112,7 @@ defmodule Exograph.DSL.Executor do
     |> hydrate_fragment_batch(index)
   end
 
-  def stream_structural(index, %Exograph.Query{} = compiled_query, opts) do
+  def stream_structural(index, %Exograph.StructuralQuery{} = compiled_query, opts) do
     term_strings = MapSet.to_list(compiled_query.required_terms)
     term_ids = PostgresInvertedIndex.resolve_term_ids(index.inverted, term_strings)
 

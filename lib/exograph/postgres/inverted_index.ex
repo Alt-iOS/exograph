@@ -1,4 +1,4 @@
-defmodule Exograph.InvertedIndex.Postgres do
+defmodule Exograph.Postgres.InvertedIndex do
   @moduledoc """
   Postgres/ParadeDB candidate retrieval backend implemented with Ecto queries.
 
@@ -8,9 +8,9 @@ defmodule Exograph.InvertedIndex.Postgres do
 
   import Ecto.Query
 
-  alias Exograph.{CodeFactQuery, Hit, Package, PackageVersion}
-  alias Exograph.Postgres.{CallEdgeRecord, FragmentRecord, Options}
-  alias Exograph.Query, as: ExographQuery
+  alias Exograph.{Hit, Package, PackageVersion}
+  alias Exograph.Postgres.{CallEdgeRecord, FactQuery, FragmentRecord, Options}
+  alias Exograph.StructuralQuery
 
   defstruct repo: nil, prefix: "exograph", package: nil, package_version: nil
 
@@ -27,7 +27,7 @@ defmodule Exograph.InvertedIndex.Postgres do
     {:ok, index}
   end
 
-  def search(%__MODULE__{} = index, %ExographQuery{} = query, opts \\ []) do
+  def search(%__MODULE__{} = index, %StructuralQuery{} = query, opts \\ []) do
     limit = Keyword.get(opts, :limit, 50)
     required = MapSet.to_list(query.required_terms)
     optional = MapSet.to_list(query.optional_terms)
@@ -59,11 +59,11 @@ defmodule Exograph.InvertedIndex.Postgres do
   end
 
   def search_definitions(%__MODULE__{} = index, literal, opts \\ []) when is_binary(literal) do
-    CodeFactQuery.search(index, definitions_source(index), literal, opts)
+    FactQuery.search(index, definitions_source(index), literal, opts)
   end
 
   def search_references(%__MODULE__{} = index, literal, opts \\ []) when is_binary(literal) do
-    CodeFactQuery.search(index, references_source(index), literal, opts)
+    FactQuery.search(index, references_source(index), literal, opts)
   end
 
   def search_callers(%__MODULE__{} = index, callee, opts \\ []) when is_binary(callee) do
@@ -98,8 +98,8 @@ defmodule Exograph.InvertedIndex.Postgres do
     _ -> []
   end
 
-  defp include_source?(%ExographQuery{verifier: {:selector, _selector}} = query),
-    do: ExographQuery.requires_source?(query)
+  defp include_source?(%StructuralQuery{verifier: {:selector, _selector}} = query),
+    do: StructuralQuery.requires_source?(query)
 
   defp include_source?(_query), do: true
 

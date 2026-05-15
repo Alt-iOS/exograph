@@ -1,4 +1,4 @@
-defmodule Exograph.Query do
+defmodule Exograph.StructuralQuery do
   @moduledoc false
 
   defstruct source: nil,

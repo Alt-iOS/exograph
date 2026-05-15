@@ -25,18 +25,18 @@ defmodule Exograph do
     DSL,
     Hit,
     Index,
-    Query,
     ReferenceHit,
     Scope,
     Similarity,
+    StructuralQuery,
     Text,
     TextHit
   }
 
   alias Exograph.Extractor.ExAST, as: ExASTExtractor
-  alias Exograph.FragmentStore.Postgres, as: PostgresFragmentStore
-  alias Exograph.InvertedIndex.Postgres, as: PostgresInvertedIndex
-  alias Exograph.TreeStore.Postgres, as: PostgresTreeStore
+  alias Exograph.Postgres.FragmentStore, as: PostgresFragmentStore
+  alias Exograph.Postgres.InvertedIndex, as: PostgresInvertedIndex
+  alias Exograph.Postgres.TreeStore, as: PostgresTreeStore
 
   @spec index(String.t() | [String.t()], keyword()) :: {:ok, Index.t()} | {:error, term()}
   def index(paths, opts \\ []) do
@@ -78,7 +78,7 @@ defmodule Exograph do
       index
       |> DSL.Executor.stream_structural(compiled, opts)
       |> Stream.flat_map(fn fragment ->
-        case Query.verify(compiled, fragment) do
+        case StructuralQuery.verify(compiled, fragment) do
           {:ok, matches} ->
             Enum.map(matches, &Hit.with_match(Hit.new(fragment: fragment, score: 1.0), &1))
 
@@ -175,9 +175,9 @@ defmodule Exograph do
   end
 
   @doc false
-  @spec compile(ExAST.Pattern.pattern() | ExAST.Selector.t()) :: Query.t()
-  def compile(%ExAST.Selector{} = selector), do: Query.selector(selector)
-  def compile(pattern), do: Query.pattern(pattern)
+  @spec compile(ExAST.Pattern.pattern() | ExAST.Selector.t()) :: StructuralQuery.t()
+  def compile(%ExAST.Selector{} = selector), do: StructuralQuery.selector(selector)
+  def compile(pattern), do: StructuralQuery.pattern(pattern)
 
   @doc false
   @spec tree_nodes(Index.t(), Exograph.Fragment.id()) :: [Exograph.Tree.Node.t()]

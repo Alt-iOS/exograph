@@ -60,11 +60,11 @@ defmodule Exograph.Web.Completion do
         do: item(name, "module", detail)
   end
 
+  @allowed_root_modules ~w(Exograph Enum Map List String Keyword Regex)
+
   defp complete_root_modules(hint) do
-    for mod <- all_modules(),
-        name = mod |> Module.split() |> List.first(),
+    for name <- @allowed_root_modules,
         String.starts_with?(name, hint),
-        uniq: true,
         do: item(name, "module", module_detail(Module.concat([name])))
   end
 

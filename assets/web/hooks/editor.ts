@@ -161,6 +161,21 @@ export const Editor = {
       editor.focus()
     })
 
+    hook.handleEvent("set_diagnostics", ({ markers }: { markers: any[] }) => {
+      const model = editor.getModel()
+      if (!model) return
+      m.editor.setModelMarkers(model, "exograph", markers.map((mk: any) => ({
+        severity: m.MarkerSeverity.Error,
+        message: mk.message,
+        startLineNumber: mk.line || 1,
+        startColumn: mk.column || 1,
+        endLineNumber: mk.end_line || mk.line || 1,
+        endColumn: mk.end_column || 1000,
+      })))
+    })
+
+    container.addEventListener("keydown", (e: KeyboardEvent) => e.stopPropagation())
+
     this.editor = editor
     ;(container as any)._monacoEditor = editor
   },

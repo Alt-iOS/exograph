@@ -65,13 +65,21 @@ defmodule Exograph.Web.QueryLive do
     case QueryExecutor.execute(socket.assigns.index, query) do
       {:ok, results, elapsed_ms} ->
         {:noreply,
-         assign(socket,
+         socket
+         |> assign(
            results: ResultFormatter.format(results),
            result_count: length(results),
            elapsed_ms: elapsed_ms
-         )}
+         )
+         |> push_event("set_diagnostics", %{markers: []})}
 
-      {:error, message} ->
+      {:error, %{message: message, markers: markers}} ->
+        {:noreply,
+         socket
+         |> assign(error: message)
+         |> push_event("set_diagnostics", %{markers: markers})}
+
+      {:error, message} when is_binary(message) ->
         {:noreply, assign(socket, error: message)}
     end
   end

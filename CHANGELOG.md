@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.3.0
+
+- Web UI with Monaco editor, syntax-highlighted search results, and autocompletion (`mix exograph.web`)
+- JSON API: `POST /api/search`, `POST /api/query`, `GET /api/packages`, `GET /api/stats`
+- Consolidated `Exograph.Postgres.*` namespace (FragmentStore, InvertedIndex, TreeStore)
+- Renamed Query → StructuralQuery to disambiguate from DSL.Query
+- Split DSL executor into focused modules (Predicates, Scope)
+- Removed dead code: legacy Planner subtree, unused Indexer delegator
+- Removed single-implementation behaviour modules (Extractor, FragmentStore, InvertedIndex, TreeStore)
+- Simplified `Index` struct from 6 fields to 3
+
+### Breaking
+
+Module renames — update any direct references:
+- `Exograph.FragmentStore.Postgres` → `Exograph.Postgres.FragmentStore`
+- `Exograph.InvertedIndex.Postgres` → `Exograph.Postgres.InvertedIndex`
+- `Exograph.TreeStore.Postgres` → `Exograph.Postgres.TreeStore`
+- Query → StructuralQuery
+- CodeFactQuery → `Exograph.Postgres.FactQuery`
+
 ## 0.2.0
 
 - Populate `fragment.module` with containing module name (97% coverage)

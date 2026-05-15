@@ -60,7 +60,10 @@ defmodule Exograph.Web.Completion do
         do: item(name, "module", detail)
   end
 
-  @allowed_root_modules ~w(Exograph Enum Map List String Keyword Regex)
+  @allowed_root_modules ~w(
+    Atom Enum Integer Keyword List Map MapSet Range Regex Stream String Tuple
+    Exograph
+  )
 
   defp complete_root_modules(hint) do
     for name <- @allowed_root_modules,

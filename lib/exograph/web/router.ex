@@ -12,8 +12,21 @@ defmodule Exograph.Web.Router do
     plug(:put_secure_browser_headers)
   end
 
+  pipeline :api do
+    plug(:accepts, ["json"])
+  end
+
   scope "/", Exograph.Web do
     pipe_through(:browser)
     live("/", QueryLive, :index)
+  end
+
+  scope "/api", Exograph.Web do
+    pipe_through(:api)
+
+    post("/search", APIController, :search)
+    post("/query", APIController, :query)
+    get("/packages", APIController, :packages)
+    get("/stats", APIController, :stats)
   end
 end

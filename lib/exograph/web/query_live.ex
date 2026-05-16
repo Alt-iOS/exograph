@@ -57,7 +57,8 @@ defmodule Exograph.Web.QueryLive do
        collapsed_packages: MapSet.new(),
        all_results: [],
        has_more: false,
-       current_skip: 0
+       current_skip: 0,
+       search_mode: "structural"
      )}
   end
 
@@ -74,6 +75,11 @@ defmodule Exograph.Web.QueryLive do
   @impl true
   def handle_event("set_query", %{"query" => query}, socket) do
     {:noreply, push_event(socket, "set_editor_value", %{value: String.trim(query)})}
+  end
+
+  @impl true
+  def handle_event("set_mode", %{"mode" => mode}, socket) do
+    {:noreply, assign(socket, search_mode: mode)}
   end
 
   @impl true
@@ -99,6 +105,7 @@ defmodule Exograph.Web.QueryLive do
   @impl true
   def handle_event("run", %{"query" => query}, socket) do
     index = socket.assigns.index
+    mode = socket.assigns.search_mode
 
     socket =
       assign(socket,
@@ -116,7 +123,7 @@ defmodule Exograph.Web.QueryLive do
     pid = self()
 
     Task.start(fn ->
-      result = QueryExecutor.execute(index, query, skip: 0)
+      result = QueryExecutor.execute(index, query, skip: 0, mode: mode)
       send(pid, {:query_result, query, result, :replace})
     end)
 
@@ -128,10 +135,11 @@ defmodule Exograph.Web.QueryLive do
     index = socket.assigns.index
     query = socket.assigns.query
     skip = socket.assigns.current_skip
+    mode = socket.assigns.search_mode
     pid = self()
 
     Task.start(fn ->
-      result = QueryExecutor.execute(index, query, skip: skip)
+      result = QueryExecutor.execute(index, query, skip: skip, mode: mode)
       send(pid, {:query_result, query, result, :append})
     end)
 
@@ -204,6 +212,22 @@ defmodule Exograph.Web.QueryLive do
             <span :if={length(@results || []) != 1}>packages</span>
             in {@elapsed_ms}ms
           </span>
+          <div class="flex items-center gap-1 bg-zinc-800 rounded-md p-0.5">
+            <button
+              phx-click="set_mode"
+              phx-value-mode="structural"
+              class={"px-2 py-1 text-xs rounded cursor-pointer " <> if(@search_mode == "structural", do: "bg-zinc-700 text-zinc-200", else: "text-zinc-500 hover:text-zinc-300")}
+            >
+              Structural
+            </button>
+            <button
+              phx-click="set_mode"
+              phx-value-mode="text"
+              class={"px-2 py-1 text-xs rounded cursor-pointer " <> if(@search_mode == "text", do: "bg-zinc-700 text-zinc-200", else: "text-zinc-500 hover:text-zinc-300")}
+            >
+              Text
+            </button>
+          </div>
           <button
             id="fmt-btn"
             phx-hook="FormatButton"
@@ -269,7 +293,17 @@ defmodule Exograph.Web.QueryLive do
               <div :for={file_group <- group.files}>
                 <div class="flex items-center gap-2 px-4 py-2 bg-zinc-900/40 border-b border-zinc-800/50">
                   <.icon name="heroicons:document-text" class="w-3.5 h-3.5 text-zinc-500 shrink-0" />
-                  <span class="text-blue-400 font-mono text-xs">{file_group.file}</span>
+                  <a
+                    :if={file_group.source_url}
+                    href={file_group.source_url}
+                    target="_blank"
+                    class="text-blue-400 font-mono text-xs hover:text-blue-300"
+                  >
+                    {file_group.file}
+                  </a>
+                  <span :if={!file_group.source_url} class="text-blue-400 font-mono text-xs">
+                    {file_group.file}
+                  </span>
                 </div>
 
                 <div class="divide-y divide-zinc-800/40">

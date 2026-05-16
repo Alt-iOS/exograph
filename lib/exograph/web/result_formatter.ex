@@ -16,6 +16,7 @@ defmodule Exograph.Web.ResultFormatter do
         |> Enum.map(fn {file, file_results} ->
           %{
             file: file,
+            source_url: hex_source_url(file_results),
             results:
               Enum.map(file_results, fn r ->
                 %{r | preview: build_preview(r.source, r.fragment_line, r.line)}
@@ -43,6 +44,12 @@ defmodule Exograph.Web.ResultFormatter do
   def badge_class(:reference), do: "bg-orange-900/40 text-orange-300"
   def badge_class(:call), do: "bg-teal-900/40 text-teal-300"
   def badge_class(_), do: "bg-zinc-800 text-zinc-400"
+
+  defp hex_source_url([%{package: pkg, package_version: ver} | _]) when is_binary(ver) do
+    "https://hex.pm/packages/#{pkg}/#{ver}"
+  end
+
+  defp hex_source_url(_), do: nil
 
   defp build_preview(nil, _, _), do: nil
   defp build_preview(_, _, nil), do: nil

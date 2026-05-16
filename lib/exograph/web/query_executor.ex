@@ -8,11 +8,24 @@ defmodule Exograph.Web.QueryExecutor do
   def default_limit, do: @default_limit
 
   def execute(index, query_string, opts \\ []) do
+    mode = Keyword.get(opts, :mode, "structural")
+
     {elapsed_us, result} =
       :timer.tc(fn ->
-        case SafeEval.eval(query_string) do
-          {:ok, parsed} -> run_parsed(index, parsed, opts)
-          {:error, _} = error -> error
+        case mode do
+          "text" ->
+            skip = Keyword.get(opts, :skip, 0)
+
+            case Exograph.search_text(index, query_string, limit: @default_limit, skip: skip) do
+              {:ok, results} -> {:ok, results, @default_limit}
+              error -> error
+            end
+
+          _ ->
+            case SafeEval.eval(query_string) do
+              {:ok, parsed} -> run_parsed(index, parsed, opts)
+              {:error, _} = error -> error
+            end
         end
       end)
 

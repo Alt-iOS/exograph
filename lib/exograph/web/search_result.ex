@@ -13,7 +13,8 @@ defmodule Exograph.Web.SearchResult do
     :source,
     :fragment_line,
     :joined_label,
-    :preview
+    :preview,
+    :package_version
   ]
 
   def from(%Exograph.Hit{fragment: f, match: m}) do
@@ -29,7 +30,26 @@ defmodule Exograph.Web.SearchResult do
       source: f.source,
       fragment_line: f.line,
       joined_label: nil,
-      preview: nil
+      preview: nil,
+      package_version: extract_package_version(f.file)
+    }
+  end
+
+  def from(%Exograph.TextHit{fragment: f}) do
+    %__MODULE__{
+      type: :text,
+      file: relative_path(f.file),
+      package: extract_package(f.file),
+      module: f.module,
+      kind: f.kind,
+      name: f.name,
+      arity: f.arity,
+      line: f.line,
+      source: f.source,
+      fragment_line: f.line,
+      joined_label: nil,
+      preview: nil,
+      package_version: extract_package_version(f.file)
     }
   end
 
@@ -46,7 +66,8 @@ defmodule Exograph.Web.SearchResult do
       source: f.source,
       fragment_line: f.line,
       joined_label: format_joined(joined),
-      preview: nil
+      preview: nil,
+      package_version: extract_package_version(f.file)
     }
   end
 
@@ -87,7 +108,8 @@ defmodule Exograph.Web.SearchResult do
       source: if(f, do: f.source, else: nil),
       fragment_line: if(f, do: f.line, else: nil),
       joined_label: nil,
-      preview: nil
+      preview: nil,
+      package_version: extract_package_version(file)
     }
   end
 
@@ -106,7 +128,8 @@ defmodule Exograph.Web.SearchResult do
       source: if(f, do: f.source, else: nil),
       fragment_line: if(f, do: f.line, else: nil),
       joined_label: nil,
-      preview: nil
+      preview: nil,
+      package_version: extract_package_version(file)
     }
   end
 
@@ -123,7 +146,8 @@ defmodule Exograph.Web.SearchResult do
       source: nil,
       fragment_line: nil,
       joined_label: nil,
-      preview: nil
+      preview: nil,
+      package_version: nil
     }
   end
 
@@ -149,7 +173,8 @@ defmodule Exograph.Web.SearchResult do
       source: nil,
       fragment_line: nil,
       joined_label: nil,
-      preview: nil
+      preview: nil,
+      package_version: nil
     }
   end
 
@@ -188,6 +213,22 @@ defmodule Exograph.Web.SearchResult do
 
       _ ->
         file |> Path.basename() |> Path.rootname()
+    end
+  end
+
+  defp extract_package_version(nil), do: nil
+  defp extract_package_version(""), do: nil
+
+  defp extract_package_version(file) do
+    case Regex.run(~r"/sources/([^/]+)/", file) do
+      [_, pkg_dir] ->
+        case Regex.run(~r/^.+-(\d+\.\d+\.\d+.*)$/, pkg_dir) do
+          [_, version] -> version
+          _ -> nil
+        end
+
+      _ ->
+        nil
     end
   end
 end

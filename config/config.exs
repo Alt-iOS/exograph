@@ -5,6 +5,7 @@ config :volt,
   root: "assets",
   outdir: "priv/static/assets",
   target: :es2020,
+  hash: false,
   resolve_dirs: ["deps"],
   module_types: %{".css" => :empty, ".ttf" => :empty},
   tailwind: [

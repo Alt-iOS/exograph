@@ -10,6 +10,7 @@ defmodule Exograph.Web.APIController do
   def search(conn, params) do
     index = index()
     pattern = params["pattern"] || ""
+    mode = params["mode"] || "structural"
     limit = parse_limit(params["limit"])
     skip = decode_cursor(params["cursor"])
     package_id = params["package_id"]
@@ -17,7 +18,21 @@ defmodule Exograph.Web.APIController do
     opts = [limit: limit, skip: skip] ++ scope_opts(package_id)
 
     {elapsed_us, result} =
-      :timer.tc(fn -> Exograph.search(index, pattern, opts) end)
+      :timer.tc(fn ->
+        case mode do
+          "text" ->
+            Exograph.search_text(index, pattern, opts)
+
+          "regex" ->
+            case Regex.compile(pattern) do
+              {:ok, regex} -> Exograph.search_text(index, regex, opts)
+              {:error, reason} -> {:error, "Invalid regex: #{inspect(reason)}"}
+            end
+
+          _ ->
+            Exograph.search(index, pattern, opts)
+        end
+      end)
 
     case result do
       {:ok, hits} ->

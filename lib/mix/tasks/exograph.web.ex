@@ -114,46 +114,8 @@ defmodule Mix.Tasks.Exograph.Web do
     outdir = Volt.Config.build().outdir |> to_string()
     File.mkdir_p!(outdir)
 
-    build_tailwind!(outdir)
     build_monaco!(outdir)
-    build_js!()
-  end
-
-  defp build_js! do
-    config = Volt.Config.build()
-
-    case Volt.Builder.build(
-           entry: config.entry,
-           outdir: to_string(config.outdir),
-           target: config.target,
-           hash: false,
-           sourcemap: false,
-           format: :esm,
-           external: [],
-           resolve_dirs: config.resolve_dirs,
-           aliases: config.aliases,
-           plugins: config.plugins,
-           minify: false
-         ) do
-      {:ok, _} -> :ok
-      {:error, reason} -> Mix.shell().error("JS build failed: #{inspect(reason)}")
-    end
-  end
-
-  defp build_tailwind!(outdir) do
-    tw = Volt.Config.tailwind()
-    css_path = Keyword.get(tw, :css)
-
-    if css_path && File.regular?(css_path) do
-      case Volt.Tailwind.build(
-             css: File.read!(css_path),
-             css_base: Path.dirname(css_path),
-             sources: Keyword.get(tw, :sources, [])
-           ) do
-        {:ok, css} -> File.write!(Path.join(outdir, "app.css"), css)
-        {:error, reason} -> Mix.shell().error("Tailwind build failed: #{inspect(reason)}")
-      end
-    end
+    Mix.Task.rerun("volt.build")
   end
 
   defp build_monaco!(outdir) do
@@ -179,7 +141,7 @@ defmodule Mix.Tasks.Exograph.Web do
              cwd: File.cwd!(),
              format: :esm,
              modules: ["assets/node_modules"],
-             module_types: %{".css" => :empty, ".ttf" => :empty},
+             module_types: Volt.Config.build().module_types,
              define: %{"process.env.NODE_ENV" => ~s("production")}
            ) do
         {:ok, code} when is_binary(code) ->

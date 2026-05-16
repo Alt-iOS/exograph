@@ -48,7 +48,7 @@ defmodule Exograph.MixProject do
       {:phoenix, "~> 1.8", optional: true},
       {:phoenix_html, "~> 4.1", optional: true},
       {:phoenix_live_view, "~> 1.1", optional: true},
-      {:volt, "~> 0.10", optional: true},
+      {:volt, "~> 0.11.1", optional: true},
       {:bandit, "~> 1.5", optional: true},
       {:jason, "~> 1.2"},
       {:makeup, "~> 1.0", optional: true},
@@ -57,8 +57,7 @@ defmodule Exograph.MixProject do
       {:dune, "~> 0.3", optional: true},
       {:phoenix_test, "~> 0.4", only: :test, runtime: false},
       {:phoenix_test_playwright, "~> 0.14", only: :test, runtime: false},
-      {:phoenix_iconify, "~> 0.1", optional: true},
-      {:oxc, "~> 0.13.0", override: true}
+      {:phoenix_iconify, "~> 0.1", optional: true}
     ]
   end
 

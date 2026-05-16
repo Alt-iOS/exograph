@@ -11,18 +11,17 @@ defmodule Exograph.FeatureCase do
 
   setup_all _context do
     Exograph.Test.WebSetup.ensure_started!()
-    ensure_monaco!()
+    build_assets!()
     Application.put_env(:phoenix_test, :base_url, Exograph.Test.WebSetup.base_url())
     :ok
   end
 
-  defp ensure_monaco! do
+  defp build_assets! do
     outdir = Volt.Config.build().outdir |> to_string()
+    File.mkdir_p!(outdir)
     vendor_dir = Path.join(outdir, "vendor")
-    monaco_js = Path.join(vendor_dir, "monaco.js")
-    monaco_css = Path.join(vendor_dir, "monaco.css")
 
-    unless File.regular?(monaco_js) do
+    unless File.regular?(Path.join(vendor_dir, "monaco.js")) do
       File.mkdir_p!(vendor_dir)
       entry = "assets/node_modules/monaco-editor/esm/vs/editor/edcore.main.js"
 
@@ -31,19 +30,21 @@ defmodule Exograph.FeatureCase do
                cwd: File.cwd!(),
                format: :esm,
                modules: ["assets/node_modules"],
-               module_types: %{".css" => :empty, ".ttf" => :empty},
+               module_types: Volt.Config.build().module_types,
                define: %{"process.env.NODE_ENV" => ~s("production")}
              ) do
-          {:ok, code} -> File.write!(monaco_js, code)
+          {:ok, code} -> File.write!(Path.join(vendor_dir, "monaco.js"), code)
           _ -> :ok
         end
       end
     end
 
-    unless File.regular?(monaco_css) do
+    unless File.regular?(Path.join(vendor_dir, "monaco.css")) do
       File.mkdir_p!(vendor_dir)
       src = "assets/node_modules/monaco-editor/min/vs/editor/editor.main.css"
       if File.regular?(src), do: File.cp!(src, Path.join(vendor_dir, "monaco.css"))
     end
+
+    Mix.Task.rerun("volt.build")
   end
 end

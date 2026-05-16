@@ -3,24 +3,29 @@ import { Socket } from "phoenix"
 import { LiveSocket } from "phoenix_live_view"
 import { Editor } from "./hooks/editor"
 
+interface EditorElement extends HTMLElement {
+  _monacoEditor?: { getValue(): string }
+}
+
+function getEditorValue(): string | null {
+  const el = document.querySelector("#editor") as EditorElement | null
+  return el?._monacoEditor?.getValue() ?? null
+}
+
 const RunButton = {
-  mounted(this: any) {
+  mounted(this: { el: HTMLElement; pushEvent(event: string, payload: Record<string, unknown>): void }) {
     this.el.addEventListener("click", () => {
-      const editorEl = document.querySelector("#editor") as any
-      if (editorEl?._monacoEditor) {
-        this.pushEvent("run", { query: editorEl._monacoEditor.getValue() })
-      }
+      const query = getEditorValue()
+      if (query != null) this.pushEvent("run", { query })
     })
   },
 }
 
 const FormatButton = {
-  mounted(this: any) {
+  mounted(this: { el: HTMLElement; pushEvent(event: string, payload: Record<string, unknown>): void }) {
     this.el.addEventListener("click", () => {
-      const editorEl = document.querySelector("#editor") as any
-      if (editorEl?._monacoEditor) {
-        this.pushEvent("format", { query: editorEl._monacoEditor.getValue() })
-      }
+      const query = getEditorValue()
+      if (query != null) this.pushEvent("format", { query })
     })
   },
 }

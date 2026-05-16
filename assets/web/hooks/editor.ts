@@ -1,26 +1,101 @@
 import { conf as elixirConf, language as elixirLanguage } from "monaco-editor/esm/vs/basic-languages/elixir/elixir.js"
 
-let completionProvider: any = null
+interface ViewHook {
+  el: HTMLElement
+  pushEvent(event: string, payload: Record<string, unknown>, callback?: (reply: Record<string, unknown>) => void): void
+  handleEvent(event: string, callback: (payload: Record<string, unknown>) => void): void
+}
 
-async function loadMonaco() {
-  const url = "/assets/vendor/monaco.js"
-  return await import(/* webpackIgnore: true */ url)
+interface CompletionItem {
+  label: string
+  kind: string
+  detail: string
+  insert_text: string
+}
+
+interface DiagnosticMarker {
+  message: string
+  line?: number
+  column?: number
+  end_line?: number
+  end_column?: number
+}
+
+interface MonacoEditor {
+  getValue(): string
+  setValue(value: string): void
+  focus(): void
+  getModel(): { getLineContent(n: number): string; getWordUntilPosition(p: Position): { startColumn: number; endColumn: number } } | null
+  getPosition(): Position | null
+  setPosition(position: Position): void
+  addCommand(keybinding: number, handler: () => void): void
+  dispose(): void
+}
+
+interface Position {
+  lineNumber: number
+  column: number
+}
+
+interface MonacoModule {
+  editor: {
+    create(el: HTMLElement, opts: Record<string, unknown>): MonacoEditor
+    defineTheme(name: string, theme: Record<string, unknown>): void
+    setModelMarkers(model: unknown, owner: string, markers: unknown[]): void
+  }
+  languages: {
+    register(lang: { id: string }): void
+    getLanguages(): { id: string }[]
+    setLanguageConfiguration(id: string, conf: unknown): void
+    setMonarchTokensProvider(id: string, lang: unknown): void
+    registerCompletionItemProvider(id: string, provider: unknown): { dispose(): void }
+    CompletionItemKind: Record<string, number>
+  }
+  Range: new (sl: number, sc: number, el: number, ec: number) => unknown
+  KeyMod: { CtrlCmd: number }
+  KeyCode: { Enter: number }
+  MarkerSeverity: { Error: number }
+}
+
+let completionProvider: { dispose(): void } | null = null
+
+const MONACO_URL = ["/assets", "vendor", "monaco.js"].join("/")
+
+async function loadMonaco(): Promise<MonacoModule> {
+  return await import(MONACO_URL) as MonacoModule
 }
 
 const ELIXIR_LANGUAGE = "elixir"
 
-function registerElixirLanguage(m: any) {
-  if (m.languages.getLanguages().some((l: any) => l.id === ELIXIR_LANGUAGE)) return
+function registerElixirLanguage(m: MonacoModule) {
+  if (m.languages.getLanguages().some(l => l.id === ELIXIR_LANGUAGE)) return
 
   m.languages.register({ id: ELIXIR_LANGUAGE })
   m.languages.setLanguageConfiguration(ELIXIR_LANGUAGE, elixirConf)
   m.languages.setMonarchTokensProvider(ELIXIR_LANGUAGE, elixirLanguage)
 }
 
+function mapKind(m: MonacoModule, kind: string): number {
+  const kinds = m.languages.CompletionItemKind
+  switch (kind) {
+    case "module": return kinds.Module
+    case "function": return kinds.Function
+    case "field": return kinds.Field
+    case "variable": return kinds.Variable
+    default: return kinds.Text
+  }
+}
+
+interface EditorHook extends ViewHook {
+  editor: MonacoEditor | null
+}
+
 export const Editor = {
-  async mounted(this: any) {
+  editor: null as MonacoEditor | null,
+
+  async mounted(this: EditorHook) {
     const hook = this
-    const container = this.el as HTMLElement
+    const container = this.el
     const query = container.dataset.query || ""
     const m = await loadMonaco()
 
@@ -85,15 +160,17 @@ export const Editor = {
     if (completionProvider) completionProvider.dispose()
     completionProvider = m.languages.registerCompletionItemProvider(ELIXIR_LANGUAGE, {
       triggerCharacters: [".", ":", '"', " "],
-      provideCompletionItems: (model: any, position: any) => {
+      provideCompletionItems(model: ReturnType<MonacoEditor["getModel"]>, position: Position) {
+        if (!model) return { suggestions: [] }
         const line = model.getLineContent(position.lineNumber)
         const hint = line.slice(0, position.column - 1)
         const word = model.getWordUntilPosition(position)
         const range = new m.Range(position.lineNumber, word.startColumn, position.lineNumber, word.endColumn)
 
-        return new Promise((resolve: any) => {
-          hook.pushEvent("completion", { hint }, (reply: any) => {
-            const suggestions = (reply.items || []).map((item: any) => ({
+        return new Promise(resolve => {
+          hook.pushEvent("completion", { hint }, (reply) => {
+            const items = (reply as unknown as { items: CompletionItem[] }).items || []
+            const suggestions = items.map(item => ({
               label: item.label,
               kind: mapKind(m, item.kind),
               detail: item.detail,
@@ -106,21 +183,24 @@ export const Editor = {
       },
     })
 
-    hook.handleEvent("set_editor_value", ({ value }: { value: string }) => {
+    hook.handleEvent("set_editor_value", (payload) => {
+      const { value } = payload as { value: string }
       editor.setValue(value)
       editor.focus()
     })
 
-    hook.handleEvent("update_url", ({ q }: { q: string }) => {
+    hook.handleEvent("update_url", (payload) => {
+      const { q } = payload as { q: string }
       const url = new URL(window.location.href)
       url.searchParams.set("q", q)
       history.replaceState(null, "", url.toString())
     })
 
-    hook.handleEvent("set_diagnostics", ({ markers }: { markers: any[] }) => {
+    hook.handleEvent("set_diagnostics", (payload) => {
+      const { markers } = payload as { markers: DiagnosticMarker[] }
       const model = editor.getModel()
       if (!model) return
-      m.editor.setModelMarkers(model, "exograph", markers.map((mk: any) => ({
+      m.editor.setModelMarkers(model, "exograph", markers.map(mk => ({
         severity: m.MarkerSeverity.Error,
         message: mk.message,
         startLineNumber: mk.line || 1,
@@ -133,21 +213,11 @@ export const Editor = {
     container.addEventListener("keydown", (e: KeyboardEvent) => e.stopPropagation())
 
     this.editor = editor
-    ;(container as any)._monacoEditor = editor
+    ;(container as HTMLElement & { _monacoEditor: MonacoEditor })._monacoEditor = editor
   },
 
-  destroyed(this: any) {
+  destroyed(this: EditorHook) {
     if (this.editor) this.editor.dispose()
     if (completionProvider) { completionProvider.dispose(); completionProvider = null }
   },
-}
-
-function mapKind(m: any, kind: string) {
-  switch (kind) {
-    case "module": return m.languages.CompletionItemKind.Module
-    case "function": return m.languages.CompletionItemKind.Function
-    case "field": return m.languages.CompletionItemKind.Field
-    case "variable": return m.languages.CompletionItemKind.Variable
-    default: return m.languages.CompletionItemKind.Text
-  }
 }

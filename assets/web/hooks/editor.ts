@@ -11,6 +11,28 @@ function registerElixirLanguage(m: any) {
   if (m.languages.getLanguages().some((l: any) => l.id === ELIXIR_LANGUAGE)) return
 
   m.languages.register({ id: ELIXIR_LANGUAGE })
+  m.languages.setLanguageConfiguration(ELIXIR_LANGUAGE, {
+    comments: { lineComment: "#" },
+    brackets: [["(", ")"], ["[", "]"], ["{", "}"], ["do", "end"]],
+    autoClosingPairs: [
+      { open: "(", close: ")" },
+      { open: "[", close: "]" },
+      { open: "{", close: "}" },
+      { open: '"', close: '"' },
+      { open: "'", close: "'" },
+    ],
+    surroundingPairs: [
+      { open: "(", close: ")" },
+      { open: "[", close: "]" },
+      { open: "{", close: "}" },
+      { open: '"', close: '"' },
+      { open: "'", close: "'" },
+    ],
+    indentationRules: {
+      increaseIndentPattern: /^\s*(def|defp|defmodule|defmacro|defmacrop|if|unless|case|cond|fn|do|else|with|for|receive|try|catch|rescue|after)\b.*$/,
+      decreaseIndentPattern: /^\s*(end|else|catch|rescue|after)\b/,
+    },
+  })
   m.languages.setMonarchTokensProvider(ELIXIR_LANGUAGE, {
     keywords: [
       "def", "defp", "defmodule", "defmacro", "defmacrop", "defstruct", "defprotocol",

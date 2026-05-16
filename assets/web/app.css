@@ -2,6 +2,10 @@
 @source "../../lib";
 @source ".";
 
+[data-phx-main] {
+  height: 100%;
+}
+
 .code-preview,
 .code-preview * {
   line-height: 1.25rem !important;

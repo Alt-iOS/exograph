@@ -95,31 +95,53 @@ defmodule Exograph.Web.QueryLive do
 
   @impl true
   def handle_event("run", %{"query" => query}, socket) do
+    index = socket.assigns.index
+
     socket =
-      assign(socket, query: query, error: nil, results: nil, elapsed_ms: nil, loading: true)
+      assign(socket,
+        query: query,
+        error: nil,
+        results: nil,
+        elapsed_ms: nil,
+        result_count: nil,
+        loading: true
+      )
 
-    case QueryExecutor.execute(socket.assigns.index, query) do
-      {:ok, results, elapsed_ms} ->
-        {:noreply,
-         socket
-         |> assign(
-           results: ResultFormatter.format(results),
-           result_count: length(results),
-           elapsed_ms: elapsed_ms,
-           loading: false
-         )
-         |> push_event("set_diagnostics", %{markers: []})
-         |> push_event("update_url", %{q: query})}
+    pid = self()
 
-      {:error, %{message: message, markers: markers}} ->
-        {:noreply,
-         socket
-         |> assign(error: message, loading: false)
-         |> push_event("set_diagnostics", %{markers: markers})}
+    Task.start(fn ->
+      result = QueryExecutor.execute(index, query)
+      send(pid, {:query_result, query, result})
+    end)
 
-      {:error, message} when is_binary(message) ->
-        {:noreply, assign(socket, error: message, loading: false)}
-    end
+    {:noreply, socket}
+  end
+
+  @impl true
+  def handle_info({:query_result, query, result}, socket) do
+    socket =
+      case result do
+        {:ok, results, elapsed_ms} ->
+          socket
+          |> assign(
+            results: ResultFormatter.format(results),
+            result_count: length(results),
+            elapsed_ms: elapsed_ms,
+            loading: false
+          )
+          |> push_event("set_diagnostics", %{markers: []})
+          |> push_event("update_url", %{q: query})
+
+        {:error, %{message: message, markers: markers}} ->
+          socket
+          |> assign(error: message, loading: false)
+          |> push_event("set_diagnostics", %{markers: markers})
+
+        {:error, message} when is_binary(message) ->
+          assign(socket, error: message, loading: false)
+      end
+
+    {:noreply, socket}
   end
 
   @impl true
@@ -179,7 +201,7 @@ defmodule Exograph.Web.QueryLive do
           />
         </div>
 
-        <div class="flex-1 overflow-auto p-4 space-y-3">
+        <div class="flex-1 overflow-auto scrollbar-thin scrollbar-thumb-zinc-700 scrollbar-track-transparent p-4 space-y-3">
           <div :if={@error} class="p-4 text-red-400 font-mono text-sm whitespace-pre-wrap">
             {@error}
           </div>

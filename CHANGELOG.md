@@ -1,5 +1,47 @@
 # Changelog
 
+## 0.4.0
+
+### Web UI
+
+- Monaco editor with built-in Elixir syntax highlighting, auto-closing brackets, indentation
+- Elixir intellisense via `Code.Fragment.cursor_context` — completes DSL macros, modules, fields
+- IDE-style error diagnostics with red squiggly underlines and hover messages
+- Format button via `Code.format_string!`
+- Example query cards with descriptions
+- Collapsible package groups, loading spinner, sticky editor
+- URL query params (`?q=`) for shareable links
+- Hex.pm links on package names
+- Load more pagination
+- Thin scrollbar via Tailwind v4.3 `scrollbar-thin`
+- `phoenix_iconify` for icons
+
+### API
+
+- Cursor-based pagination (`cursor` param, `next_cursor` in response)
+- Rate limiting via Hammer (`x-ratelimit-limit`, `x-ratelimit-remaining` headers, 429 on excess)
+
+### Query engine
+
+- DSL `limit:` clause parsed and respected
+- Kind filtering — `def` patterns only match `def` fragments, not modules/expressions
+- Keyset pagination replaces OFFSET in internal streaming (O(1) per page)
+- Preview shows correct absolute line numbers
+
+### Security
+
+- Replaced `Code.eval_string` with safe AST interpreter (`SafeEval`)
+- Dune sandbox for evaluating value expressions in predicates
+- Dangerous code (`System.cmd`, `File.read!`, etc.) rejected at parse time
+
+### Code quality
+
+- Zero `any` in TypeScript — proper interfaces for Monaco, LiveView hooks
+- `mix volt.js.check` (lint + format) added to CI
+- Playwright feature tests for web UI (5 tests)
+- API integration tests with Req (10 tests)
+- Total: 50 unit + 15 feature = 65 tests
+
 ## 0.3.0
 
 - Web UI with Monaco editor, syntax-highlighted search results, and autocompletion (`mix exograph.web`)

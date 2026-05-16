@@ -1,11 +1,22 @@
 # Changelog
 
+## 0.5.0
+
+- Text and regex search modes in web UI and API (`mode: "text"` / `mode: "regex"`)
+- `pg_trgm` GIN indexes on `files.source` and `files.comments_text` for fast ILIKE
+- Replaced all full-table-scan fallbacks with Postgres ILIKE/regex queries
+- Hex.pm source links on file paths (package version extracted from file paths)
+- Source viewer modal — click the code icon to see full file with highlighted match line
+- New guides: `web-ui.md`, `api.md`
+- Updated README with Web UI, JSON API sections; Installation points to Hex
+- Updated `querying.md` with text search, `mix-tasks.md` with `mix exograph.web`
+
 ## 0.4.1
 
 - Upgraded Volt to 0.11.1, removed `oxc` override
 - `module_types` configured in `config :volt` instead of hardcoded
 - Asset builds use `mix volt.build` instead of internal Volt APIs
-- Extracted `Exograph.Web.Monaco` for Monaco Editor bundling
+- Extracted Monaco bundling into a dedicated module
 
 ## 0.4.0
 
@@ -67,7 +78,7 @@ Module renames — update any direct references:
 - `Exograph.InvertedIndex.Postgres` → `Exograph.Postgres.InvertedIndex`
 - `Exograph.TreeStore.Postgres` → `Exograph.Postgres.TreeStore`
 - Query → StructuralQuery
-- CodeFactQuery → `Exograph.Postgres.FactQuery`
+- CodeFactQuery → Postgres.FactQuery
 
 ## 0.2.0
 

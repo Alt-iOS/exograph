@@ -128,36 +128,26 @@ defmodule Exograph do
   def search_text(index, literal_or_regex, opts \\ [])
 
   def search_text(%Index{} = index, %Regex{} = regex, opts) do
-    case PostgresInvertedIndex.search_text_regex(index.inverted, regex, opts) do
-      {:ok, hits} -> typed_hits(hits, TextHit)
-      {:error, _} -> {:ok, []}
-    end
+    {:ok, hits} = PostgresInvertedIndex.search_text_regex(index.inverted, regex, opts)
+    typed_hits(hits, TextHit)
   end
 
   def search_text(%Index{} = index, literal, opts) when is_binary(literal) do
-    case PostgresInvertedIndex.search_text(index.inverted, literal, opts) do
-      {:ok, hits} ->
-        hits
-        |> Enum.filter(&text_match?(&1.fragment.source || "", literal))
-        |> typed_hits(TextHit)
+    {:ok, hits} = PostgresInvertedIndex.search_text(index.inverted, literal, opts)
 
-      {:error, _reason} ->
-        {:ok, []}
-    end
+    hits
+    |> Enum.filter(&text_match?(&1.fragment.source || "", literal))
+    |> typed_hits(TextHit)
   end
 
   @doc false
   @spec search_comments(Index.t(), String.t(), keyword()) :: {:ok, [CommentHit.t()]}
   def search_comments(%Index{} = index, literal, opts \\ []) when is_binary(literal) do
-    case PostgresInvertedIndex.search_comments(index.inverted, literal, opts) do
-      {:ok, hits} ->
-        hits
-        |> Enum.filter(&text_match?(comments_text(&1.fragment.source), literal))
-        |> typed_hits(CommentHit)
+    {:ok, hits} = PostgresInvertedIndex.search_comments(index.inverted, literal, opts)
 
-      {:error, _reason} ->
-        {:ok, []}
-    end
+    hits
+    |> Enum.filter(&text_match?(comments_text(&1.fragment.source), literal))
+    |> typed_hits(CommentHit)
   end
 
   @doc false

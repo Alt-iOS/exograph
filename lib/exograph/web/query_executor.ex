@@ -1,6 +1,7 @@
 defmodule Exograph.Web.QueryExecutor do
   @moduledoc false
 
+  import Exograph.DSL
   @eval_env __ENV__
 
   @default_limit 100

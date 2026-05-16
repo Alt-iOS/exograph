@@ -3,6 +3,7 @@ defmodule Exograph.Web.Completion do
 
   alias Exograph.Postgres.Options
 
+  import Exograph.DSL
   @eval_env __ENV__
 
   @dsl_sources [

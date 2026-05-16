@@ -55,6 +55,8 @@ defmodule Exograph.MixProject do
       {:makeup_elixir, "~> 1.0", optional: true},
       {:hammer, "~> 7.3", optional: true},
       {:dune, "~> 0.3", optional: true},
+      {:phoenix_test, "~> 0.4", only: :test, runtime: false},
+      {:phoenix_test_playwright, "~> 0.14", only: :test, runtime: false},
       {:phoenix_iconify, "~> 0.1", optional: true},
       {:oxc, "~> 0.13.0", override: true}
     ]

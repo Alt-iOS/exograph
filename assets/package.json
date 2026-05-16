@@ -2,5 +2,8 @@
   "private": true,
   "dependencies": {
     "monaco-editor": "^0.52.0"
+  },
+  "devDependencies": {
+    "playwright": "^1.60.0"
   }
 }

@@ -21,3 +21,14 @@ config :volt, :server,
 config :phoenix, :json_library, Jason
 
 config :exograph, Exograph.Web.Endpoint, code_reloader: false
+
+if Mix.env() == :test do
+  config :phoenix_test,
+    otp_app: :exograph,
+    playwright: [
+      browser: :chromium,
+      headless: true,
+      browser_launch_timeout: 30_000,
+      timeout: 5_000
+    ]
+end

@@ -92,6 +92,7 @@ defmodule Exograph.MixProject do
       ci: [
         "compile --warnings-as-errors",
         "format --check-formatted",
+        "volt.js.check",
         "test --include postgres",
         "cmd mix credo --strict",
         "cmd mix ex_dna",

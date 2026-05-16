@@ -116,7 +116,6 @@ defmodule Exograph.Features.APITest do
   end
 
   describe "POST /api/search text mode" do
-    @tag :skip
     test "returns text search results" do
       resp =
         api_post(
@@ -131,7 +130,6 @@ defmodule Exograph.Features.APITest do
       assert body["count"] <= 3
     end
 
-    @tag :skip
     test "returns regex search results" do
       resp =
         api_post(

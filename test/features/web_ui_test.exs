@@ -76,7 +76,6 @@ defmodule Exograph.Features.WebUITest do
     |> assert_has("div", text: "Expected from")
   end
 
-  @tag :skip
   test "text search mode works", %{conn: conn} do
     conn
     |> wait_for_monaco()

@@ -126,19 +126,24 @@ defmodule Exograph do
 
   @doc false
   @spec search_text(Index.t(), String.t() | Regex.t(), keyword()) :: {:ok, [TextHit.t()]}
-  def search_text(%Index{} = index, literal_or_regex, opts \\ []) do
-    if is_binary(literal_or_regex) do
-      case PostgresInvertedIndex.search_text(index.inverted, literal_or_regex, opts) do
-        {:ok, hits} ->
-          hits
-          |> Enum.filter(&text_match?(&1.fragment.source || "", literal_or_regex))
-          |> typed_hits(TextHit)
+  def search_text(index, literal_or_regex, opts \\ [])
 
-        {:error, _reason} ->
-          search_text_seq(index, literal_or_regex, opts)
-      end
-    else
-      search_text_seq(index, literal_or_regex, opts)
+  def search_text(%Index{} = index, %Regex{} = regex, opts) do
+    case PostgresInvertedIndex.search_text_regex(index.inverted, regex, opts) do
+      {:ok, hits} -> typed_hits(hits, TextHit)
+      {:error, _} -> {:ok, []}
+    end
+  end
+
+  def search_text(%Index{} = index, literal, opts) when is_binary(literal) do
+    case PostgresInvertedIndex.search_text(index.inverted, literal, opts) do
+      {:ok, hits} ->
+        hits
+        |> Enum.filter(&text_match?(&1.fragment.source || "", literal))
+        |> typed_hits(TextHit)
+
+      {:error, _reason} ->
+        {:ok, []}
     end
   end
 

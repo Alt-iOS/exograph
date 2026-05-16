@@ -103,16 +103,56 @@ defmodule Exograph.Postgres.InvertedIndex do
 
   defp include_source?(_query), do: true
 
+  def search_text_regex(%__MODULE__{} = index, %Regex{source: pattern}, opts) do
+    limit = Keyword.get(opts, :limit, 50)
+    files = files_source(index)
+
+    query =
+      from(fragment in {source(index), FragmentRecord},
+        join: file in ^files,
+        on: file.id == fragment.file_id,
+        where: fragment("? ~* ?", file.source, ^pattern),
+        order_by: [asc: file.path, asc: fragment.line],
+        limit: ^limit,
+        select: {fragment, file.source, file.path}
+      )
+      |> where_scope(opts)
+
+    hits =
+      index.repo.all(query, timeout: 30_000)
+      |> Enum.map(fn {record, source, path} ->
+        Hit.new(fragment: Options.hydrate_fragment(record, source, path), score: 1.0)
+      end)
+
+    {:ok, hits}
+  end
+
   defp search_file_field(index, literal, :source, opts) do
-    file_search(index, literal, opts, fn files_source, limit ->
-      source_search_query(index, files_source, literal, limit, match_operator(opts))
-    end)
+    file_search(
+      index,
+      literal,
+      opts,
+      fn files_source, limit ->
+        source_search_query(index, files_source, literal, limit, match_operator(opts))
+      end,
+      fn files_source, limit ->
+        source_ilike_query(index, files_source, literal, limit)
+      end
+    )
   end
 
   defp search_file_field(index, literal, :comments_text, opts) do
-    file_search(index, literal, opts, fn files_source, limit ->
-      comments_search_query(index, files_source, literal, limit, match_operator(opts))
-    end)
+    file_search(
+      index,
+      literal,
+      opts,
+      fn files_source, limit ->
+        comments_search_query(index, files_source, literal, limit, match_operator(opts))
+      end,
+      fn files_source, limit ->
+        comments_ilike_query(index, files_source, literal, limit)
+      end
+    )
   end
 
   defp source_search_query(index, files_source, literal, limit, :all) do
@@ -159,6 +199,34 @@ defmodule Exograph.Postgres.InvertedIndex do
     )
   end
 
+  defp source_ilike_query(index, files_source, literal, limit) do
+    pattern = "%#{escape_like(literal)}%"
+
+    from(fragment in {source(index), FragmentRecord},
+      join: file in ^files_source,
+      on: file.id == fragment.file_id,
+      where: ilike(file.source, ^pattern),
+      order_by: [asc: file.path, asc: fragment.line],
+      limit: ^limit,
+      select: {fragment, file.source, file.path}
+    )
+  end
+
+  defp comments_ilike_query(index, files_source, literal, limit) do
+    pattern = "%#{escape_like(literal)}%"
+
+    from(fragment in {source(index), FragmentRecord},
+      join: file in ^files_source,
+      on: file.id == fragment.file_id,
+      where: ilike(file.comments_text, ^pattern),
+      order_by: [asc: file.path, asc: fragment.line],
+      limit: ^limit,
+      select: {fragment, file.source, file.path}
+    )
+  end
+
+  defp escape_like(str), do: str |> String.replace("%", "\\%") |> String.replace("_", "\\_")
+
   defp match_operator(opts) do
     case Keyword.get(opts, :match, :any) do
       :all -> :all
@@ -166,24 +234,26 @@ defmodule Exograph.Postgres.InvertedIndex do
     end
   end
 
-  defp file_search(index, _literal, opts, query_fun) do
+  defp file_search(index, _literal, opts, bm25_fun, ilike_fun) do
     limit = Keyword.get(opts, :limit, 50)
+    files = files_source(index)
 
     query =
-      index
-      |> files_source()
-      |> query_fun.(limit)
-      |> where_scope(opts)
+      try do
+        q = bm25_fun.(files, limit) |> where_scope(opts)
+        index.repo.all(q)
+      rescue
+        _ in [Postgrex.Error, Ecto.QueryError] ->
+          q = ilike_fun.(files, limit) |> where_scope(opts)
+          index.repo.all(q)
+      end
 
     hits =
-      index.repo.all(query)
-      |> Enum.map(fn {record, source, path} ->
+      Enum.map(query, fn {record, source, path} ->
         Hit.new(fragment: Options.hydrate_fragment(record, source, path), score: 1.0)
       end)
 
     {:ok, hits}
-  rescue
-    exception in [Postgrex.Error, Ecto.QueryError] -> {:error, exception}
   end
 
   defp with_file(queryable, index, true) do

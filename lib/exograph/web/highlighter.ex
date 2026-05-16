@@ -17,7 +17,8 @@ defmodule Exograph.Web.Highlighter do
 
   @makeup_available Code.ensure_loaded?(Makeup) and Code.ensure_loaded?(Makeup.Lexers.ElixirLexer)
 
-  defp highlight_line(text) do
+  @doc false
+  def highlight_line(text) do
     if @makeup_available do
       Makeup.highlight_inner_html(text, lexer: Makeup.Lexers.ElixirLexer)
     else

@@ -84,6 +84,8 @@ defmodule Exograph.MixProject do
         "guides/postgres-paradedb.md",
         "guides/package-indexing.md",
         "guides/mix-tasks.md",
+        "guides/web-ui.md",
+        "guides/api.md",
         "guides/comparisons.md",
         "guides/architecture.md"
       ]

@@ -41,10 +41,12 @@ defmodule Exograph.Postgres do
     bm25? = Keyword.get(opts, :bm25?, true)
 
     execute!(repo, "CREATE EXTENSION IF NOT EXISTS pgcrypto", [])
+    execute!(repo, "CREATE EXTENSION IF NOT EXISTS pg_trgm", [])
     if bm25?, do: execute!(repo, "CREATE EXTENSION IF NOT EXISTS pg_search", [])
 
     run_migration!(repo, prefix, CreateSchema)
 
+    create_trgm_indexes!(repo, prefix)
     if bm25?, do: create_bm25_indexes!(repo, prefix)
 
     :ok
@@ -63,6 +65,27 @@ defmodule Exograph.Postgres do
       [%{version: 1}],
       conflict_target: [:version],
       on_conflict: :nothing
+    )
+  end
+
+  defp create_trgm_indexes!(repo, prefix) do
+    execute!(
+      repo,
+      """
+      CREATE INDEX IF NOT EXISTS #{prefix}_files_source_trgm_idx
+      ON #{prefix}_files USING gin (source gin_trgm_ops)
+      """,
+      []
+    )
+
+    execute!(
+      repo,
+      """
+      CREATE INDEX IF NOT EXISTS #{prefix}_files_comments_trgm_idx
+      ON #{prefix}_files USING gin (comments_text gin_trgm_ops)
+      WHERE comments_text IS NOT NULL
+      """,
+      []
     )
   end
 

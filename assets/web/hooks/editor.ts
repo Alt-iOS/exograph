@@ -215,6 +215,14 @@ export const Editor = {
       history.replaceState(null, "", url.toString());
     });
 
+    this.handleEvent("scroll_to_line", (payload) => {
+      const { line } = payload as { line: number };
+      setTimeout(() => {
+        const el = document.getElementById(`source-line-${line}`);
+        if (el) el.scrollIntoView({ block: "center", behavior: "smooth" });
+      }, 100);
+    });
+
     this.handleEvent("set_diagnostics", (payload) => {
       const { markers } = payload as { markers: DiagnosticMarker[] };
       const model = editor.getModel();

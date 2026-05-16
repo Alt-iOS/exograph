@@ -58,7 +58,8 @@ defmodule Exograph.Web.QueryLive do
        all_results: [],
        has_more: false,
        current_skip: 0,
-       search_mode: "structural"
+       search_mode: "structural",
+       viewing_source: nil
      )}
   end
 
@@ -144,6 +145,24 @@ defmodule Exograph.Web.QueryLive do
     end)
 
     {:noreply, assign(socket, loading: true)}
+  end
+
+  @impl true
+  def handle_event("view_source", %{"file" => file, "line" => line, "package" => package}, socket) do
+    line = String.to_integer(line)
+    source = find_source(socket.assigns.all_results, file)
+
+    socket =
+      socket
+      |> assign(viewing_source: %{file: file, source: source, line: line, package: package})
+      |> push_event("scroll_to_line", %{line: line})
+
+    {:noreply, socket}
+  end
+
+  @impl true
+  def handle_event("close_source", _params, socket) do
+    {:noreply, assign(socket, viewing_source: nil)}
   end
 
   @impl true
@@ -319,6 +338,16 @@ defmodule Exograph.Web.QueryLive do
                       <span class="ml-auto text-zinc-600 text-xs tabular-nums">
                         line {result.line}
                       </span>
+                      <button
+                        phx-click="view_source"
+                        phx-value-file={result.file}
+                        phx-value-line={to_string(result.line)}
+                        phx-value-package={result.package}
+                        class="text-zinc-600 hover:text-zinc-400 cursor-pointer ml-1"
+                        title="View full source"
+                      >
+                        <.icon name="heroicons:code-bracket" class="w-3.5 h-3.5" />
+                      </button>
                       <span
                         :if={result.joined_label}
                         class="text-zinc-500 text-xs font-mono ml-2"
@@ -366,6 +395,45 @@ defmodule Exograph.Web.QueryLive do
           </div>
         </div>
       </div>
+
+      <div
+        :if={@viewing_source}
+        class="fixed inset-0 z-50 flex items-center justify-center bg-black/70"
+        phx-click="close_source"
+      >
+        <div
+          class="bg-zinc-900 rounded-lg border border-zinc-700 w-[90vw] h-[80vh] flex flex-col"
+          phx-click-away="close_source"
+        >
+          <div class="flex items-center justify-between px-4 py-3 border-b border-zinc-800">
+            <div class="flex items-center gap-2">
+              <.icon name="heroicons:document-text" class="w-4 h-4 text-zinc-500" />
+              <span class="text-sm font-mono text-blue-400">{@viewing_source.file}</span>
+              <span class="text-xs text-zinc-500">{@viewing_source.package}</span>
+            </div>
+            <button
+              phx-click="close_source"
+              class="text-zinc-500 hover:text-zinc-300 cursor-pointer"
+            >
+              <.icon name="heroicons:x-mark" class="w-5 h-5" />
+            </button>
+          </div>
+          <div class="flex-1 overflow-auto scrollbar-thin scrollbar-thumb-zinc-700 scrollbar-track-transparent">
+            <div class="code-preview py-2">
+              <div
+                :for={
+                  {line_num, html, is_highlighted} <-
+                    highlight_full_source(@viewing_source.source, @viewing_source.line)
+                }
+                id={"source-line-#{line_num}"}
+                class={"flex font-mono" <> if(is_highlighted, do: " bg-blue-900/30 border-l-2 border-l-blue-500", else: "")}
+              >
+                <span class="w-12 text-right pr-3 text-zinc-600 select-none shrink-0 bg-zinc-900/50 border-r border-zinc-800/50 tabular-nums">{line_num}</span><code class="px-3 flex-1 overflow-x-hidden text-zinc-300 whitespace-pre">{raw(html)}</code>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
     """
   end
@@ -377,5 +445,23 @@ defmodule Exograph.Web.QueryLive do
     repo.aggregate({"#{prefix}_packages", Exograph.Postgres.PackageRecord}, :count)
   rescue
     _ -> 0
+  end
+
+  defp find_source(results, file) do
+    Enum.find_value(results, fn result ->
+      if result.file == file, do: result.source
+    end)
+  end
+
+  defp highlight_full_source(nil, _line), do: []
+
+  defp highlight_full_source(source, highlight_line) do
+    source
+    |> String.split("\n")
+    |> Enum.with_index(1)
+    |> Enum.map(fn {text, line_num} ->
+      html = Exograph.Web.Highlighter.highlight_line(text)
+      {line_num, html, line_num == highlight_line}
+    end)
   end
 end

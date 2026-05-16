@@ -72,6 +72,16 @@ Exograph.explain("Repo.get!(User, id)")
 #=> %{required: ["call.remote:Repo.get!/2", ...], verifier: :pattern, ...}
 ```
 
+## Text Search
+
+Search source code by text content:
+
+    {:ok, hits} = Exograph.search_text(index, "TODO")
+    {:ok, hits} = Exograph.search_text(index, ~r/def \w+!/)
+
+Text search uses `ILIKE` in Postgres (or ParadeDB BM25 when available).
+Regex search uses Postgres `~*` operator.
+
 ## Similarity search
 
 Exograph stores ExDNA structural fingerprints for fragments and can rerank

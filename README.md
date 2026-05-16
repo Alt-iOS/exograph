@@ -41,12 +41,10 @@ Use Exograph when text search is not enough:
 
 ## Installation
 
-Exograph is early-stage and currently installed from GitHub:
-
 ```elixir
 def deps do
   [
-    {:exograph, github: "elixir-vibe/exograph"}
+    {:exograph, "~> 0.4"}
   ]
 end
 ```
@@ -70,6 +68,30 @@ Point Exograph at Elixir source and an Ecto repo:
 
 Exograph uses Postgres for candidate retrieval and ExAST for exact structural
 verification.
+
+## Web UI
+
+Exograph includes an embedded web interface for exploring indexes:
+
+    mix exograph.web --prefix myindex --port 4200
+
+Features:
+- Monaco editor with Elixir syntax highlighting and autocompletion
+- Structural and full-text search modes
+- IDE-style error diagnostics
+- Collapsible results grouped by package with code previews
+- Hex.pm links on package names
+
+## JSON API
+
+The web server also exposes a JSON API:
+
+    POST /api/search   — structural or text search
+    POST /api/query    — DSL query execution
+    GET  /api/packages — list indexed packages
+    GET  /api/stats    — index statistics
+
+Cursor pagination via `cursor`/`next_cursor`. Rate limited (60 req/min).
 
 ## Query with code facts
 

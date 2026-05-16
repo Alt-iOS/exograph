@@ -62,3 +62,9 @@ Postgres is the only built-in backend, but `--backend postgres` is accepted:
 mix exograph.index --backend postgres --repo MyApp.Repo --migrate lib test
 mix exograph.search 'Repo.get!(_, _)' --backend postgres --repo MyApp.Repo --migrate lib
 ```
+
+## Web UI
+
+    mix exograph.web --prefix exograph --port 4200
+
+Starts a standalone web interface for exploring an index. See the [Web UI guide](web-ui.md) for details.

@@ -193,7 +193,17 @@ defmodule Exograph.Web.SafeEval do
   defp extract_value(value) when is_float(value), do: {:ok, value}
   defp extract_value(value) when is_atom(value), do: {:ok, value}
   defp extract_value(value) when is_list(value), do: extract_values(value)
-  defp extract_value(ast), do: {:error, error("Unsupported value: #{Macro.to_string(ast)}")}
+
+  defp extract_value(ast) do
+    if Code.ensure_loaded?(Dune) do
+      case Dune.eval_string(Macro.to_string(ast), timeout: 1000, max_heap_size: 1_000_000) do
+        %{value: value} -> {:ok, value}
+        %{message: msg} -> {:error, error(msg)}
+      end
+    else
+      {:error, error("Unsupported value: #{Macro.to_string(ast)}")}
+    end
+  end
 
   defp extract_values(list) when is_list(list) do
     Enum.reduce_while(list, {:ok, []}, fn item, {:ok, acc} ->

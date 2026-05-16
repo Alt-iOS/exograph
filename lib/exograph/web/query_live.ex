@@ -72,6 +72,14 @@ defmodule Exograph.Web.QueryLive do
   end
 
   @impl true
+  def handle_event("format", %{"query" => query}, socket) do
+    formatted = Code.format_string!(query, line_length: 80) |> IO.iodata_to_binary()
+    {:noreply, push_event(socket, "set_editor_value", %{value: formatted})}
+  rescue
+    _ -> {:noreply, socket}
+  end
+
+  @impl true
   def handle_event("toggle_package", %{"package" => name}, socket) do
     collapsed =
       if MapSet.member?(socket.assigns.collapsed_packages, name) do
@@ -136,6 +144,13 @@ defmodule Exograph.Web.QueryLive do
             <span :if={length(@results || []) != 1}>packages</span>
             in {@elapsed_ms}ms
           </span>
+          <button
+            id="fmt-btn"
+            phx-hook="FormatButton"
+            class="px-3 py-1.5 text-sm font-medium text-zinc-400 bg-zinc-800 rounded-md hover:bg-zinc-700 hover:text-zinc-200 cursor-pointer transition-colors"
+          >
+            Format
+          </button>
           <button
             id="run-btn"
             phx-hook="RunButton"

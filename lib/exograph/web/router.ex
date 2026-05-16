@@ -14,6 +14,7 @@ defmodule Exograph.Web.Router do
 
   pipeline :api do
     plug(:accepts, ["json"])
+    plug(Exograph.Web.Plugs.RateLimit, limit: 60, scale: :timer.minutes(1))
   end
 
   scope "/", Exograph.Web do

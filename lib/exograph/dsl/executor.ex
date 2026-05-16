@@ -58,12 +58,14 @@ defmodule Exograph.DSL.Executor do
 
   defp fragment_all(index, plan, opts) do
     limit = Keyword.get(opts, :limit, 50)
+    skip = Keyword.get(opts, :skip, 0)
     compiled_query = plan.query |> Compiler.compile() |> StructuralQuery.selector()
 
     hits =
       index
       |> stream_filtered_fragments(plan, opts)
       |> Stream.flat_map(&verify_fragment(&1, compiled_query))
+      |> Stream.drop(skip)
       |> Enum.take(limit)
 
     {:ok, hits}
@@ -71,6 +73,7 @@ defmodule Exograph.DSL.Executor do
 
   defp fragment_join_all(index, plan, opts) do
     limit = Keyword.get(query_opts = opts, :limit, 50)
+    skip = Keyword.get(opts, :skip, 0)
     compiled_query = plan.query |> Compiler.compile() |> StructuralQuery.selector()
 
     hits =
@@ -81,6 +84,7 @@ defmodule Exograph.DSL.Executor do
         |> verify_fragment(compiled_query)
         |> Enum.map(&select_multi_fragment_join(plan, &1, joined_by_binding))
       end)
+      |> Stream.drop(skip)
       |> Enum.take(limit)
 
     {:ok, hits}
@@ -90,22 +94,23 @@ defmodule Exograph.DSL.Executor do
 
   defp stream_filtered_fragments(index, plan, opts) do
     Stream.resource(
-      fn -> {0, false} end,
+      fn -> {nil, false} end,
       fn
-        {_offset, true} ->
+        {_cursor, true} ->
           {:halt, :done}
 
-        {offset, false} ->
-          batch = filtered_fragment_batch(index, plan, opts, offset)
+        {cursor, false} ->
+          batch = filtered_fragment_batch(index, plan, opts, cursor)
           done = length(batch) < @stream_batch_size
-          {batch, {offset + length(batch), done}}
+          next_cursor = if batch == [], do: cursor, else: last_cursor(batch)
+          {batch, {next_cursor, done}}
       end,
       fn _acc -> :ok end
     )
   end
 
-  defp filtered_fragment_batch(index, plan, opts, offset) do
-    base_fragment_query(index, offset)
+  defp filtered_fragment_batch(index, plan, opts, cursor) do
+    base_fragment_query(index, cursor)
     |> where_structural_terms(index, plan)
     |> where_pattern_kind(plan)
     |> where_source_predicates(predicates(plan, plan.binding), plan.binding, :fragment)
@@ -142,15 +147,16 @@ defmodule Exograph.DSL.Executor do
     kind_filter = structural_query_kind(compiled_query)
 
     Stream.resource(
-      fn -> {0, false} end,
+      fn -> {nil, false} end,
       fn
-        {_offset, true} ->
+        {_cursor, true} ->
           {:halt, :done}
 
-        {offset, false} ->
-          batch = structural_fragment_batch(index, term_ids, kind_filter, opts, offset)
+        {cursor, false} ->
+          batch = structural_fragment_batch(index, term_ids, kind_filter, opts, cursor)
           done = length(batch) < @stream_batch_size
-          {batch, {offset + length(batch), done}}
+          next_cursor = if batch == [], do: cursor, else: last_cursor(batch)
+          {batch, {next_cursor, done}}
       end,
       fn _acc -> :ok end
     )
@@ -167,8 +173,8 @@ defmodule Exograph.DSL.Executor do
 
   defp structural_query_kind(_), do: nil
 
-  defp structural_fragment_batch(index, term_ids, kind_filter, opts, offset) do
-    query = base_fragment_query(index, offset)
+  defp structural_fragment_batch(index, term_ids, kind_filter, opts, cursor) do
+    query = base_fragment_query(index, cursor)
 
     query =
       if term_ids != [],
@@ -185,18 +191,43 @@ defmodule Exograph.DSL.Executor do
     |> hydrate_fragment_batch(index)
   end
 
-  defp base_fragment_query(index, offset) do
+  defp base_fragment_query(index, cursor) do
     files_source = Options.files_source(index.inverted.prefix)
     fragments_source = Options.fragments_source(index.inverted.prefix)
 
-    from(fragment in {fragments_source, FragmentRecord},
-      left_join: file in ^files_source,
-      on: file.id == fragment.file_id,
-      order_by: [asc: file.path, asc: fragment.line, asc: fragment.id],
-      offset: ^offset,
-      limit: ^@stream_batch_size,
-      select: {fragment, file.source, file.path}
-    )
+    query =
+      from(fragment in {fragments_source, FragmentRecord},
+        left_join: file in ^files_source,
+        on: file.id == fragment.file_id,
+        order_by: [asc: file.path, asc: fragment.line, asc: fragment.id],
+        limit: ^@stream_batch_size,
+        select: {fragment, file.source, file.path}
+      )
+
+    case cursor do
+      nil ->
+        query
+
+      {path, line, id} ->
+        where(
+          query,
+          [fragment, file],
+          fragment(
+            "(?, ?, ?) > (?, ?, ?)",
+            file.path,
+            fragment.line,
+            fragment.id,
+            ^path,
+            ^line,
+            ^id
+          )
+        )
+    end
+  end
+
+  defp last_cursor(batch) do
+    last = List.last(batch)
+    {last.file || "", last.line, last.id}
   end
 
   defp hydrate_fragment_batch(query, index) do
@@ -208,16 +239,22 @@ defmodule Exograph.DSL.Executor do
 
   defp stream_joined_fragments(index, %Plan{joins: [_]} = plan, opts) do
     Stream.resource(
-      fn -> {0, false} end,
+      fn -> {nil, false} end,
       fn
-        {_offset, true} ->
+        {_cursor, true} ->
           {:halt, :done}
 
-        {offset, false} ->
+        {cursor, false} ->
           batch_opts = Keyword.put(opts, :candidate_limit, @stream_batch_size)
-          batch = joined_fragments(index, plan, batch_opts, offset)
+          batch = joined_fragments(index, plan, batch_opts, cursor)
           done = length(batch) < @stream_batch_size
-          {batch, {offset + length(batch), done}}
+
+          next_cursor =
+            if batch == [],
+              do: cursor,
+              else: last_cursor(Enum.map(batch, &elem(&1, 0)))
+
+          {batch, {next_cursor, done}}
       end,
       fn _acc -> :ok end
     )
@@ -230,7 +267,7 @@ defmodule Exograph.DSL.Executor do
       Keyword.put_new_lazy(opts, :candidate_limit, fn ->
         PostgresFragmentStore.count(index.fragment_store)
       end),
-      0
+      nil
     )
   end
 
@@ -250,7 +287,7 @@ defmodule Exograph.DSL.Executor do
   defp joined_fragments(index, %Plan{joins: [_first, _second, _third]} = plan, opts, _offset),
     do: joined_fragments_three(index, plan, opts)
 
-  defp joined_fragments_fact_first(index, plan, join, opts, offset) do
+  defp joined_fragments_fact_first(index, plan, join, opts, cursor) do
     candidate_limit = candidate_limit(index, opts)
     files_source = Options.files_source(index.inverted.prefix)
     fragments_source = Options.fragments_source(index.inverted.prefix)
@@ -258,21 +295,44 @@ defmodule Exograph.DSL.Executor do
 
     {join_table, join_record} = Sources.primary_source(join.assoc, index.inverted.prefix)
 
-    from(joined in {join_table, join_record},
-      join: fragment in ^{fragments_source, FragmentRecord},
-      as: :fragment,
-      on: fragment.file_id == joined.file_id and fragment.kind in ^function_fragment_kinds,
-      left_join: file in ^files_source,
-      on: file.id == fragment.file_id,
-      where:
-        joined.line >= fragment.line and
-          (is_nil(fragment.end_line) or joined.line <= fragment.end_line),
-      distinct: fragment.id,
-      order_by: [asc: file.path, asc: fragment.line, asc: fragment.id],
-      offset: ^offset,
-      limit: ^candidate_limit,
-      select: {fragment, file.source, file.path, joined}
-    )
+    query =
+      from(joined in {join_table, join_record},
+        join: fragment in ^{fragments_source, FragmentRecord},
+        as: :fragment,
+        on: fragment.file_id == joined.file_id and fragment.kind in ^function_fragment_kinds,
+        left_join: file in ^files_source,
+        on: file.id == fragment.file_id,
+        where:
+          joined.line >= fragment.line and
+            (is_nil(fragment.end_line) or joined.line <= fragment.end_line),
+        distinct: fragment.id,
+        order_by: [asc: file.path, asc: fragment.line, asc: fragment.id],
+        limit: ^candidate_limit,
+        select: {fragment, file.source, file.path, joined}
+      )
+
+    query =
+      case cursor do
+        nil ->
+          query
+
+        {path, line, id} ->
+          where(
+            query,
+            [_joined, fragment, file],
+            fragment(
+              "(?, ?, ?) > (?, ?, ?)",
+              file.path,
+              fragment.line,
+              fragment.id,
+              ^path,
+              ^line,
+              ^id
+            )
+          )
+      end
+
+    query
     |> where_first_binding_join_predicates(predicates(plan, join.binding), join.assoc)
     |> where_structural_terms_second(index, plan)
     |> where_second_binding_predicates(predicates(plan, plan.binding), plan.binding, :fragment)
@@ -286,27 +346,50 @@ defmodule Exograph.DSL.Executor do
     end)
   end
 
-  defp joined_fragments_fragment_first(index, plan, join, opts, offset) do
+  defp joined_fragments_fragment_first(index, plan, join, opts, cursor) do
     candidate_limit = candidate_limit(index, opts)
     files_source = Options.files_source(index.inverted.prefix)
     fragments_source = Options.fragments_source(index.inverted.prefix)
     function_fragment_kinds = JoinSemantics.function_fragment_kinds()
 
-    from(fragment in {fragments_source, FragmentRecord},
-      as: :fragment,
-      join: joined in ^Sources.join_source(join.assoc, index.inverted.prefix),
-      on: joined.file_id == fragment.file_id,
-      where:
-        fragment.kind in ^function_fragment_kinds and joined.line >= fragment.line and
-          (is_nil(fragment.end_line) or joined.line <= fragment.end_line),
-      left_join: file in ^files_source,
-      on: file.id == fragment.file_id,
-      distinct: fragment.id,
-      order_by: [asc: file.path, asc: fragment.line, asc: fragment.id],
-      offset: ^offset,
-      limit: ^candidate_limit,
-      select: {fragment, file.source, file.path, joined}
-    )
+    query =
+      from(fragment in {fragments_source, FragmentRecord},
+        as: :fragment,
+        join: joined in ^Sources.join_source(join.assoc, index.inverted.prefix),
+        on: joined.file_id == fragment.file_id,
+        where:
+          fragment.kind in ^function_fragment_kinds and joined.line >= fragment.line and
+            (is_nil(fragment.end_line) or joined.line <= fragment.end_line),
+        left_join: file in ^files_source,
+        on: file.id == fragment.file_id,
+        distinct: fragment.id,
+        order_by: [asc: file.path, asc: fragment.line, asc: fragment.id],
+        limit: ^candidate_limit,
+        select: {fragment, file.source, file.path, joined}
+      )
+
+    query =
+      case cursor do
+        nil ->
+          query
+
+        {path, line, id} ->
+          where(
+            query,
+            [fragment, _joined, file],
+            fragment(
+              "(?, ?, ?) > (?, ?, ?)",
+              file.path,
+              fragment.line,
+              fragment.id,
+              ^path,
+              ^line,
+              ^id
+            )
+          )
+      end
+
+    query
     |> where_structural_terms(index, plan)
     |> where_source_predicates(predicates(plan, plan.binding), nil, :fragment)
     |> where_second_binding_predicates(predicates(plan, join.binding), join.binding, join.assoc)
@@ -522,6 +605,7 @@ defmodule Exograph.DSL.Executor do
   defp symbol_fact_all(index, plan, opts, source_name) do
     source = Sources.source(source_name, index.inverted.prefix)
     limit = Keyword.get(opts, :limit, 50)
+    skip = Keyword.get(opts, :skip, 0)
     files_source = Options.files_source(index.inverted.prefix)
     fragments_source = Options.fragments_source(index.inverted.prefix)
 
@@ -532,6 +616,7 @@ defmodule Exograph.DSL.Executor do
         left_join: file in ^files_source,
         on: file.id == fragment.file_id,
         order_by: [asc: fact.qualified_name, asc: fact.line, asc: fact.id],
+        offset: ^skip,
         limit: ^limit,
         select: {fact, fragment, nil, file.path}
       )
@@ -547,10 +632,12 @@ defmodule Exograph.DSL.Executor do
 
   defp call_edge_all(index, plan, opts) do
     limit = Keyword.get(opts, :limit, 50)
+    skip = Keyword.get(opts, :skip, 0)
 
     query =
       from(edge in Options.call_edges_source(index.inverted.prefix),
         order_by: [asc: edge.caller_qualified_name, asc: edge.callee_qualified_name, asc: edge.id],
+        offset: ^skip,
         limit: ^limit,
         select: edge
       )

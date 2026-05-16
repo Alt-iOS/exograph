@@ -11,19 +11,23 @@ defmodule Exograph.Web.APIController do
     index = index()
     pattern = params["pattern"] || ""
     limit = parse_limit(params["limit"])
+    skip = decode_cursor(params["cursor"])
     package_id = params["package_id"]
 
-    opts = [limit: limit] ++ scope_opts(package_id)
+    opts = [limit: limit, skip: skip] ++ scope_opts(package_id)
 
     {elapsed_us, result} =
       :timer.tc(fn -> Exograph.search(index, pattern, opts) end)
 
     case result do
       {:ok, hits} ->
+        next_cursor = if length(hits) == limit, do: encode_cursor(skip + limit), else: nil
+
         json(conn, %{
           results: Enum.map(hits, &serialize_result/1),
           count: length(hits),
-          elapsed_ms: Float.round(elapsed_us / 1000, 1)
+          elapsed_ms: Float.round(elapsed_us / 1000, 1),
+          next_cursor: next_cursor
         })
 
       {:error, reason} ->
@@ -34,13 +38,18 @@ defmodule Exograph.Web.APIController do
   def query(conn, params) do
     index = index()
     query_string = params["query"] || ""
+    skip = decode_cursor(params["cursor"])
 
-    case QueryExecutor.execute(index, query_string) do
+    case QueryExecutor.execute(index, query_string, skip: skip) do
       {:ok, hits, elapsed_ms} ->
+        limit = QueryExecutor.default_limit()
+        next_cursor = if length(hits) == limit, do: encode_cursor(skip + limit), else: nil
+
         json(conn, %{
           results: Enum.map(hits, &serialize_result/1),
           count: length(hits),
-          elapsed_ms: elapsed_ms
+          elapsed_ms: elapsed_ms,
+          next_cursor: next_cursor
         })
 
       {:error, message} ->
@@ -86,6 +95,19 @@ defmodule Exograph.Web.APIController do
   end
 
   defp index, do: Application.get_env(:exograph, :web_index)
+
+  defp encode_cursor(offset) when is_integer(offset),
+    do: Base.url_encode64("#{offset}", padding: false)
+
+  defp decode_cursor(nil), do: 0
+  defp decode_cursor(""), do: 0
+
+  defp decode_cursor(encoded) do
+    case Base.url_decode64(encoded, padding: false) do
+      {:ok, decoded} -> String.to_integer(decoded)
+      :error -> 0
+    end
+  end
 
   defp parse_limit(nil), do: 50
   defp parse_limit(n) when is_integer(n), do: min(n, 200)

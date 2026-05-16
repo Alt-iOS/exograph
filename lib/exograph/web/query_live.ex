@@ -54,7 +54,10 @@ defmodule Exograph.Web.QueryLive do
        elapsed_ms: nil,
        result_count: nil,
        loading: false,
-       collapsed_packages: MapSet.new()
+       collapsed_packages: MapSet.new(),
+       all_results: [],
+       has_more: false,
+       current_skip: 0
      )}
   end
 
@@ -93,6 +96,8 @@ defmodule Exograph.Web.QueryLive do
     {:noreply, assign(socket, collapsed_packages: collapsed)}
   end
 
+  @page_size 100
+
   @impl true
   def handle_event("run", %{"query" => query}, socket) do
     index = socket.assigns.index
@@ -104,50 +109,83 @@ defmodule Exograph.Web.QueryLive do
         results: nil,
         elapsed_ms: nil,
         result_count: nil,
-        loading: true
+        loading: true,
+        all_results: [],
+        current_skip: 0,
+        has_more: false
       )
 
     pid = self()
 
     Task.start(fn ->
-      result = QueryExecutor.execute(index, query)
-      send(pid, {:query_result, query, result})
+      result = QueryExecutor.execute(index, query, skip: 0)
+      send(pid, {:query_result, query, result, :replace})
     end)
 
     {:noreply, socket}
   end
 
   @impl true
-  def handle_info({:query_result, query, result}, socket) do
-    socket =
-      case result do
-        {:ok, results, elapsed_ms} ->
-          socket
-          |> assign(
-            results: ResultFormatter.format(results),
-            result_count: length(results),
-            elapsed_ms: elapsed_ms,
-            loading: false
-          )
-          |> push_event("set_diagnostics", %{markers: []})
-          |> push_event("update_url", %{q: query})
+  def handle_event("load_more", _params, socket) do
+    index = socket.assigns.index
+    query = socket.assigns.query
+    skip = socket.assigns.current_skip
+    pid = self()
 
-        {:error, %{message: message, markers: markers}} ->
-          socket
-          |> assign(error: message, loading: false)
-          |> push_event("set_diagnostics", %{markers: markers})
+    Task.start(fn ->
+      result = QueryExecutor.execute(index, query, skip: skip)
+      send(pid, {:query_result, query, result, :append})
+    end)
 
-        {:error, message} when is_binary(message) ->
-          assign(socket, error: message, loading: false)
-      end
-
-    {:noreply, socket}
+    {:noreply, assign(socket, loading: true)}
   end
 
   @impl true
   def handle_event("completion", %{"hint" => hint}, socket) do
     items = Exograph.Web.Completion.complete(hint, socket.assigns.index)
     {:reply, %{items: items}, socket}
+  end
+
+  @impl true
+  def handle_info({:query_result, query, result, mode}, socket) do
+    socket =
+      case result do
+        {:ok, new_results, elapsed_ms} ->
+          all =
+            if mode == :replace,
+              do: new_results,
+              else: socket.assigns.all_results ++ new_results
+
+          base =
+            socket
+            |> assign(
+              all_results: all,
+              results: ResultFormatter.format(all),
+              result_count: length(all),
+              elapsed_ms: elapsed_ms,
+              current_skip: length(all),
+              has_more: length(new_results) >= @page_size,
+              loading: false
+            )
+
+          if mode == :replace do
+            base
+            |> push_event("set_diagnostics", %{markers: []})
+            |> push_event("update_url", %{q: query})
+          else
+            base
+          end
+
+        {:error, %{message: message, markers: markers}} ->
+          socket
+          |> assign(error: message, loading: false, has_more: false)
+          |> push_event("set_diagnostics", %{markers: markers})
+
+        {:error, message} when is_binary(message) ->
+          assign(socket, error: message, loading: false, has_more: false)
+      end
+
+    {:noreply, socket}
   end
 
   @impl true
@@ -270,6 +308,14 @@ defmodule Exograph.Web.QueryLive do
               </div>
             </div>
           </div>
+
+          <button
+            :if={@has_more}
+            phx-click="load_more"
+            class="w-full py-3 text-sm text-zinc-400 hover:text-zinc-200 bg-zinc-900 border border-zinc-800 rounded-lg cursor-pointer transition-colors"
+          >
+            Load more results
+          </button>
 
           <div :if={@results == []} class="p-8 text-center text-zinc-500">No results</div>
           <div :if={is_nil(@results) && is_nil(@error)} class="px-6 py-8">

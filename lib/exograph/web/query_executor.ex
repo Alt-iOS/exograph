@@ -1,14 +1,17 @@
 defmodule Exograph.Web.QueryExecutor do
   @moduledoc false
 
-  import Exograph.DSL
   @eval_env __ENV__
 
-  def execute(index, query_string) do
+  @default_limit 100
+
+  def default_limit, do: @default_limit
+
+  def execute(index, query_string, opts \\ []) do
     {elapsed_us, result} =
       :timer.tc(fn ->
         case parse_and_eval(query_string) do
-          {:ok, parsed} -> run_parsed(index, parsed)
+          {:ok, parsed} -> run_parsed(index, parsed, opts)
           {:error, _} = error -> error
         end
       end)
@@ -99,18 +102,18 @@ defmodule Exograph.Web.QueryExecutor do
 
   defp eval_env, do: @eval_env
 
-  @default_limit 100
-
-  defp run_parsed(index, %Exograph.DSL.Query{} = query) do
+  defp run_parsed(index, %Exograph.DSL.Query{} = query, opts) do
     limit = query.limit || @default_limit
-    Exograph.all(index, query, limit: limit)
+    skip = Keyword.get(opts, :skip, 0)
+    Exograph.all(index, query, limit: limit, skip: skip)
   end
 
-  defp run_parsed(index, pattern) when is_binary(pattern) do
-    Exograph.search(index, pattern, limit: @default_limit)
+  defp run_parsed(index, pattern, opts) when is_binary(pattern) do
+    skip = Keyword.get(opts, :skip, 0)
+    Exograph.search(index, pattern, limit: @default_limit, skip: skip)
   end
 
-  defp run_parsed(_index, other) do
+  defp run_parsed(_index, other, _opts) do
     {:error,
      %{
        message: "Expected a DSL query or pattern string, got: #{inspect(other, limit: 200)}",

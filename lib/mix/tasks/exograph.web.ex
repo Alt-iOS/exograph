@@ -74,6 +74,10 @@ defmodule Mix.Tasks.Exograph.Web do
 
     build_assets!()
 
+    if Code.ensure_loaded?(Hammer) do
+      Exograph.Web.RateLimiter.start_link([])
+    end
+
     {:ok, _} =
       Supervisor.start_link([{Phoenix.PubSub, name: Exograph.Web.PubSub}],
         strategy: :one_for_one

@@ -73,6 +73,7 @@ defmodule Exograph do
   def search(%Index{} = index, pattern_or_selector, opts) do
     compiled = compile(pattern_or_selector)
     limit = Keyword.get(opts, :limit, 50)
+    skip = Keyword.get(opts, :skip, 0)
 
     hits =
       index
@@ -86,6 +87,7 @@ defmodule Exograph do
             []
         end
       end)
+      |> Stream.drop(skip)
       |> Enum.take(limit)
 
     {:ok, hits}

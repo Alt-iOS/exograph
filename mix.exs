@@ -53,6 +53,7 @@ defmodule Exograph.MixProject do
       {:jason, "~> 1.2"},
       {:makeup, "~> 1.0", optional: true},
       {:makeup_elixir, "~> 1.0", optional: true},
+      {:hammer, "~> 7.3", optional: true},
       {:phoenix_iconify, "~> 0.1", optional: true},
       {:oxc, "~> 0.13.0", override: true}
     ]

@@ -3,7 +3,6 @@ defmodule Exograph.Web.Completion do
 
   alias Exograph.Postgres.Options
 
-  import Exograph.DSL
   @eval_env __ENV__
 
   @dsl_sources [
@@ -22,7 +21,7 @@ defmodule Exograph.Web.Completion do
   end
 
   defp elixir_completions(hint) do
-    case Code.cursor_context(hint) do
+    case Code.Fragment.cursor_context(hint) do
       {:alias, alias} ->
         complete_alias(List.to_string(alias))
 
@@ -83,7 +82,7 @@ defmodule Exograph.Web.Completion do
     depth = prefix |> Module.split() |> length()
 
     for mod <- all_modules(),
-        String.starts_with?(Atom.to_string(mod), Atom.to_string(prefix)),
+        String.starts_with?(Atom.to_string(mod), prefix),
         parts = Module.split(mod),
         length(parts) >= depth,
         name = Enum.at(parts, depth - 1),

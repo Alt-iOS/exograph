@@ -111,47 +111,8 @@ defmodule Mix.Tasks.Exograph.Web do
   end
 
   defp build_assets! do
-    outdir = Volt.Config.build().outdir |> to_string()
-    File.mkdir_p!(outdir)
-
-    build_monaco!(outdir)
+    Exograph.Web.Monaco.ensure_bundled!()
     Mix.Task.rerun("volt.build")
-  end
-
-  defp build_monaco!(outdir) do
-    vendor_dir = Path.join(outdir, "vendor")
-    monaco_path = Path.join(vendor_dir, "monaco.js")
-    monaco_css = Path.join(vendor_dir, "monaco.css")
-
-    unless File.regular?(monaco_css) do
-      File.mkdir_p!(vendor_dir)
-      src_css = "assets/node_modules/monaco-editor/min/vs/editor/editor.main.css"
-      if File.regular?(src_css), do: File.cp!(src_css, monaco_css)
-    end
-
-    if File.regular?(monaco_path) do
-      :ok
-    else
-      Mix.shell().info("Pre-bundling Monaco Editor...")
-      File.mkdir_p!(vendor_dir)
-
-      entry = "assets/node_modules/monaco-editor/esm/vs/editor/edcore.main.js"
-
-      case OXC.bundle(entry,
-             cwd: File.cwd!(),
-             format: :esm,
-             modules: ["assets/node_modules"],
-             module_types: Volt.Config.build().module_types,
-             define: %{"process.env.NODE_ENV" => ~s("production")}
-           ) do
-        {:ok, code} when is_binary(code) ->
-          File.write!(monaco_path, code)
-          Mix.shell().info("Monaco bundled: #{div(byte_size(code), 1024)}KB")
-
-        {:error, errors} ->
-          Mix.shell().error("Monaco bundle failed: #{inspect(errors)}")
-      end
-    end
   end
 
   defp iex_running?, do: Code.ensure_loaded?(IEx) and IEx.started?()

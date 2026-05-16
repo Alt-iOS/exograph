@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.4.1
+
+- Upgraded Volt to 0.11.1, removed `oxc` override
+- `module_types` configured in `config :volt` instead of hardcoded
+- Asset builds use `mix volt.build` instead of internal Volt APIs
+- Extracted `Exograph.Web.Monaco` for Monaco Editor bundling
+
 ## 0.4.0
 
 ### Web UI

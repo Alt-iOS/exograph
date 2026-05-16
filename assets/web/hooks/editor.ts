@@ -111,6 +111,12 @@ export const Editor = {
       editor.focus()
     })
 
+    hook.handleEvent("update_url", ({ q }: { q: string }) => {
+      const url = new URL(window.location.href)
+      url.searchParams.set("q", q)
+      history.replaceState(null, "", url.toString())
+    })
+
     hook.handleEvent("set_diagnostics", ({ markers }: { markers: any[] }) => {
       const model = editor.getModel()
       if (!model) return

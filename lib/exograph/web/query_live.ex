@@ -16,10 +16,11 @@ defmodule Exograph.Web.QueryLive do
   """
 
   @examples [
-    {"Pattern search", ~S'from(f in Fragment, where: matches(f, "Repo.get!(_, _)"), limit: 20)'},
-    {"GenServer callbacks",
+    {"Pattern search", "Find structural code patterns",
+     ~S'from(f in Fragment, where: matches(f, "Repo.get!(_, _)"), limit: 20)'},
+    {"GenServer callbacks", "Find handle_call implementations",
      ~S'from(f in Fragment, where: matches(f, "def handle_call(_, _, _) do ... end"), limit: 20)'},
-    {"Functions calling Enum.map",
+    {"Functions calling Enum.map", "Join fragments with their references",
      ~S"""
      from(f in Fragment,
        join: r in assoc(f, :references),
@@ -27,11 +28,11 @@ defmodule Exograph.Web.QueryLive do
        where: f.kind == :def,
        limit: 20)
      """},
-    {"Public API definitions",
+    {"Public API definitions", "Prefix-search public function names",
      ~S'from(d in Definition, where: d.kind == :def, where: prefix_search(d.name, "fetch"))'},
-    {"Call graph: who calls Repo.transaction",
+    {"Call graph: who calls Repo.transaction", "Explore callers via call edges",
      ~S'from(e in CallEdge, where: e.callee_qualified_name == "Ecto.Repo.transaction/2", limit: 20)'},
-    {"Functions with TODO comments",
+    {"Functions with TODO comments", "Combine pattern + text search",
      ~S'from(f in Fragment, where: matches(f, "def _ do ... end"), where: contains(f, "# TODO"), limit: 20)'}
   ]
 
@@ -49,9 +50,21 @@ defmodule Exograph.Web.QueryLive do
        results: nil,
        error: nil,
        elapsed_ms: nil,
-       result_count: nil
+       result_count: nil,
+       loading: false,
+       collapsed_packages: MapSet.new()
      )}
   end
+
+  @impl true
+  def handle_params(%{"q" => q}, _uri, socket) when q != "" do
+    {:noreply,
+     socket
+     |> assign(query: q)
+     |> push_event("set_editor_value", %{value: q})}
+  end
+
+  def handle_params(_params, _uri, socket), do: {:noreply, socket}
 
   @impl true
   def handle_event("set_query", %{"query" => query}, socket) do
@@ -59,8 +72,21 @@ defmodule Exograph.Web.QueryLive do
   end
 
   @impl true
+  def handle_event("toggle_package", %{"package" => name}, socket) do
+    collapsed =
+      if MapSet.member?(socket.assigns.collapsed_packages, name) do
+        MapSet.delete(socket.assigns.collapsed_packages, name)
+      else
+        MapSet.put(socket.assigns.collapsed_packages, name)
+      end
+
+    {:noreply, assign(socket, collapsed_packages: collapsed)}
+  end
+
+  @impl true
   def handle_event("run", %{"query" => query}, socket) do
-    socket = assign(socket, query: query, error: nil, results: nil, elapsed_ms: nil)
+    socket =
+      assign(socket, query: query, error: nil, results: nil, elapsed_ms: nil, loading: true)
 
     case QueryExecutor.execute(socket.assigns.index, query) do
       {:ok, results, elapsed_ms} ->
@@ -69,18 +95,20 @@ defmodule Exograph.Web.QueryLive do
          |> assign(
            results: ResultFormatter.format(results),
            result_count: length(results),
-           elapsed_ms: elapsed_ms
+           elapsed_ms: elapsed_ms,
+           loading: false
          )
-         |> push_event("set_diagnostics", %{markers: []})}
+         |> push_event("set_diagnostics", %{markers: []})
+         |> push_event("update_url", %{q: query})}
 
       {:error, %{message: message, markers: markers}} ->
         {:noreply,
          socket
-         |> assign(error: message)
+         |> assign(error: message, loading: false)
          |> push_event("set_diagnostics", %{markers: markers})}
 
       {:error, message} when is_binary(message) ->
-        {:noreply, assign(socket, error: message)}
+        {:noreply, assign(socket, error: message, loading: false)}
     end
   end
 
@@ -111,15 +139,20 @@ defmodule Exograph.Web.QueryLive do
           <button
             id="run-btn"
             phx-hook="RunButton"
-            class="px-3 py-1.5 text-sm font-medium bg-blue-600 text-white rounded-md hover:bg-blue-500 cursor-pointer transition-colors"
+            class={"px-3 py-1.5 text-sm font-medium bg-blue-600 text-white rounded-md hover:bg-blue-500 cursor-pointer transition-colors" <> if(@loading, do: " opacity-75 pointer-events-none", else: "")}
           >
-            Run ⌘↵
+            <span :if={@loading} class="inline-flex items-center gap-2">
+              <span class="inline-block w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin">
+              </span>
+              Running…
+            </span>
+            <span :if={not @loading}>Run ⌘↵</span>
           </button>
         </div>
       </header>
 
       <div class="flex flex-col flex-1 min-h-0">
-        <div class="h-[200px] border-b border-zinc-800">
+        <div class="h-[160px] border-b border-zinc-800">
           <div
             id="editor"
             phx-hook="Editor"
@@ -135,14 +168,29 @@ defmodule Exograph.Web.QueryLive do
           </div>
 
           <div :for={group <- (@results || [])} class="rounded-lg border border-zinc-800 overflow-hidden">
-            <div class="flex items-center gap-3 px-4 py-2.5 bg-zinc-900 border-b border-zinc-800">
-              <span class="text-sm font-semibold text-zinc-200">{group.package}</span>
+            <div
+              class="flex items-center gap-3 px-4 py-2.5 bg-zinc-900 border-b border-zinc-800 w-full cursor-pointer hover:bg-zinc-800/50 transition-colors"
+              phx-click="toggle_package"
+              phx-value-package={group.package}
+            >
+              <.icon
+                name="heroicons:chevron-right"
+                class={"w-4 h-4 text-zinc-500 transition-transform" <> if(MapSet.member?(@collapsed_packages, group.package), do: "", else: " rotate-90")}
+              />
+              <a
+                href={"https://hex.pm/packages/#{group.package}"}
+                target="_blank"
+                class="text-sm font-semibold text-zinc-200 hover:text-blue-400"
+                onclick="event.stopPropagation()"
+              >
+                {group.package}
+              </a>
               <span class="text-xs text-zinc-500 bg-zinc-800 rounded-full px-2 py-0.5 tabular-nums">
                 {group.count} results
               </span>
             </div>
 
-            <div class="divide-y divide-zinc-800">
+            <div :if={not MapSet.member?(@collapsed_packages, group.package)} class="divide-y divide-zinc-800">
               <div :for={file_group <- group.files}>
                 <div class="flex items-center gap-2 px-4 py-2 bg-zinc-900/40 border-b border-zinc-800/50">
                   <.icon name="heroicons:document-text" class="w-3.5 h-3.5 text-zinc-500 shrink-0" />
@@ -187,14 +235,15 @@ defmodule Exograph.Web.QueryLive do
           <div :if={@results == []} class="p-8 text-center text-zinc-500">No results</div>
           <div :if={is_nil(@results) && is_nil(@error)} class="px-6 py-8">
             <p class="text-sm text-zinc-500 mb-4">Try an example:</p>
-            <div class="flex flex-wrap gap-2">
+            <div class="grid grid-cols-2 gap-3 max-w-2xl">
               <button
-                :for={{label, query} <- @examples}
+                :for={{label, desc, query} <- @examples}
                 phx-click="set_query"
                 phx-value-query={query}
-                class="px-3 py-1.5 text-xs font-medium text-zinc-300 bg-zinc-800 border border-zinc-700 rounded-md hover:bg-zinc-700 hover:border-zinc-600 cursor-pointer transition-colors"
+                class="text-left p-4 rounded-lg border border-zinc-800 bg-zinc-900/50 hover:bg-zinc-800/50 hover:border-zinc-700 cursor-pointer transition-colors"
               >
-                {label}
+                <div class="text-sm font-medium text-zinc-200">{label}</div>
+                <div class="text-xs text-zinc-500 mt-1">{desc}</div>
               </button>
             </div>
           </div>

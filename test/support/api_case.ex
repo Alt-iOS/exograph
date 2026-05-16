@@ -20,8 +20,9 @@ defmodule Exograph.APICase do
       Req.get!("#{@base_url}#{path}", receive_timeout: 30_000)
     end
 
-    def api_post(path, body) do
-      Req.post!("#{@base_url}#{path}", json: body, receive_timeout: 30_000)
+    def api_post(path, body, opts \\ []) do
+      timeout = Keyword.get(opts, :timeout, 30_000)
+      Req.post!("#{@base_url}#{path}", json: body, receive_timeout: timeout)
     end
 
     def json_body(%{status: status, body: body}) when status in 200..299, do: body

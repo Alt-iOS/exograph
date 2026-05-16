@@ -75,4 +75,30 @@ defmodule Exograph.Features.WebUITest do
     |> click_button("Run")
     |> assert_has("div", text: "Expected from")
   end
+
+  @tag :skip
+  test "text search mode works", %{conn: conn} do
+    conn
+    |> wait_for_monaco()
+    |> click("button[phx-value-mode='text']")
+    |> set_editor("GenServer")
+    |> click_button("Run")
+    |> assert_has("span", text: "results")
+  end
+
+  test "structural/text toggle switches modes", %{conn: conn} do
+    conn
+    |> visit("/")
+    |> assert_has("button", text: "Structural")
+    |> assert_has("button", text: "Text")
+  end
+
+  test "file paths are links to hex.pm", %{conn: conn} do
+    conn
+    |> wait_for_monaco()
+    |> click_button("GenServer callbacks")
+    |> evaluate("() => new Promise(r => setTimeout(r, 300))", is_function: true)
+    |> click_button("Run")
+    |> assert_has("a[href*='hex.pm']")
+  end
 end

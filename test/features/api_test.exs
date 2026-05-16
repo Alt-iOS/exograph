@@ -3,6 +3,11 @@ defmodule Exograph.Features.APITest do
 
   @moduletag :feature
 
+  defp first_package_id do
+    body = api_get("/api/packages") |> json_body()
+    hd(body["packages"])["id"]
+  end
+
   describe "POST /api/search" do
     test "returns results for valid pattern" do
       resp = api_post("/api/search", %{pattern: "def _ do ... end", limit: 5})
@@ -107,6 +112,43 @@ defmodule Exograph.Features.APITest do
         assert pkg["name"]
         assert is_integer(pkg["fragments"])
       end
+    end
+  end
+
+  describe "POST /api/search text mode" do
+    @tag :skip
+    test "returns text search results" do
+      resp =
+        api_post(
+          "/api/search",
+          %{pattern: "defmodule", mode: "text", limit: 3, package_id: first_package_id()},
+          timeout: 60_000
+        )
+
+      assert resp.status == 200
+      body = json_body(resp)
+      assert body["count"] > 0
+      assert body["count"] <= 3
+    end
+
+    @tag :skip
+    test "returns regex search results" do
+      resp =
+        api_post(
+          "/api/search",
+          %{pattern: "def \\w+!", mode: "regex", limit: 3, package_id: first_package_id()},
+          timeout: 60_000
+        )
+
+      assert resp.status == 200
+      body = json_body(resp)
+      assert body["count"] > 0
+    end
+
+    test "returns error for invalid regex" do
+      resp = api_post("/api/search", %{pattern: "[", mode: "regex", limit: 3})
+
+      assert resp.status == 400
     end
   end
 

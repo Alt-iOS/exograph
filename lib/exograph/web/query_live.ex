@@ -40,11 +40,13 @@ defmodule Exograph.Web.QueryLive do
   def mount(_params, _session, socket) do
     index = Application.get_env(:exograph, :web_index)
     prefix = Application.get_env(:exograph, :web_prefix)
+    package_count = count_packages(index)
 
     {:ok,
      assign(socket,
        index: index,
        prefix: prefix,
+       package_count: package_count,
        query: @default_query,
        examples: @examples,
        results: nil,
@@ -133,7 +135,7 @@ defmodule Exograph.Web.QueryLive do
       <header class="flex items-center justify-between px-6 py-3 border-b border-zinc-800">
         <div class="flex items-center gap-3">
           <h1 class="text-lg font-semibold tracking-tight">Exograph</h1>
-          <span class="text-xs text-zinc-500">{@prefix}</span>
+          <span class="text-xs text-zinc-500">{@package_count} packages indexed</span>
         </div>
         <div class="flex items-center gap-4 text-sm text-zinc-400">
           <span :if={@result_count} class="tabular-nums">
@@ -266,5 +268,14 @@ defmodule Exograph.Web.QueryLive do
       </div>
     </div>
     """
+  end
+
+  defp count_packages(index) do
+    prefix = index.inverted.prefix
+    repo = index.inverted.repo
+
+    repo.aggregate({"#{prefix}_packages", Exograph.Postgres.PackageRecord}, :count)
+  rescue
+    _ -> 0
   end
 end

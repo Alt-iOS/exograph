@@ -1,3 +1,5 @@
+import { conf as elixirConf, language as elixirLanguage } from "monaco-editor/esm/vs/basic-languages/elixir/elixir.js"
+
 let completionProvider: any = null
 
 async function loadMonaco() {
@@ -11,84 +13,8 @@ function registerElixirLanguage(m: any) {
   if (m.languages.getLanguages().some((l: any) => l.id === ELIXIR_LANGUAGE)) return
 
   m.languages.register({ id: ELIXIR_LANGUAGE })
-  m.languages.setLanguageConfiguration(ELIXIR_LANGUAGE, {
-    comments: { lineComment: "#" },
-    brackets: [["(", ")"], ["[", "]"], ["{", "}"], ["do", "end"]],
-    autoClosingPairs: [
-      { open: "(", close: ")" },
-      { open: "[", close: "]" },
-      { open: "{", close: "}" },
-      { open: '"', close: '"' },
-      { open: "'", close: "'" },
-    ],
-    surroundingPairs: [
-      { open: "(", close: ")" },
-      { open: "[", close: "]" },
-      { open: "{", close: "}" },
-      { open: '"', close: '"' },
-      { open: "'", close: "'" },
-    ],
-    indentationRules: {
-      increaseIndentPattern: /^\s*(def|defp|defmodule|defmacro|defmacrop|if|unless|case|cond|fn|do|else|with|for|receive|try|catch|rescue|after)\b.*$/,
-      decreaseIndentPattern: /^\s*(end|else|catch|rescue|after)\b/,
-    },
-  })
-  m.languages.setMonarchTokensProvider(ELIXIR_LANGUAGE, {
-    keywords: [
-      "def", "defp", "defmodule", "defmacro", "defmacrop", "defstruct", "defprotocol",
-      "defimpl", "defguard", "defdelegate", "defexception", "defoverridable",
-      "do", "end", "fn", "case", "cond", "if", "else", "unless", "when",
-      "with", "for", "receive", "try", "catch", "rescue", "after", "raise",
-      "throw", "import", "require", "alias", "use", "quote", "unquote",
-      "in", "not", "and", "or", "true", "false", "nil",
-    ],
-    operators: [
-      "=", ">", "<", "!", "~", "?", ":", "==", "<=", ">=", "!=",
-      "&&", "||", "++", "--", "<>", "->", "|>", "::", "..", "=~",
-      "===", "!==", "<<<", ">>>",
-    ],
-    tokenizer: {
-      root: [
-        [/#.*$/, "comment"],
-        [/@\w+/, "annotation"],
-        [/:[a-zA-Z_]\w*/, "atom"],
-        [/"/, "string", "@string_double"],
-        [/'/, "string", "@string_single"],
-        [/~[a-zA-Z]"""/, "string", "@heredoc"],
-        [/~[a-zA-Z]"/, "string", "@sigil_double"],
-        [/\d[\d_]*(\.\d[\d_]*)?(e[+-]?\d+)?/, "number"],
-        [/0[xXoObB][\da-fA-F_]+/, "number"],
-        [/[A-Z][\w.]*/, "type"],
-        [/[a-z_]\w*[?!]?/, { cases: { "@keywords": "keyword", "@default": "identifier" } }],
-        [/[{}()\[\]]/, "@brackets"],
-        [/[<>]=?|[!=]=?|&&?|\|\|?|\+\+?|--?|<>|\|>|->|::|\.\.|=~/, "operator"],
-        [/[;,.]/, "delimiter"],
-      ],
-      string_double: [
-        [/#\{/, "string.interpolation", "@interpolation"],
-        [/[^"#]+/, "string"],
-        [/"/, "string", "@pop"],
-      ],
-      string_single: [
-        [/[^']+/, "string"],
-        [/'/, "string", "@pop"],
-      ],
-      heredoc: [
-        [/#\{/, "string.interpolation", "@interpolation"],
-        [/"""/, "string", "@pop"],
-        [/./, "string"],
-      ],
-      sigil_double: [
-        [/#\{/, "string.interpolation", "@interpolation"],
-        [/"/, "string", "@pop"],
-        [/./, "string"],
-      ],
-      interpolation: [
-        [/\}/, "string.interpolation", "@pop"],
-        { include: "root" },
-      ],
-    },
-  })
+  m.languages.setLanguageConfiguration(ELIXIR_LANGUAGE, elixirConf)
+  m.languages.setMonarchTokensProvider(ELIXIR_LANGUAGE, elixirLanguage)
 }
 
 export const Editor = {
@@ -105,16 +31,18 @@ export const Editor = {
       inherit: true,
       rules: [
         { token: "keyword", foreground: "c792ea" },
-        { token: "type", foreground: "ffcb6b" },
-        { token: "atom", foreground: "82aaff" },
+        { token: "type.identifier", foreground: "ffcb6b" },
+        { token: "constant", foreground: "82aaff" },
         { token: "string", foreground: "c3e88d" },
-        { token: "string.interpolation", foreground: "89ddff" },
+        { token: "string.escape", foreground: "89ddff" },
         { token: "number", foreground: "f78c6c" },
         { token: "comment", foreground: "546e7a", fontStyle: "italic" },
         { token: "operator", foreground: "89ddff" },
-        { token: "annotation", foreground: "f07178" },
-        { token: "identifier", foreground: "eeffff" },
+        { token: "attribute", foreground: "f07178" },
+        { token: "variable", foreground: "eeffff" },
+        { token: "sigil", foreground: "c3e88d" },
         { token: "delimiter", foreground: "89ddff" },
+        { token: "function.call", foreground: "82aaff" },
       ],
       colors: {
         "editor.background": "#09090b",

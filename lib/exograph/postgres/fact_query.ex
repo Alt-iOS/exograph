@@ -10,26 +10,41 @@ defmodule Exograph.Postgres.FactQuery do
     limit = Keyword.get(opts, :limit, 50)
     files_source = Options.files_source(index.prefix)
 
-    query =
-      from(fragment in {Options.fragments_source(index.prefix), FragmentRecord},
-        join: fact in ^table_source,
-        on: fact.fragment_id == fragment.id,
-        left_join: file in ^files_source,
-        on: file.id == fragment.file_id,
-        where: ^fact_filter(literal),
-        order_by: [desc: fragment("pdb.score(?)", fact.id)],
-        limit: ^limit,
-        select: {fragment, nil, file.path, fact}
-      )
-      |> where_scope(opts)
+    results =
+      try do
+        query =
+          from(fragment in {Options.fragments_source(index.prefix), FragmentRecord},
+            join: fact in ^table_source,
+            on: fact.fragment_id == fragment.id,
+            left_join: file in ^files_source,
+            on: file.id == fragment.file_id,
+            where: ^fact_filter(literal),
+            order_by: [desc: fragment("pdb.score(?)", fact.id)],
+            limit: ^limit,
+            select: {fragment, nil, file.path, fact}
+          )
+          |> where_scope(opts)
 
-    hits =
-      index.repo.all(query)
-      |> Enum.map(&hit(&1, table_source))
+        index.repo.all(query)
+      rescue
+        _ in [Postgrex.Error, Ecto.QueryError] ->
+          query =
+            from(fragment in {Options.fragments_source(index.prefix), FragmentRecord},
+              join: fact in ^table_source,
+              on: fact.fragment_id == fragment.id,
+              left_join: file in ^files_source,
+              on: file.id == fragment.file_id,
+              where: ilike(fact.qualified_name, ^"%#{escape_like(literal)}%"),
+              order_by: [asc: fact.qualified_name, asc: fact.line],
+              limit: ^limit,
+              select: {fragment, nil, file.path, fact}
+            )
+            |> where_scope(opts)
 
-    {:ok, hits}
-  rescue
-    exception in [Postgrex.Error, Ecto.QueryError] -> {:error, exception}
+          index.repo.all(query)
+      end
+
+    {:ok, Enum.map(results, &hit(&1, table_source))}
   end
 
   def where_scope(queryable, opts) do
@@ -95,4 +110,6 @@ defmodule Exograph.Postgres.FactQuery do
     do: where(queryable, [_fragment, fact], fact.package_version_id == ^package_version_id)
 
   defp contains?(value, literal), do: Text.literal_match?(to_string(value), literal)
+
+  defp escape_like(str), do: str |> String.replace("%", "\\%") |> String.replace("_", "\\_")
 end

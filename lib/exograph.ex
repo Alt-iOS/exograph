@@ -26,7 +26,6 @@ defmodule Exograph do
     Hit,
     Index,
     ReferenceHit,
-    Scope,
     Similarity,
     StructuralQuery,
     Text,
@@ -157,7 +156,7 @@ defmodule Exograph do
         |> typed_hits(CommentHit)
 
       {:error, _reason} ->
-        search_comments_seq(index, literal, opts)
+        {:ok, []}
     end
   end
 
@@ -167,7 +166,7 @@ defmodule Exograph do
       when is_binary(partial_name) do
     case PostgresInvertedIndex.search_definitions(index.inverted, partial_name, opts) do
       {:ok, hits} -> typed_hits(hits, DefinitionHit)
-      {:error, _} -> search_definitions_seq(index, partial_name, opts)
+      {:error, _} -> {:ok, []}
     end
   end
 
@@ -177,7 +176,7 @@ defmodule Exograph do
       when is_binary(partial_name) do
     case PostgresInvertedIndex.search_references(index.inverted, partial_name, opts) do
       {:ok, hits} -> typed_hits(hits, ReferenceHit)
-      {:error, _} -> search_references_seq(index, opts)
+      {:error, _} -> {:ok, []}
     end
   end
 
@@ -242,66 +241,6 @@ defmodule Exograph do
     ])
   end
 
-  defp search_text_seq(%Index{} = index, literal_or_regex, opts) do
-    limit = Keyword.get(opts, :limit, 50)
-
-    query_trigrams =
-      if is_binary(literal_or_regex), do: Text.trigrams(literal_or_regex), else: MapSet.new()
-
-    PostgresFragmentStore.all(index.fragment_store)
-    |> Enum.filter(fn fragment ->
-      source = fragment.source || ""
-
-      trigram_candidate? =
-        MapSet.size(query_trigrams) == 0 or
-          MapSet.subset?(query_trigrams, Text.trigrams(source))
-
-      Scope.fragment?(fragment, opts) and trigram_candidate? and
-        text_match?(source, literal_or_regex)
-    end)
-    |> Enum.map(&TextHit.new(fragment: &1, score: 1.0))
-    |> Enum.take(limit)
-    |> ok()
-  end
-
-  defp search_comments_seq(%Index{} = index, literal, opts) do
-    limit = Keyword.get(opts, :limit, 50)
-
-    PostgresFragmentStore.all(index.fragment_store)
-    |> Enum.filter(fn fragment ->
-      Scope.fragment?(fragment, opts) and text_match?(comments_text(fragment.source), literal)
-    end)
-    |> Enum.map(&CommentHit.new(fragment: &1, score: 1.0))
-    |> Enum.take(limit)
-    |> ok()
-  end
-
-  defp search_definitions_seq(%Index{} = index, partial_name, opts) do
-    partial_lower = String.downcase(partial_name)
-    limit = Keyword.get(opts, :limit, 50)
-
-    PostgresFragmentStore.all(index.fragment_store)
-    |> Enum.filter(fn fragment ->
-      Scope.fragment?(fragment, opts) and
-        fragment.kind in [:def, :defp, :defmacro, :defmacrop] and
-        fragment.name != nil and
-        String.contains?(String.downcase(fragment.name), partial_lower)
-    end)
-    |> Enum.map(&DefinitionHit.new(fragment: &1, score: 1.0))
-    |> Enum.take(limit)
-    |> ok()
-  end
-
-  defp search_references_seq(%Index{} = index, opts) do
-    limit = Keyword.get(opts, :limit, 50)
-
-    PostgresFragmentStore.all(index.fragment_store)
-    |> Enum.filter(fn fragment -> Scope.fragment?(fragment, opts) end)
-    |> Enum.map(&ReferenceHit.new(fragment: &1, score: 1.0))
-    |> Enum.take(limit)
-    |> ok()
-  end
-
   defp typed_hits(hits, module) do
     {:ok,
      Enum.map(hits, fn
@@ -309,8 +248,6 @@ defmodule Exograph do
        hit -> module.new(fragment: hit.fragment, score: hit.score, match: hit.match)
      end)}
   end
-
-  defp ok(results), do: {:ok, results}
 
   defp text_match?(source, literal) when is_binary(literal),
     do: Text.literal_match?(source, literal)

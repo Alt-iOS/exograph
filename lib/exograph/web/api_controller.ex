@@ -41,9 +41,9 @@ defmodule Exograph.Web.APIController do
     skip = decode_cursor(params["cursor"])
 
     case QueryExecutor.execute(index, query_string, skip: skip) do
-      {:ok, hits, elapsed_ms} ->
-        limit = QueryExecutor.default_limit()
-        next_cursor = if length(hits) == limit, do: encode_cursor(skip + limit), else: nil
+      {:ok, hits, elapsed_ms, effective_limit} ->
+        next_cursor =
+          if length(hits) >= effective_limit, do: encode_cursor(skip + effective_limit), else: nil
 
         json(conn, %{
           results: Enum.map(hits, &serialize_result/1),

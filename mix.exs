@@ -54,6 +54,7 @@ defmodule Exograph.MixProject do
       {:makeup, "~> 1.0", optional: true},
       {:makeup_elixir, "~> 1.0", optional: true},
       {:hammer, "~> 7.3", optional: true},
+      {:dune, "~> 0.3", optional: true},
       {:phoenix_iconify, "~> 0.1", optional: true},
       {:oxc, "~> 0.13.0", override: true}
     ]

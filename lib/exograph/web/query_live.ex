@@ -96,8 +96,6 @@ defmodule Exograph.Web.QueryLive do
     {:noreply, assign(socket, collapsed_packages: collapsed)}
   end
 
-  @page_size 100
-
   @impl true
   def handle_event("run", %{"query" => query}, socket) do
     index = socket.assigns.index
@@ -150,7 +148,7 @@ defmodule Exograph.Web.QueryLive do
   def handle_info({:query_result, query, result, mode}, socket) do
     socket =
       case result do
-        {:ok, new_results, elapsed_ms} ->
+        {:ok, new_results, elapsed_ms, effective_limit} ->
           all =
             if mode == :replace,
               do: new_results,
@@ -164,7 +162,7 @@ defmodule Exograph.Web.QueryLive do
               result_count: length(all),
               elapsed_ms: elapsed_ms,
               current_skip: length(all),
-              has_more: length(new_results) >= @page_size,
+              has_more: length(new_results) >= effective_limit,
               loading: false
             )
 

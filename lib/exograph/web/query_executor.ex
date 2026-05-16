@@ -18,7 +18,8 @@ defmodule Exograph.Web.QueryExecutor do
       end)
 
     case result do
-      {:ok, results} -> {:ok, results, Float.round(elapsed_us / 1000, 1)}
+      {:ok, results, limit} -> {:ok, results, Float.round(elapsed_us / 1000, 1), limit}
+      {:ok, results} -> {:ok, results, Float.round(elapsed_us / 1000, 1), @default_limit}
       {:error, error} -> {:error, error}
     end
   end
@@ -106,12 +107,20 @@ defmodule Exograph.Web.QueryExecutor do
   defp run_parsed(index, %Exograph.DSL.Query{} = query, opts) do
     limit = query.limit || @default_limit
     skip = Keyword.get(opts, :skip, 0)
-    Exograph.all(index, query, limit: limit, skip: skip)
+
+    case Exograph.all(index, query, limit: limit, skip: skip) do
+      {:ok, results} -> {:ok, results, limit}
+      error -> error
+    end
   end
 
   defp run_parsed(index, pattern, opts) when is_binary(pattern) do
     skip = Keyword.get(opts, :skip, 0)
-    Exograph.search(index, pattern, limit: @default_limit, skip: skip)
+
+    case Exograph.search(index, pattern, limit: @default_limit, skip: skip) do
+      {:ok, results} -> {:ok, results, @default_limit}
+      error -> error
+    end
   end
 
   defp run_parsed(_index, other, _opts) do

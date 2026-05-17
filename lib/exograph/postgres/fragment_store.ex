@@ -421,6 +421,7 @@ defmodule Exograph.Postgres.FragmentStore do
       entries,
       conflict_target: [:term],
       on_conflict: :nothing,
+      max_concurrency: 1,
       timeout: :infinity
     )
   end

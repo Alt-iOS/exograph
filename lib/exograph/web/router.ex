@@ -20,6 +20,7 @@ defmodule Exograph.Web.Router do
   scope "/", Exograph.Web do
     pipe_through(:browser)
     live("/", QueryLive, :index)
+    live("/progress", ProgressLive, :index)
   end
 
   scope "/api", Exograph.Web do

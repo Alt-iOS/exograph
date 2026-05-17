@@ -214,7 +214,7 @@ defmodule Exograph.Postgres do
   defp insert_chunks(chunks, repo, source, opts, max_concurrency) do
     chunks
     |> Task.async_stream(
-      fn chunk -> repo.insert_all(source, chunk, opts) end,
+      fn chunk -> insert_with_retry(repo, source, chunk, opts, 3) end,
       max_concurrency: max_concurrency,
       ordered: false,
       timeout: :infinity
@@ -223,6 +223,18 @@ defmodule Exograph.Postgres do
       {:ok, _result} -> :ok
       {:exit, reason} -> exit(reason)
     end)
+  end
+
+  defp insert_with_retry(repo, source, chunk, opts, retries) do
+    repo.insert_all(source, chunk, opts)
+  rescue
+    e in Postgrex.Error ->
+      if retries > 0 and e.postgres[:code] == :deadlock_detected do
+        Process.sleep(:rand.uniform(50))
+        insert_with_retry(repo, source, chunk, opts, retries - 1)
+      else
+        reraise e, __STACKTRACE__
+      end
   end
 
   defp repo_pool_size(repo) do

@@ -29,78 +29,94 @@ defmodule Exograph.Web.ProgressLive do
   def render(assigns) do
     ~H"""
     <div class="min-h-screen bg-zinc-950 text-zinc-200">
-      <div class="max-w-2xl mx-auto px-6 py-10">
-        <div class="flex items-center gap-3 mb-6">
-          <h1 class="text-lg font-bold text-white">Hex Indexer</h1>
-          <span class={["px-2 py-0.5 text-xs rounded-full", status_badge(@progress.state)]}>
-            {status_label(@progress.state)}
-          </span>
-        </div>
-
+      <div class="max-w-2xl mx-auto px-4 py-6">
         <div :if={@progress.state == :idle} class="text-zinc-500 text-center py-16 text-sm">
+          <p class="text-lg font-bold text-white mb-4">Hex Indexer</p>
           <p>No indexing in progress.</p>
-          <p class="mt-2">
-            Run
-            <code class="text-zinc-400 bg-zinc-800 px-1 py-0.5 rounded text-xs">mix exograph.index.hex --web</code>
+          <p class="mt-1 text-xs">
+            <code class="text-zinc-400 bg-zinc-800 px-1 py-0.5 rounded">mix exograph.index.hex --web</code>
           </p>
         </div>
 
         <div :if={@progress.state != :idle}>
-          <div class="mb-6">
-            <div class="flex items-baseline justify-between text-sm mb-1.5">
-              <span class="text-zinc-400 tabular-nums">
-                {@progress.processed}<span class="text-zinc-600">/{@progress.total}</span>
+          <%!-- Header --%>
+          <div class="flex items-center gap-2 mb-4">
+            <span class="text-sm font-bold text-white">Hex Indexer</span>
+            <span class={["px-1.5 py-px text-[10px] rounded", status_badge(@progress.state)]}>
+              {status_label(@progress.state)}
+            </span>
+          </div>
+
+          <%!-- Progress bar --%>
+          <div class="mb-4">
+            <div class="flex items-baseline justify-between text-xs text-zinc-500 mb-1">
+              <span class="tabular-nums">
+                {@progress.processed} / {@progress.total}
               </span>
-              <span class="text-zinc-400 tabular-nums">{pct(@progress)}%</span>
+              <span class="tabular-nums">{pct(@progress)}%</span>
             </div>
-            <div class="h-2 bg-zinc-800 rounded-full overflow-hidden">
+            <div class="h-1.5 bg-zinc-800 rounded-full overflow-hidden">
               <div
                 class={[
                   "h-full rounded-full transition-all duration-500",
                   if(@progress.state == :done, do: "bg-green-500", else: "bg-blue-500")
                 ]}
                 style={"width: #{pct(@progress)}%"}
-              />
+              >
+              </div>
             </div>
-            <div class="flex justify-between text-xs text-zinc-600 mt-1.5 tabular-nums">
+            <div class="flex justify-between text-[11px] text-zinc-600 mt-1 tabular-nums">
               <span>{rate(@progress)} pkg/s</span>
               <span :if={@progress.state == :running}>ETA {eta(@progress)}</span>
               <span :if={@progress.state == :done}>{elapsed(@progress)}</span>
             </div>
           </div>
 
-          <div class="flex gap-3 mb-6">
-            <.stat value={@progress.ok} label="Indexed" class="text-green-400" />
-            <.stat value={@progress.skipped} label="Skipped" class="text-zinc-500" />
-            <.stat value={@progress.errors} label="Failed" class="text-red-400" />
+          <%!-- Stats row --%>
+          <div class="flex gap-2 mb-4">
+            <div class="flex-1 bg-zinc-900 rounded border border-zinc-800 px-3 py-1.5">
+              <span class="text-sm font-bold text-green-400 tabular-nums">{@progress.ok}</span>
+              <span class="text-[11px] text-zinc-600 ml-1">indexed</span>
+            </div>
+            <div class="flex-1 bg-zinc-900 rounded border border-zinc-800 px-3 py-1.5">
+              <span class="text-sm font-bold text-zinc-500 tabular-nums">{@progress.skipped}</span>
+              <span class="text-[11px] text-zinc-600 ml-1">skipped</span>
+            </div>
+            <div class="flex-1 bg-zinc-900 rounded border border-zinc-800 px-3 py-1.5">
+              <span class="text-sm font-bold text-red-400 tabular-nums">{@progress.errors}</span>
+              <span class="text-[11px] text-zinc-600 ml-1">failed</span>
+            </div>
           </div>
 
+          <%!-- Current package --%>
           <div
             :if={@progress.current && @progress.state == :running}
-            class="flex items-center gap-2 text-sm text-zinc-500 mb-4"
+            class="flex items-center gap-2 text-xs text-zinc-500 mb-3"
           >
-            <span class="w-3 h-3 border-2 border-blue-400 border-t-transparent rounded-full animate-spin" />
-            <span class="font-mono text-zinc-300">
+            <div class="w-3 h-3 border-[1.5px] border-blue-400 border-t-transparent rounded-full animate-spin shrink-0">
+            </div>
+            <span class="font-mono text-zinc-400">
               {@progress.current.name}<span class="text-zinc-600">@{@progress.current.version}</span>
             </span>
           </div>
 
-          <div class="rounded-lg border border-zinc-800 overflow-hidden">
-            <div class="px-3 py-2 text-xs font-medium text-zinc-500 bg-zinc-900/50 border-b border-zinc-800">
+          <%!-- Recent activity --%>
+          <div class="rounded border border-zinc-800 overflow-hidden">
+            <div class="px-3 py-1.5 text-[11px] text-zinc-500 bg-zinc-900 border-b border-zinc-800">
               Recent
             </div>
-            <div class="max-h-80 overflow-y-auto scrollbar-thin scrollbar-thumb-zinc-700 scrollbar-track-transparent divide-y divide-zinc-800/40">
+            <div class="max-h-[60vh] overflow-y-auto scrollbar-thin scrollbar-thumb-zinc-700 scrollbar-track-transparent">
               <div
                 :for={item <- @progress.recent}
-                class="flex items-center justify-between px-3 py-1.5 text-sm"
+                class="flex items-center justify-between px-3 py-1 border-b border-zinc-800/30 last:border-0"
               >
-                <div class="flex items-center gap-2">
-                  <span class={dot(item.status)} />
-                  <span class="font-mono text-xs text-zinc-300">
+                <div class="flex items-center gap-2 min-w-0">
+                  <span class={["w-1.5 h-1.5 rounded-full shrink-0", dot_color(item.status)]}></span>
+                  <span class="font-mono text-[11px] text-zinc-400 truncate">
                     {item.name}<span class="text-zinc-600">@{item.version}</span>
                   </span>
                 </div>
-                <span class={["text-xs", status_color(item.status)]}>
+                <span class={["text-[11px] shrink-0 ml-3", status_color(item.status)]}>
                   {status_text(item.status)}
                 </span>
               </div>
@@ -111,19 +127,6 @@ defmodule Exograph.Web.ProgressLive do
           </div>
         </div>
       </div>
-    </div>
-    """
-  end
-
-  attr(:value, :integer, required: true)
-  attr(:label, :string, required: true)
-  attr(:class, :string, default: "")
-
-  defp stat(assigns) do
-    ~H"""
-    <div class="flex-1 rounded-lg border border-zinc-800 px-3 py-2">
-      <div class={["text-xl font-bold tabular-nums", @class]}>{@value}</div>
-      <div class="text-xs text-zinc-600">{@label}</div>
     </div>
     """
   end
@@ -171,9 +174,9 @@ defmodule Exograph.Web.ProgressLive do
   defp status_label(:running), do: "Running"
   defp status_label(:done), do: "Complete"
 
-  defp dot(:ok), do: "w-1.5 h-1.5 rounded-full bg-green-400"
-  defp dot(:skipped), do: "w-1.5 h-1.5 rounded-full bg-zinc-600"
-  defp dot({:error, _}), do: "w-1.5 h-1.5 rounded-full bg-red-400"
+  defp dot_color(:ok), do: "bg-green-400"
+  defp dot_color(:skipped), do: "bg-zinc-600"
+  defp dot_color({:error, _}), do: "bg-red-400"
 
   defp status_color(:ok), do: "text-green-500/70"
   defp status_color(:skipped), do: "text-zinc-600"
@@ -181,5 +184,9 @@ defmodule Exograph.Web.ProgressLive do
 
   defp status_text(:ok), do: "indexed"
   defp status_text(:skipped), do: "skipped"
-  defp status_text({:error, reason}), do: "failed: #{inspect(reason, limit: 40)}"
+
+  defp status_text({:error, reason}) do
+    msg = inspect(reason, limit: 40)
+    if String.length(msg) > 50, do: String.slice(msg, 0, 47) <> "…", else: "failed: #{msg}"
+  end
 end

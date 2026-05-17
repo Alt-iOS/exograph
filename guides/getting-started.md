@@ -7,7 +7,7 @@ Add Exograph to your deps:
 ```elixir
 def deps do
   [
-    {:exograph, "~> 0.6"}
+    {:exograph, "~> 0.7"}
   ]
 end
 ```

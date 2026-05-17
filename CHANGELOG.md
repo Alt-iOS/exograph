@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.7.0
+
+- **37× faster joins**: LATERAL join for line-range containment replaces nested loop over all fragments
+- **8× faster structural search**: `(kind, name, arity)` btree index bypasses GIN when pattern specifies a function name
+- **2× faster text search**: file-first search with LATERAL fragment lookup instead of joining all fragments per file
+- ParadeDB BM25 enabled by default (was opt-in)
+- Fixed BM25 index creation: removed bigint columns incompatible with `pdb.literal` in ParadeDB 0.21+
+- Fixed deadlock on concurrent term inserts: advisory lock per transaction instead of retry loop
+- Recommended Postgres tuning settings documented (`max_parallel_workers_per_gather`, `shared_buffers`, `pg_prewarm`)
+- Complete documentation rewrite: all guides updated for v0.7, hex indexing, performance tuning, architecture
+
 ## 0.6.0
 
 - `mix exograph.index.hex` — download and index Hex.pm packages in a streaming pipeline

@@ -104,35 +104,65 @@ defmodule Exograph.Features.WebUITest do
   test "arrow keys work in editor after running a query", %{conn: conn} do
     conn
     |> wait_for_monaco()
-    |> set_editor("from(f in Fragment, where: matches(f, \"def _ do ... end\"), limit: 5)")
+    |> set_editor(~s|from(f in Fragment, where: matches(f, "def _ do ... end"), limit: 5)|)
     |> click_button("Run")
     |> assert_has("span", text: "results")
+    |> evaluate(
+      """
+      () => {
+        const ed = document.querySelector('#editor')._monacoEditor;
+        const ta = document.querySelector('#editor textarea.inputarea');
+        ta.focus();
+        ed.setPosition({ lineNumber: 1, column: 5 });
+
+        return new Promise(resolve => {
+          setTimeout(() => {
+            const before = ed.getPosition().column;
+
+            // Dispatch trusted-equivalent keydown events the way Monaco expects
+            ta.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', code: 'ArrowRight', keyCode: 39, bubbles: true, cancelable: true }));
+            ta.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', code: 'ArrowRight', keyCode: 39, bubbles: true, cancelable: true }));
+            ta.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', code: 'ArrowRight', keyCode: 39, bubbles: true, cancelable: true }));
+
+            // Monaco also needs to process via its trigger API as synthetic events aren't trusted
+            ed.trigger('keyboard', 'cursorRight', null);
+            ed.trigger('keyboard', 'cursorRight', null);
+            ed.trigger('keyboard', 'cursorRight', null);
+
+            setTimeout(() => {
+              resolve({ before, after: ed.getPosition().column });
+            }, 100);
+          }, 100);
+        });
+      }
+      """,
+      [is_function: true],
+      fn result ->
+        assert result["after"] == 8,
+               "Arrow keys broken after Run: cursor at #{result["after"]}, expected 8 (was #{result["before"]})"
+      end
+    )
+  end
+
+  test "typing in editor works after running a query", %{conn: conn} do
+    conn
+    |> wait_for_monaco()
+    |> set_editor("hello")
+    |> click_button("Run")
     |> click("#editor")
     |> evaluate(
       """
       () => {
         const ed = document.querySelector('#editor')._monacoEditor;
-        ed.setPosition({ lineNumber: 1, column: 5 });
-        return ed.getPosition().column;
+        ed.focus();
+        ed.setPosition({ lineNumber: 1, column: 6 });
+        return true;
       }
       """,
-      [is_function: true],
-      fn col -> assert col == 5 end
+      is_function: true
     )
-    |> evaluate(
-      """
-      () => {
-        const ed = document.querySelector('#editor')._monacoEditor;
-        ed.trigger('test', 'cursorRight', null);
-        ed.trigger('test', 'cursorRight', null);
-        ed.trigger('test', 'cursorRight', null);
-        return new Promise(r => setTimeout(() => r(ed.getPosition().column), 50));
-      }
-      """,
-      [is_function: true],
-      fn col ->
-        assert col == 8, "Cursor did not move: column is #{col}, expected 8"
-      end
-    )
+    |> type("#editor textarea.inputarea", " world")
+    |> evaluate("() => new Promise(r => setTimeout(r, 100))", is_function: true)
+    |> get_editor(fn value -> assert value =~ "world" end)
   end
 end

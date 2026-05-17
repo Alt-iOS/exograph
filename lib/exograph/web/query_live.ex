@@ -57,7 +57,8 @@ defmodule Exograph.Web.QueryLive do
        collapsed_packages: MapSet.new(),
        all_results: [],
        has_more: false,
-       current_skip: 0,
+       current_page: 1,
+       page_size: 20,
        search_mode: "structural",
        viewing_source: nil
      )}
@@ -117,14 +118,15 @@ defmodule Exograph.Web.QueryLive do
         result_count: nil,
         loading: true,
         all_results: [],
-        current_skip: 0,
+        current_page: 1,
         has_more: false
       )
 
     pid = self()
+    page_size = socket.assigns.page_size
 
     Task.start(fn ->
-      result = QueryExecutor.execute(index, query, skip: 0, mode: mode)
+      result = QueryExecutor.execute(index, query, skip: 0, limit: page_size, mode: mode)
       send(pid, {:query_result, query, result, :replace})
     end)
 
@@ -132,19 +134,30 @@ defmodule Exograph.Web.QueryLive do
   end
 
   @impl true
-  def handle_event("load_more", _params, socket) do
+  def handle_event("next_page", _params, socket) do
+    page = socket.assigns.current_page + 1
+    go_to_page(socket, page)
+  end
+
+  def handle_event("prev_page", _params, socket) do
+    page = max(socket.assigns.current_page - 1, 1)
+    go_to_page(socket, page)
+  end
+
+  defp go_to_page(socket, page) do
     index = socket.assigns.index
     query = socket.assigns.query
-    skip = socket.assigns.current_skip
     mode = socket.assigns.search_mode
+    page_size = socket.assigns.page_size
+    skip = (page - 1) * page_size
     pid = self()
 
     Task.start(fn ->
-      result = QueryExecutor.execute(index, query, skip: skip, mode: mode)
-      send(pid, {:query_result, query, result, :append})
+      result = QueryExecutor.execute(index, query, skip: skip, limit: page_size, mode: mode)
+      send(pid, {:query_result, query, result, :replace})
     end)
 
-    {:noreply, assign(socket, loading: true)}
+    {:noreply, assign(socket, loading: true, current_page: page)}
   end
 
   @impl true
@@ -176,30 +189,22 @@ defmodule Exograph.Web.QueryLive do
     socket =
       case result do
         {:ok, new_results, elapsed_ms, effective_limit} ->
-          all =
-            if mode == :replace,
-              do: new_results,
-              else: socket.assigns.all_results ++ new_results
+          page_size = socket.assigns.page_size
 
           base =
             socket
             |> assign(
-              all_results: all,
-              results: ResultFormatter.format(all),
-              result_count: length(all),
+              all_results: new_results,
+              results: ResultFormatter.format(new_results),
+              result_count: length(new_results),
               elapsed_ms: elapsed_ms,
-              current_skip: length(all),
-              has_more: length(new_results) >= effective_limit,
+              has_more: length(new_results) >= min(effective_limit, page_size),
               loading: false
             )
 
-          if mode == :replace do
-            base
-            |> push_event("set_diagnostics", %{markers: []})
-            |> push_event("update_url", %{q: query})
-          else
-            base
-          end
+          base
+          |> push_event("set_diagnostics", %{markers: []})
+          |> push_event("update_url", %{q: query})
 
         {:error, %{message: message, markers: markers}} ->
           socket
@@ -370,13 +375,25 @@ defmodule Exograph.Web.QueryLive do
             </div>
           </div>
 
-          <button
-            :if={@has_more}
-            phx-click="load_more"
-            class="w-full py-3 text-sm text-zinc-400 hover:text-zinc-200 bg-zinc-900 border border-zinc-800 rounded-lg cursor-pointer transition-colors"
-          >
-            Load more results
-          </button>
+          <div :if={@has_more || @current_page > 1} class="flex items-center justify-between py-3">
+            <button
+              :if={@current_page > 1}
+              phx-click="prev_page"
+              class="px-3 py-1.5 text-sm text-zinc-400 hover:text-zinc-200 bg-zinc-900 border border-zinc-800 rounded cursor-pointer transition-colors"
+            >
+              ← Previous
+            </button>
+            <span :if={@current_page == 1} />
+            <span class="text-xs text-zinc-600 tabular-nums">Page {@current_page}</span>
+            <button
+              :if={@has_more}
+              phx-click="next_page"
+              class="px-3 py-1.5 text-sm text-zinc-400 hover:text-zinc-200 bg-zinc-900 border border-zinc-800 rounded cursor-pointer transition-colors"
+            >
+              Next →
+            </button>
+            <span :if={!@has_more} />
+          </div>
 
           <div :if={@results == []} class="p-8 text-center text-zinc-500">No results</div>
           <div :if={is_nil(@results) && is_nil(@error)} class="px-6 py-8">

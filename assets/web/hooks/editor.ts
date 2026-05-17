@@ -241,7 +241,7 @@ export const Editor = {
       );
     });
 
-    container.addEventListener("keydown", (e: KeyboardEvent) => e.stopPropagation());
+    container.addEventListener("keydown", (e: KeyboardEvent) => e.stopPropagation(), true);
 
     this.editor = editor;
     (container as HTMLElement & { _monacoEditor: MonacoEditor })._monacoEditor = editor;

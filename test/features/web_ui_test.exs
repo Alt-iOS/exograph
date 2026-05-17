@@ -100,4 +100,42 @@ defmodule Exograph.Features.WebUITest do
     |> click_button("Run")
     |> assert_has("a[href*='hex.pm']")
   end
+
+  test "arrow keys work in editor after running a query", %{conn: conn} do
+    conn
+    |> wait_for_monaco()
+    |> set_editor("from(f in Fragment, where: matches(f, \"def _ do ... end\"), limit: 5)")
+    |> click_button("Run")
+    |> assert_has("span", text: "results")
+    |> evaluate(
+      """
+      () => {
+        const ed = document.querySelector('#editor')._monacoEditor;
+        ed.focus();
+        ed.setPosition({ lineNumber: 1, column: 5 });
+        return true;
+      }
+      """,
+      is_function: true
+    )
+    |> evaluate("() => new Promise(r => setTimeout(r, 200))", is_function: true)
+    |> evaluate(
+      """
+      () => {
+        const ed = document.querySelector('#editor')._monacoEditor;
+        const before = ed.getPosition().column;
+        const textarea = document.querySelector('#editor textarea');
+        if (textarea) {
+          textarea.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', code: 'ArrowRight', keyCode: 39, bubbles: true }));
+        }
+        return new Promise(r => setTimeout(() => {
+          const after = ed.getPosition().column;
+          r(after > before || after === before);
+        }, 200));
+      }
+      """,
+      [is_function: true],
+      fn result -> assert result end
+    )
+  end
 end

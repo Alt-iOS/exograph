@@ -1,40 +1,37 @@
 # Getting Started
 
-Exograph is a local/self-hosted code intelligence index for Elixir. You point it
-at source code and an Ecto repo; it extracts structural fragments and code facts,
-stores them in Postgres, and exposes search/query APIs over the index.
-
 ## Installation
 
-Exograph is early-stage and currently installed from GitHub:
+Add Exograph to your deps:
 
 ```elixir
 def deps do
   [
-    {:exograph, github: "elixir-vibe/exograph"}
+    {:exograph, "~> 0.6"}
   ]
 end
 ```
 
-Exograph uses Postgres as its built-in backend. ParadeDB's `pg_search` extension
-is optional.
+**Postgres is required.** ParadeDB's `pg_search` extension is optional — without
+it, text search falls back to `pg_trgm` ILIKE, which is fast but not BM25-ranked.
 
-## Repo setup
+Install `pg_trgm` if it is not already enabled:
 
-Use an existing Ecto repo or create a dedicated one for code intelligence data.
-The repo must be started before indexing.
-
-```elixir
-{:ok, index} =
-  Exograph.index("lib",
-    repo: MyApp.Repo,
-    migrate?: true
-  )
+```sql
+CREATE EXTENSION IF NOT EXISTS pg_trgm;
 ```
 
-`migrate?: true` creates the Exograph tables under the configured prefix. Use a
-dedicated prefix if you want to keep Exograph data separate from application
-data:
+## Index your project
+
+Point Exograph at your source directories with `--migrate` to create the tables:
+
+    mix exograph.index --repo MyApp.Repo --migrate lib
+
+To also index tests and set a custom prefix:
+
+    mix exograph.index --repo MyApp.Repo --migrate --prefix exograph lib test
+
+From Elixir:
 
 ```elixir
 {:ok, index} =
@@ -45,51 +42,68 @@ data:
   )
 ```
 
-## First structural search
+`migrate?: true` runs Exograph's Ecto migrations under the configured prefix.
+Re-running is safe; migrations are idempotent.
 
-```elixir
-{:ok, hits} = Exograph.search(index, "Repo.get!(_, _)")
-```
+## Search from CLI
 
-Patterns are ExAST patterns. Postgres retrieves candidate fragments and ExAST
-verifies the final structural match.
+Structural search — finds fragments matching an ExAST pattern:
 
-## First DSL query
+    mix exograph.search 'Repo.get!(_, _)' --repo MyApp.Repo --migrate lib
 
-```elixir
-import Exograph.DSL
+Text search:
 
-query =
-  from(f in Fragment,
-    join: r in assoc(f, :references),
-    where: r.qualified_name == "Repo.transaction/1",
-    where: matches(f, "def _ do ... end")
-  )
+    mix exograph.search 'TODO' --text --repo MyApp.Repo --migrate lib
 
-{:ok, hits} = Exograph.all(index, query)
-```
+Regex search:
 
-The DSL combines relational code facts with structural ExAST verification.
+    mix exograph.search 'Repo\.get!\(' --regex --repo MyApp.Repo --migrate lib
 
-## Optional Reach extraction
+Structural search with predicates:
 
-Reach extraction is enabled by default when the optional `:reach` dependency is
-available. Disable it when you only want ExAST facts:
+    mix exograph.search 'def _ do ... end' \
+      --repo MyApp.Repo --migrate lib \
+      --contains 'Repo.transaction(_)' \
+      --not-contains 'IO.inspect(_)'
 
-```elixir
-Exograph.index("lib",
-  repo: MyApp.Repo,
-  migrate?: true,
-  extractors: [:ex_ast]
-)
-```
+## Start the web UI
 
-## Local test database
+    mix exograph.web --prefix exograph --port 4200
 
-The test suite uses a real Postgres database. Set `EXOGRAPH_DATABASE_URL` when
-the default local database is not available:
+Open `http://localhost:4200`. The editor supports structural, text, and regex
+modes. Pass `--database-url` or set `EXOGRAPH_DATABASE_URL` when not using an
+application repo:
 
-```bash
-EXOGRAPH_DATABASE_URL=postgres://postgres:postgres@localhost:5432/exograph_test \
-  mix test
-```
+    EXOGRAPH_DATABASE_URL=postgres://localhost/mydb \
+      mix exograph.web --prefix exograph --port 4200
+
+## Index Hex.pm packages
+
+Download and index packages straight from Hex.pm:
+
+    mix exograph.index.hex --mode top --limit 1000 --concurrency 8
+
+This streams: download tarball → extract to tmpdir → index → cleanup. Peak disk
+usage is proportional to concurrency, not total package count. Already-indexed
+packages are skipped automatically.
+
+Watch progress live by adding `--web`:
+
+    mix exograph.index.hex --mode latest --concurrency 8 --web --port 4200
+
+The dashboard at `http://localhost:4200/progress` shows per-package status,
+rate, and ETA.
+
+Modes:
+- `latest` — most recent version of each package (default)
+- `top --limit N` — top N most-downloaded packages
+- `all` — every published version
+
+See [Package Indexing](package-indexing.md) for scale numbers and full options.
+
+## Next steps
+
+- [Querying](querying.md) — structural patterns, text/regex search, planning
+- [DSL](dsl.md) — join code facts with structural predicates
+- [Mix Tasks](mix-tasks.md) — all CLI options
+- [Postgres and ParadeDB](postgres-paradedb.md) — performance tuning for large indexes

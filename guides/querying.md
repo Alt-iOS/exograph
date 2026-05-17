@@ -1,7 +1,7 @@
 # Querying
 
-Exograph supports structural search through ExAST selectors plus persisted
-candidate retrieval from Postgres.
+Exograph supports structural search through ExAST selectors, text and regex
+search through Postgres, and relational queries through the DSL.
 
 ## Structural patterns
 
@@ -10,7 +10,8 @@ candidate retrieval from Postgres.
 ```
 
 Patterns are plain ExAST patterns. `_` matches one node; `...` matches a sequence
-or variable arity where supported by ExAST.
+or variable arity where supported by ExAST. Postgres retrieves candidates by term
+index; ExAST verifies the structural match.
 
 ## Relationship-aware selectors
 
@@ -43,6 +44,51 @@ from("def _ do ... end")
 |> where(comment_before(text("transaction wrapper")))
 ```
 
+## Text search
+
+Search source code by literal text:
+
+```elixir
+{:ok, hits} = Exograph.search_text(index, "TODO")
+{:ok, hits} = Exograph.search_text(index, "deprecated", limit: 50)
+```
+
+With ParadeDB `pg_search` installed, text search uses BM25 ranking. Without it,
+search falls back to `ILIKE` accelerated by `pg_trgm` GIN indexes on
+`files.source` and `files.comments_text`.
+
+## Regex search
+
+Pass a compiled regex to `Exograph.search_text/3`:
+
+```elixir
+{:ok, hits} = Exograph.search_text(index, ~r/def \w+!/)
+{:ok, hits} = Exograph.search_text(index, ~r/Repo\.(get|insert|update)!/, limit: 100)
+```
+
+Regex search uses Postgres `~*` (case-insensitive). `pg_trgm` may still
+accelerate the scan if the regex has extractable trigrams.
+
+## Text and regex modes in the web UI and API
+
+The web UI exposes Structural/Text/Regex toggle buttons. The JSON API accepts a
+`mode` parameter:
+
+```bash
+curl -X POST http://localhost:4200/api/search \
+  -H "Content-Type: application/json" \
+  -d '{"pattern": "TODO", "mode": "text"}'
+
+curl -X POST http://localhost:4200/api/search \
+  -H "Content-Type: application/json" \
+  -d '{"pattern": "Repo\\.get!\\(", "mode": "regex"}'
+```
+
+From the CLI:
+
+    mix exograph.search 'TODO' --text --repo MyApp.Repo lib
+    mix exograph.search 'Repo\.get!\(' --regex --repo MyApp.Repo lib
+
 ## Planning and explanations
 
 Exograph treats indexes like an RDBMS treats access paths: advisory only. The
@@ -71,16 +117,6 @@ Standalone explanations are also available:
 Exograph.explain("Repo.get!(User, id)")
 #=> %{required: ["call.remote:Repo.get!/2", ...], verifier: :pattern, ...}
 ```
-
-## Text Search
-
-Search source code by text content:
-
-    {:ok, hits} = Exograph.search_text(index, "TODO")
-    {:ok, hits} = Exograph.search_text(index, ~r/def \w+!/)
-
-Text search uses `ILIKE` in Postgres (or ParadeDB BM25 when available).
-Regex search uses Postgres `~*` operator.
 
 ## Similarity search
 

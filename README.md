@@ -5,11 +5,7 @@ Local CodeQL-style code search for Elixir, backed by Postgres and ExAST.
 Exograph indexes Elixir source code into normalized Ecto/Postgres tables: files,
 AST fragments, comments, definitions, references, package versions, and optional
 Reach call graph facts. You can then query that index with structural AST
-patterns, text search, symbol/reference filters, and Ecto-shaped joins.
-
-Exograph was originally built to stress-test Reach and ExAST on larger
-real-world codebases and Hex package sets. It is now a reusable local/self-hosted
-code intelligence layer for Elixir tooling.
+patterns, text/regex search, symbol/reference filters, and Ecto-shaped joins.
 
 ## What is Exograph?
 
@@ -21,7 +17,7 @@ Exograph is:
 - an optional Reach-backed call graph index
 - a foundation for CodeQL-like Elixir queries over one project or many package versions
 
-Exograph is not currently:
+Exograph is not:
 
 - a hosted search service
 - a language server
@@ -34,7 +30,7 @@ Use Exograph when text search is not enough:
 
 - find functions matching an AST shape
 - search definitions and references across packages
-- ask “which private functions call `Repo.transaction/1`?”
+- ask "which private functions call `Repo.transaction/1`?"
 - index multiple Hex package versions into one database
 - combine relational filters with exact ExAST verification
 - persist Reach call graph facts for caller/callee queries
@@ -44,13 +40,13 @@ Use Exograph when text search is not enough:
 ```elixir
 def deps do
   [
-    {:exograph, "~> 0.4"}
+    {:exograph, "~> 0.6"}
   ]
 end
 ```
 
-Exograph currently requires Postgres. ParadeDB's `pg_search` extension is
-optional and enables BM25-backed text/code-fact retrieval.
+Exograph requires Postgres. ParadeDB's `pg_search` extension is optional and
+enables BM25-backed text/code-fact retrieval.
 
 ## Quickstart
 
@@ -66,8 +62,18 @@ Point Exograph at Elixir source and an Ecto repo:
 {:ok, hits} = Exograph.search(index, "Repo.get!(_, _)")
 ```
 
-Exograph uses Postgres for candidate retrieval and ExAST for exact structural
-verification.
+Postgres retrieves candidates by term index; ExAST verifies the structural match.
+
+## Index Hex.pm
+
+Download and index packages directly from Hex.pm:
+
+    mix exograph.index.hex --mode latest --concurrency 8 --prefix hex
+
+Modes: `latest` (one version per package), `top --limit 5000`, `all` (every version).
+Resumes automatically — already-indexed packages are skipped.
+
+On a full Hex.pm run: ~21k packages, 13.8M fragments, 35M references, ~34 GB, 28 minutes.
 
 ## Web UI
 
@@ -75,18 +81,21 @@ Exograph includes an embedded web interface for exploring indexes:
 
     mix exograph.web --prefix myindex --port 4200
 
+Add `--web` to `mix exograph.index.hex` for a live progress dashboard while indexing runs.
+
 Features:
 - Monaco editor with Elixir syntax highlighting and autocompletion
-- Structural and full-text search modes
+- Structural, text, and regex search modes
 - IDE-style error diagnostics
 - Collapsible results grouped by package with code previews
 - Hex.pm links on package names
+- Live progress dashboard at `/progress` during Hex.pm indexing
 
 ## JSON API
 
-The web server also exposes a JSON API:
+The web server exposes a JSON API:
 
-    POST /api/search   — structural or text search
+    POST /api/search   — structural, text, or regex search
     POST /api/query    — DSL query execution
     GET  /api/packages — list indexed packages
     GET  /api/stats    — index statistics
@@ -95,8 +104,7 @@ Cursor pagination via `cursor`/`next_cursor`. Rate limited (60 req/min).
 
 ## Query with code facts
 
-Use `Exograph.DSL` when you want to combine structural AST patterns with indexed
-facts such as references or call edges:
+Use `Exograph.DSL` to combine structural AST patterns with indexed code facts:
 
 ```elixir
 import Exograph.DSL
@@ -127,44 +135,35 @@ Exograph.search_callees(index, "MyApp.Accounts.update_user/2")
 | Reach | dependence analysis | in-memory graph/reports | APIs / Mix tasks | yes | call/data/control-flow analysis |
 | CodeQL | semantic code analysis | CodeQL database | QL language | not first-class Elixir | security analysis at scale |
 | Sourcegraph | cross-repo search | external index | text/structural depending setup | not Elixir-specific | organization-wide search |
-| Exograph | Elixir code fact index | Postgres/ParadeDB | ExAST + Ecto-shaped DSL | yes | local/self-hosted Elixir code intelligence |
+| Exograph | Elixir code fact index | Postgres/ParadeDB | ExAST + Ecto-shaped DSL | yes | local/self-hosted Elixir code intelligence, 21k+ package indexing |
 
 ## Features
 
 - ExAST-backed structural search with exact verification
 - normalized Ecto/Postgres storage for files, fragments, comments, definitions, references, packages, versions, and call edges
+- `mix exograph.index.hex` — streaming pipeline to index all of Hex.pm
 - package/version-scoped indexes for Hex or other source archives
+- text and regex search via `pg_trgm` GIN indexes (ParadeDB BM25 optional)
 - optional Reach call graph extraction
-- optional ParadeDB BM25 text/fact retrieval
 - ExDNA-powered structural similarity
-- Mix tasks for indexing and searching
+- web UI with Monaco editor, live progress dashboard, and JSON API
 
 ## Documentation
 
 | Guide | Content |
 |-------|---------|
 | [Getting Started](guides/getting-started.md) | Installation, Postgres setup, first index/search |
-| [Querying](guides/querying.md) | Structural search, ExAST selectors, planning/explain |
+| [Querying](guides/querying.md) | Structural, text, and regex search; planning/explain |
 | [DSL](guides/dsl.md) | `Exograph.DSL`, joins, selects, predicates |
-| [Code Facts](guides/code-facts.md) | Definitions, references, comments, text search, typed hits |
+| [Code Facts](guides/code-facts.md) | Definitions, references, comments, typed hits |
 | [Call Graph](guides/call-graph.md) | Reach extraction, callers/callees, call edge DSL |
-| [Postgres and ParadeDB](guides/postgres-paradedb.md) | Storage backend, migrations, BM25 |
-| [Package Indexing](guides/package-indexing.md) | Indexing many package versions into one database |
-| [Mix Tasks](guides/mix-tasks.md) | CLI indexing and searching |
+| [Postgres and ParadeDB](guides/postgres-paradedb.md) | Storage backend, migrations, BM25, performance tuning |
+| [Package Indexing](guides/package-indexing.md) | Indexing Hex.pm and manual package archives |
+| [Mix Tasks](guides/mix-tasks.md) | CLI indexing, searching, web UI |
+| [Web UI](guides/web-ui.md) | Monaco editor, search modes, progress dashboard |
+| [API](guides/api.md) | JSON API endpoints, pagination, rate limiting |
 | [Comparisons](guides/comparisons.md) | Exograph vs ExAST, Reach, CodeQL, Sourcegraph |
 | [Architecture](guides/architecture.md) | Storage model, verifier contract, extraction pipeline |
-
-## Status
-
-Exograph is early-stage. The current focus is a reliable Postgres-backed index
-and query layer for Elixir-specific code intelligence.
-
-The core design is stable:
-
-- ExAST remains the semantic authority for structural matches
-- Reach is an optional semantic extractor
-- Postgres is the built-in production backend
-- ParadeDB is optional acceleration for text/code-fact search
 
 ## License
 

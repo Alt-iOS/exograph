@@ -18,12 +18,12 @@ retrieval when available.
   )
 ```
 
-`backend: :postgres` is accepted explicitly, but Postgres is the only built-in
-backend.
+`backend: :postgres` is accepted explicitly, but Postgres is the only built-in backend.
 
 ## Tables
 
-The canonical migration creates normalized Ecto-backed tables including:
+The canonical migration creates normalized Ecto-backed tables under the configured
+prefix (default: `exograph`):
 
 - `exograph_packages`
 - `exograph_package_versions`
@@ -36,52 +36,83 @@ The canonical migration creates normalized Ecto-backed tables including:
 - `exograph_call_edges`
 - `exograph_tree_nodes`
 
-Fragments store package, package version, and file IDs. Source text is stored
-once in `exograph_files`.
+Source text is stored once in `exograph_files`. Fragments carry package, version,
+and file foreign keys.
+
+## Indexes
+
+### Structural search — `(kind, name, arity)` btree
+
+A btree index on `(kind, name, arity)` on the fragments table lets structural
+queries that know the kind or name skip the GIN term index entirely and go
+straight to a btree range scan. This is the hot path for patterns like
+`def handle_call(_, _, _) do ... end` where kind=`def` and name=`handle_call`
+are extracted at query planning time.
+
+### Term index — GIN
+
+The inverted index on fragment terms (`exograph_terms`) uses a GIN index. Terms
+are extracted by ExAST at indexing time and stored as normalized strings.
+Candidate retrieval scans the GIN index; ExAST verification follows.
+
+### Text search — `pg_trgm` GIN
+
+`pg_trgm` GIN indexes on `files.source` and `files.comments_text` enable fast
+`ILIKE` and `~*` regex without a full table scan:
+
+```sql
+CREATE EXTENSION IF NOT EXISTS pg_trgm;
+CREATE INDEX CONCURRENTLY ON exograph_files USING gin (source gin_trgm_ops);
+CREATE INDEX CONCURRENTLY ON exograph_files USING gin (comments_text gin_trgm_ops);
+```
+
+Migrations create these automatically. Without `pg_trgm`, text/regex search
+falls back to sequential scans.
 
 ## ParadeDB / `pg_search`
 
-When ParadeDB's `pg_search` extension is available, `migrate?: true` can create
-BM25 indexes over source files, comments, definitions, and references. Source
-files use ParadeDB's `pdb.source_code` tokenizer; symbol names use tokenizers
-such as `pdb.ngram` for prefix/partial matching.
+When ParadeDB's `pg_search` extension is installed, `migrate?: true` creates BM25
+indexes over source files, comments, definitions, and references. Source files use
+ParadeDB's `pdb.source_code` tokenizer; symbol names use `pdb.ngram` for
+prefix/partial matching.
 
 Raw SQL is limited to areas Ecto cannot express directly:
 
 - `CREATE EXTENSION`
 - ParadeDB `USING bm25`
 - ParadeDB tokenizer casts such as `source::pdb.source_code`
-- ParadeDB operators such as `|||` and `&&&`
-- ParadeDB scoring such as `pdb.score(...)`
+- ParadeDB operators (`|||`, `&&&`)
+- ParadeDB scoring (`pdb.score(...)`)
 
 ## Recommended Postgres settings
 
-Default Postgres settings are conservative. For large indexes (10M+ fragments),
-tuning makes a significant difference — benchmarks show 2–37× faster queries.
+Default Postgres settings are conservative. On a 13.8M fragment index, these
+settings reduce structural search time from ~600ms to ~78ms and enable parallel
+BM25 scans.
 
 ```sql
--- More parallel workers for ParadeDB BM25 scans
+-- Parallel workers for ParadeDB BM25 scans
 ALTER SYSTEM SET max_parallel_workers_per_gather = 4;
 ALTER SYSTEM SET max_parallel_workers = 16;
 ALTER SYSTEM SET max_worker_processes = 24;
 
--- Memory: adjust to your available RAM
+-- Memory — adjust to available RAM
 ALTER SYSTEM SET shared_buffers = '4GB';           -- ~25% of RAM
 ALTER SYSTEM SET effective_cache_size = '12GB';     -- ~75% of RAM
 ALTER SYSTEM SET work_mem = '256MB';                -- per-operation sort/hash
 ALTER SYSTEM SET maintenance_work_mem = '1GB';      -- for CREATE INDEX / VACUUM
 
-SELECT pg_reload_conf();  -- applies all except shared_buffers
+SELECT pg_reload_conf();
 -- shared_buffers requires a Postgres restart
 ```
 
-After restarting, prewarm the BM25 indexes into the buffer cache:
+After restarting, prewarm BM25 indexes into the buffer cache:
 
 ```sql
 CREATE EXTENSION IF NOT EXISTS pg_prewarm;
-SELECT pg_prewarm('myprefix_files_bm25_idx');
-SELECT pg_prewarm('myprefix_fragments_bm25_idx');
-SELECT pg_prewarm('myprefix_definitions_bm25_idx');
+SELECT pg_prewarm('hex_files_bm25_idx');
+SELECT pg_prewarm('hex_fragments_bm25_idx');
+SELECT pg_prewarm('hex_definitions_bm25_idx');
 ```
 
 For write-heavy indexing runs, increase parallelism for index creation:
@@ -93,22 +124,11 @@ SET maintenance_work_mem = '2GB';
 
 ## Fallback behavior
 
-Exograph remains usable without ParadeDB. Text/code-fact search falls back to
-Postgres ILIKE (accelerated by `pg_trgm` GIN indexes) and `~*` for regex.
-
-## CLI examples
-
-```bash
-mix exograph.index --backend postgres --repo MyApp.Repo --migrate lib test
-mix exograph.search 'Repo.get!(_, _)' --backend postgres --repo MyApp.Repo --migrate lib
-mix exograph.search 'running shoes' --text --backend postgres --repo MyApp.Repo --migrate lib
-```
+Without ParadeDB, text/regex search uses Postgres `ILIKE` (accelerated by
+`pg_trgm` GIN indexes) and `~*`. Without `pg_trgm`, text search falls back to a
+sequential scan — usable for small indexes but slow at scale.
 
 ## Testing
-
-The test suite validates real indexing, structural search, selector search,
-text search, tree-node lookup, code-fact lookup, similarity search, and DSL
-queries against Postgres.
 
 ```bash
 EXOGRAPH_DATABASE_URL=postgres://postgres:postgres@localhost:5432/exograph_test \

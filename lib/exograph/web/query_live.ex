@@ -150,7 +150,7 @@ defmodule Exograph.Web.QueryLive do
   @impl true
   def handle_event("view_source", %{"file" => file, "line" => line, "package" => package}, socket) do
     line = String.to_integer(line)
-    source = find_source(socket.assigns.all_results, file)
+    source = fetch_file_source(socket.assigns, file)
 
     socket =
       socket
@@ -399,7 +399,6 @@ defmodule Exograph.Web.QueryLive do
       <div
         :if={@viewing_source}
         class="fixed inset-0 z-50 flex items-center justify-center bg-black/70"
-        phx-click="close_source"
       >
         <div
           class="bg-zinc-900 rounded-lg border border-zinc-700 w-[90vw] h-[80vh] flex flex-col"
@@ -447,10 +446,18 @@ defmodule Exograph.Web.QueryLive do
     _ -> 0
   end
 
-  defp find_source(results, file) do
-    Enum.find_value(results, fn result ->
-      if result.file == file, do: result.source
-    end)
+  defp fetch_file_source(assigns, relative_path) do
+    import Ecto.Query
+    prefix = assigns.prefix
+    repo = assigns.index.inverted.repo
+    source = "#{prefix}_files"
+
+    from(f in {source, Exograph.Postgres.FileRecord},
+      where: ilike(f.path, ^"%#{relative_path}"),
+      limit: 1,
+      select: f.source
+    )
+    |> repo.one()
   end
 
   defp highlight_full_source(nil, _line), do: []

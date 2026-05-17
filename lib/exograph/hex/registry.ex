@@ -63,10 +63,10 @@ defmodule Exograph.Hex.Registry do
   defp latest_version(versions) do
     versions
     |> Enum.map(&to_string/1)
-    |> Enum.reduce(fn version, latest ->
-      case Version.compare(version, latest) do
-        :gt -> version
-        _ -> latest
+    |> Enum.max_by(fn v ->
+      case Version.parse(v) do
+        {:ok, parsed} -> {1, parsed}
+        :error -> {0, v}
       end
     end)
   end

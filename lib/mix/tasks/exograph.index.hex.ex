@@ -27,7 +27,7 @@ defmodule Mix.Tasks.Exograph.Index.Hex do
     * `--min-mass` - minimum fragment AST mass (default: `8`)
     * `--reach` - include Reach call graph extraction
     * `--force` - re-index already-indexed packages
-    * `--bm25` - create ParadeDB BM25 indexes
+    * `--no-bm25` - skip ParadeDB BM25 index creation
     * `--mirror` - tarball mirror URL (repeatable)
     * `--cache-tarballs` - directory to cache downloaded tarballs
     * `--database-url` - Postgres URL (or set `EXOGRAPH_DATABASE_URL`)
@@ -53,7 +53,7 @@ defmodule Mix.Tasks.Exograph.Index.Hex do
           min_mass: :integer,
           reach: :boolean,
           force: :boolean,
-          bm25: :boolean,
+          no_bm25: :boolean,
           mirror: :keep,
           cache_tarballs: :string,
           database_url: :string,
@@ -89,7 +89,7 @@ defmodule Mix.Tasks.Exograph.Index.Hex do
       concurrency: Keyword.get(opts, :concurrency, 4),
       min_mass: Keyword.get(opts, :min_mass, 8),
       resume: not Keyword.get(opts, :force, false),
-      bm25?: Keyword.get(opts, :bm25, false),
+      bm25?: !Keyword.get(opts, :no_bm25, false),
       extractors: extractors,
       repo: repo,
       mirrors: mirrors,
@@ -139,7 +139,12 @@ defmodule Mix.Tasks.Exograph.Index.Hex do
     Application.ensure_all_started(:phoenix_live_view)
 
     {:ok, index} =
-      Exograph.index([], repo: repo, prefix: prefix, migrate?: false, bm25?: false)
+      Exograph.index([],
+        repo: repo,
+        prefix: prefix,
+        migrate?: false,
+        bm25?: !Keyword.get(opts, :no_bm25, false)
+      )
 
     Application.put_env(:exograph, :web_index, index)
     Application.put_env(:exograph, :web_repo, repo)

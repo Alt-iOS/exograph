@@ -87,7 +87,7 @@ defmodule Exograph.Hex.Corpus do
   defp list_entries(:all, opts), do: Registry.all_versions(opts)
 
   defp migrate!(repo, prefix, opts) do
-    bm25? = Keyword.get(opts, :bm25?, false)
+    bm25? = Keyword.get(opts, :bm25?, true)
     Exograph.Postgres.migrate!(repo: repo, prefix: prefix, bm25?: bm25?)
   end
 
@@ -129,7 +129,7 @@ defmodule Exograph.Hex.Corpus do
       index_opts = [
         repo: repo,
         prefix: prefix,
-        bm25?: false,
+        bm25?: Keyword.get(opts, :bm25?, true),
         min_mass: min_mass,
         migrate?: false,
         extractors: extractors,

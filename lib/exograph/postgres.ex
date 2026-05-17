@@ -99,9 +99,7 @@ defmodule Exograph.Postgres do
         id,
         (source::pdb.source_code),
         (comments_text::pdb.unicode_words),
-        (path::pdb.literal),
-        (package_id::pdb.literal),
-        (package_version_id::pdb.literal)
+        (path::pdb.literal)
       )
       WITH (key_field = 'id')
       """,
@@ -117,9 +115,7 @@ defmodule Exograph.Postgres do
         id,
         (name::pdb.ngram(2, 32, 'prefix_only=true')),
         (module::pdb.ngram(2, 64, 'prefix_only=true')),
-        (kind::pdb.literal),
-        (package_id::pdb.literal),
-        (package_version_id::pdb.literal)
+        (kind::pdb.literal)
       )
       WITH (key_field = 'id')
       """,
@@ -133,11 +129,7 @@ defmodule Exograph.Postgres do
       ON #{table(prefix, "comments")}
       USING bm25 (
         id,
-        (text::pdb.unicode_words),
-        (package_id::pdb.literal),
-        (package_version_id::pdb.literal),
-        (file_id::pdb.literal),
-        (fragment_id::pdb.literal)
+        (text::pdb.unicode_words)
       )
       WITH (key_field = 'id')
       """,
@@ -154,11 +146,7 @@ defmodule Exograph.Postgres do
         (name::pdb.ngram(2, 32, 'prefix_only=true')),
         (module::pdb.ngram(2, 64, 'prefix_only=true')),
         (qualified_name::pdb.ngram(2, 96, 'prefix_only=true')),
-        (kind::pdb.literal),
-        (package_id::pdb.literal),
-        (package_version_id::pdb.literal),
-        (file_id::pdb.literal),
-        (fragment_id::pdb.literal)
+        (kind::pdb.literal)
       )
       WITH (key_field = 'id')
       """,
@@ -175,11 +163,7 @@ defmodule Exograph.Postgres do
         (name::pdb.ngram(2, 32, 'prefix_only=true')),
         (module::pdb.ngram(2, 64, 'prefix_only=true')),
         (qualified_name::pdb.ngram(2, 96, 'prefix_only=true')),
-        (kind::pdb.literal),
-        (package_id::pdb.literal),
-        (package_version_id::pdb.literal),
-        (file_id::pdb.literal),
-        (fragment_id::pdb.literal)
+        (kind::pdb.literal)
       )
       WITH (key_field = 'id')
       """,

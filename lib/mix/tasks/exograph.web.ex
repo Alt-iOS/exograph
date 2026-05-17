@@ -47,7 +47,7 @@ defmodule Mix.Tasks.Exograph.Web do
     {:ok, _pid} = start_repo(repo_module, repo_opts)
 
     {:ok, index} =
-      Exograph.index([], repo: repo_module, prefix: prefix, migrate?: false, bm25?: false)
+      Exograph.index([], repo: repo_module, prefix: prefix, migrate?: false, bm25?: true)
 
     Application.put_env(:exograph, :web_index, index)
     Application.put_env(:exograph, :web_repo, repo_module)

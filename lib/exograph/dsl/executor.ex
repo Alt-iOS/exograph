@@ -295,20 +295,29 @@ defmodule Exograph.DSL.Executor do
 
     {join_table, join_record} = Sources.primary_source(join.assoc, index.inverted.prefix)
 
+    containing_fragment =
+      from(f in {fragments_source, FragmentRecord},
+        where:
+          f.file_id == parent_as(:joined).file_id and
+            f.kind in ^function_fragment_kinds and
+            f.line <= parent_as(:joined).line and
+            (is_nil(f.end_line) or f.end_line >= parent_as(:joined).line),
+        order_by: [desc: f.line],
+        limit: 1
+      )
+
     query =
       from(joined in {join_table, join_record},
-        join: fragment in ^{fragments_source, FragmentRecord},
+        as: :joined,
+        inner_lateral_join: frag in subquery(containing_fragment),
         as: :fragment,
-        on: fragment.file_id == joined.file_id and fragment.kind in ^function_fragment_kinds,
+        on: true,
         left_join: file in ^files_source,
-        on: file.id == fragment.file_id,
-        where:
-          joined.line >= fragment.line and
-            (is_nil(fragment.end_line) or joined.line <= fragment.end_line),
-        distinct: fragment.id,
-        order_by: [asc: file.path, asc: fragment.line, asc: fragment.id],
+        on: file.id == frag.file_id,
+        distinct: frag.id,
+        order_by: [asc: file.path, asc: frag.line, asc: frag.id],
         limit: ^candidate_limit,
-        select: {fragment, file.source, file.path, joined}
+        select: {frag, file.source, file.path, joined}
       )
 
     query =
@@ -319,12 +328,12 @@ defmodule Exograph.DSL.Executor do
         {path, line, id} ->
           where(
             query,
-            [_joined, fragment, file],
+            [_joined, frag, file],
             fragment(
               "(?, ?, ?) > (?, ?, ?)",
               file.path,
-              fragment.line,
-              fragment.id,
+              frag.line,
+              frag.id,
               ^path,
               ^line,
               ^id

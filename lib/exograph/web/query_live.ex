@@ -144,6 +144,10 @@ defmodule Exograph.Web.QueryLive do
     go_to_page(socket, page)
   end
 
+  def handle_event("go_to_page", %{"page" => page}, socket) do
+    go_to_page(socket, String.to_integer(page))
+  end
+
   defp go_to_page(socket, page) do
     index = socket.assigns.index
     query = socket.assigns.query
@@ -375,24 +379,29 @@ defmodule Exograph.Web.QueryLive do
             </div>
           </div>
 
-          <div :if={@has_more || @current_page > 1} class="flex items-center justify-between py-3">
+          <div
+            :if={@has_more || @current_page > 1}
+            class="flex items-center justify-center gap-1 py-3"
+          >
             <button
               :if={@current_page > 1}
               phx-click="prev_page"
-              class="px-3 py-1.5 text-sm text-zinc-400 hover:text-zinc-200 bg-zinc-900 border border-zinc-800 rounded cursor-pointer transition-colors"
+              class="px-2 py-1 text-xs text-zinc-500 hover:text-zinc-200 cursor-pointer"
             >
-              ← Previous
+              ←
             </button>
-            <span :if={@current_page == 1} />
-            <span class="text-xs text-zinc-600 tabular-nums">Page {@current_page}</span>
+            <.page_button
+              :for={page <- page_numbers(@current_page, @has_more)}
+              page={page}
+              current={@current_page}
+            />
             <button
               :if={@has_more}
               phx-click="next_page"
-              class="px-3 py-1.5 text-sm text-zinc-400 hover:text-zinc-200 bg-zinc-900 border border-zinc-800 rounded cursor-pointer transition-colors"
+              class="px-2 py-1 text-xs text-zinc-500 hover:text-zinc-200 cursor-pointer"
             >
-              Next →
+              →
             </button>
-            <span :if={!@has_more} />
           </div>
 
           <div :if={@results == []} class="p-8 text-center text-zinc-500">No results</div>
@@ -461,6 +470,55 @@ defmodule Exograph.Web.QueryLive do
     repo.aggregate({"#{prefix}_packages", Exograph.Postgres.PackageRecord}, :count)
   rescue
     _ -> 0
+  end
+
+  attr(:page, :integer, required: true)
+  attr(:current, :integer, required: true)
+
+  defp page_button(%{page: :ellipsis} = assigns) do
+    ~H"""
+    <span class="px-1 text-xs text-zinc-600">…</span>
+    """
+  end
+
+  defp page_button(assigns) do
+    ~H"""
+    <button
+      phx-click="go_to_page"
+      phx-value-page={@page}
+      class={[
+        "w-7 h-7 text-xs rounded cursor-pointer transition-colors",
+        if(@page == @current,
+          do: "bg-blue-600 text-white",
+          else: "text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800"
+        )
+      ]}
+    >
+      {@page}
+    </button>
+    """
+  end
+
+  defp page_numbers(current, has_more) do
+    last_known = if has_more, do: current + 1, else: current
+
+    pages =
+      1..last_known
+      |> Enum.to_list()
+
+    cond do
+      length(pages) <= 7 ->
+        pages
+
+      current <= 4 ->
+        Enum.take(pages, 5) ++ [:ellipsis, last_known]
+
+      current >= last_known - 3 ->
+        [1, :ellipsis] ++ Enum.slice(pages, (last_known - 5)..(last_known - 1))
+
+      true ->
+        [1, :ellipsis, current - 1, current, current + 1, :ellipsis, last_known]
+    end
   end
 
   defp fetch_file_source(assigns, relative_path) do

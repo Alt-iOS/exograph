@@ -145,6 +145,9 @@ defmodule Exograph.DSL.Executor do
     term_strings = MapSet.to_list(compiled_query.required_terms)
     term_ids = PostgresInvertedIndex.resolve_term_ids(index.inverted, term_strings)
     kind_filter = structural_query_kind(compiled_query)
+    {name_filter, arity_filter} = structural_query_name_arity(compiled_query)
+
+    has_column_filters? = kind_filter != nil and name_filter != nil
 
     Stream.resource(
       fn -> {nil, false} end,
@@ -153,7 +156,17 @@ defmodule Exograph.DSL.Executor do
           {:halt, :done}
 
         {cursor, false} ->
-          batch = structural_fragment_batch(index, term_ids, kind_filter, opts, cursor)
+          batch =
+            structural_fragment_batch(
+              index,
+              if(has_column_filters?, do: [], else: term_ids),
+              kind_filter,
+              name_filter,
+              arity_filter,
+              opts,
+              cursor
+            )
+
           done = length(batch) < @stream_batch_size
           next_cursor = if batch == [], do: cursor, else: last_cursor(batch)
           {batch, {next_cursor, done}}
@@ -171,9 +184,36 @@ defmodule Exograph.DSL.Executor do
     _ -> nil
   end
 
+  defp structural_query_name_arity(%StructuralQuery{source: pattern}) when is_binary(pattern) do
+    case ExAST.Pattern.compile(pattern) do
+      {kind, _, [{name, _, args} | _]}
+      when kind in @def_kinds and is_atom(name) and is_list(args) ->
+        if Enum.all?(args, &match?({:_, _, _}, &1)) or args == [] do
+          {Atom.to_string(name), length(args)}
+        else
+          {Atom.to_string(name), nil}
+        end
+
+      _ ->
+        {nil, nil}
+    end
+  rescue
+    _ -> {nil, nil}
+  end
+
+  defp structural_query_name_arity(_), do: {nil, nil}
+
   defp structural_query_kind(_), do: nil
 
-  defp structural_fragment_batch(index, term_ids, kind_filter, opts, cursor) do
+  defp structural_fragment_batch(
+         index,
+         term_ids,
+         kind_filter,
+         name_filter,
+         arity_filter,
+         opts,
+         cursor
+       ) do
     query = base_fragment_query(index, cursor)
 
     query =
@@ -184,6 +224,16 @@ defmodule Exograph.DSL.Executor do
     query =
       if kind_filter,
         do: where(query, [fragment], fragment.kind == ^kind_filter),
+        else: query
+
+    query =
+      if name_filter,
+        do: where(query, [fragment], fragment.name == ^name_filter),
+        else: query
+
+    query =
+      if arity_filter,
+        do: where(query, [fragment], fragment.arity == ^arity_filter),
         else: query
 
     query

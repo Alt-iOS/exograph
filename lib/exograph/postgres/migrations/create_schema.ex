@@ -112,6 +112,12 @@ defmodule Exograph.Postgres.Migrations.CreateSchema do
     )
 
     create_if_not_exists(
+      index(name("fragments"), [:kind, :name, :arity],
+        name: index_name("fragments", "kind_name_arity")
+      )
+    )
+
+    create_if_not_exists(
       index(name("fragments"), [:file_id, :line, :end_line],
         where: "kind IN ('def','defp','defmacro','defmacrop')",
         name: index_name("fragments", "containment")

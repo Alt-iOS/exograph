@@ -155,74 +155,78 @@ defmodule Exograph.Postgres.InvertedIndex do
     )
   end
 
-  defp source_search_query(index, files_source, literal, limit, :all) do
-    from(fragment in {source(index), FragmentRecord},
-      join: file in ^files_source,
-      on: file.id == fragment.file_id,
-      where: fragment("?::pdb.source_code &&& ?", file.source, ^literal),
-      order_by: [desc: fragment("pdb.score(?)", file.id)],
-      limit: ^limit,
-      select: {fragment, file.source, file.path}
+  defp source_search_query(index, _files_source, literal, limit, :all) do
+    file_to_fragment_query(
+      index,
+      limit,
+      dynamic([file: f], fragment("?::pdb.source_code &&& ?", f.source, ^literal)),
+      dynamic([file: f], fragment("pdb.score(?) DESC", f.id))
     )
   end
 
-  defp source_search_query(index, files_source, literal, limit, :any) do
-    from(fragment in {source(index), FragmentRecord},
-      join: file in ^files_source,
-      on: file.id == fragment.file_id,
-      where: fragment("?::pdb.source_code ||| ?", file.source, ^literal),
-      order_by: [desc: fragment("pdb.score(?)", file.id)],
-      limit: ^limit,
-      select: {fragment, file.source, file.path}
+  defp source_search_query(index, _files_source, literal, limit, :any) do
+    file_to_fragment_query(
+      index,
+      limit,
+      dynamic([file: f], fragment("?::pdb.source_code ||| ?", f.source, ^literal)),
+      dynamic([file: f], fragment("pdb.score(?) DESC", f.id))
     )
   end
 
-  defp comments_search_query(index, files_source, literal, limit, :all) do
-    from(fragment in {source(index), FragmentRecord},
-      join: file in ^files_source,
-      on: file.id == fragment.file_id,
-      where: fragment("?::pdb.unicode_words &&& ?", file.comments_text, ^literal),
-      order_by: [desc: fragment("pdb.score(?)", file.id)],
-      limit: ^limit,
-      select: {fragment, file.source, file.path}
+  defp comments_search_query(index, _files_source, literal, limit, :all) do
+    file_to_fragment_query(
+      index,
+      limit,
+      dynamic([file: f], fragment("?::pdb.unicode_words &&& ?", f.comments_text, ^literal)),
+      dynamic([file: f], fragment("pdb.score(?) DESC", f.id))
     )
   end
 
-  defp comments_search_query(index, files_source, literal, limit, :any) do
-    from(fragment in {source(index), FragmentRecord},
-      join: file in ^files_source,
-      on: file.id == fragment.file_id,
-      where: fragment("?::pdb.unicode_words ||| ?", file.comments_text, ^literal),
-      order_by: [desc: fragment("pdb.score(?)", file.id)],
-      limit: ^limit,
-      select: {fragment, file.source, file.path}
+  defp comments_search_query(index, _files_source, literal, limit, :any) do
+    file_to_fragment_query(
+      index,
+      limit,
+      dynamic([file: f], fragment("?::pdb.unicode_words ||| ?", f.comments_text, ^literal)),
+      dynamic([file: f], fragment("pdb.score(?) DESC", f.id))
     )
   end
 
-  defp source_ilike_query(index, files_source, literal, limit) do
+  defp source_ilike_query(index, _files_source, literal, limit) do
     pattern = "%#{escape_like(literal)}%"
 
-    from(fragment in {source(index), FragmentRecord},
-      join: file in ^files_source,
-      on: file.id == fragment.file_id,
-      where: ilike(file.source, ^pattern),
-      order_by: [asc: file.path, asc: fragment.line],
-      limit: ^limit,
-      select: {fragment, file.source, file.path}
-    )
+    file_to_fragment_query(index, limit, dynamic([file: f], ilike(f.source, ^pattern)))
+    |> order_by([file: f], asc: f.path)
   end
 
-  defp comments_ilike_query(index, files_source, literal, limit) do
+  defp comments_ilike_query(index, _files_source, literal, limit) do
     pattern = "%#{escape_like(literal)}%"
 
-    from(fragment in {source(index), FragmentRecord},
-      join: file in ^files_source,
-      on: file.id == fragment.file_id,
-      where: ilike(file.comments_text, ^pattern),
-      order_by: [asc: file.path, asc: fragment.line],
-      limit: ^limit,
-      select: {fragment, file.source, file.path}
-    )
+    file_to_fragment_query(index, limit, dynamic([file: f], ilike(f.comments_text, ^pattern)))
+    |> order_by([file: f], asc: f.path)
+  end
+
+  defp file_to_fragment_query(index, limit, where_clause, order_clause \\ nil) do
+    fragments_source = source(index)
+    files_source = files_source(index)
+
+    first_fragment =
+      from(fr in {fragments_source, FragmentRecord},
+        where: fr.file_id == parent_as(:file).id,
+        order_by: [asc: fr.line],
+        limit: 1
+      )
+
+    q =
+      from(f in files_source,
+        as: :file,
+        inner_lateral_join: fr in subquery(first_fragment),
+        on: true,
+        where: ^where_clause,
+        limit: ^limit,
+        select: {fr, f.source, f.path}
+      )
+
+    if order_clause, do: order_by(q, ^order_clause), else: q
   end
 
   defp escape_like(str), do: str |> String.replace("%", "\\%") |> String.replace("_", "\\_")

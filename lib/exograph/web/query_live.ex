@@ -48,6 +48,7 @@ defmodule Exograph.Web.QueryLive do
        prefix: prefix,
        package_count: package_count,
        query: @default_query,
+       initial_query: @default_query,
        examples: @examples,
        results: nil,
        error: nil,
@@ -296,7 +297,7 @@ defmodule Exograph.Web.QueryLive do
             phx-hook="Editor"
             phx-update="ignore"
             class="h-full"
-            data-query={@query}
+            data-query={@initial_query}
           />
         </div>
 

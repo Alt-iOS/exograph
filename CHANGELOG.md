@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.6.0
+
+- `mix exograph.index.hex` — download and index Hex.pm packages in a streaming pipeline
+- Streaming: download tarball → extract to tmpdir → index → cleanup (disk = concurrency × 1 package)
+- Resume by default: skips already-indexed packages by name+version
+- Non-Elixir packages detected and skipped before disk write
+- `--mode latest|top|all`, `--limit`, `--concurrency`, `--mirror`, `--cache-tarballs`
+- CLI progress: per-package status icons, progress bar, rate, ETA
+- LiveView progress dashboard at `/progress` via PubSub (use `--web` flag)
+- Source viewer: click code icon to see full file with syntax highlighting and line highlight
+- `pg_trgm` GIN indexes on `files.source` and `files.comments_text` for fast ILIKE
+- Removed all full-table-scan fallbacks (ILIKE/regex in Postgres instead)
+- Deadlock retry for concurrent term inserts
+- Fixed non-semver version sorting in registry
+- New deps: `hex_core ~> 0.15` (optional), `req ~> 0.5` (optional)
+
 ## 0.5.0
 
 - Text and regex search modes in web UI and API (`mode: "text"` / `mode: "regex"`)

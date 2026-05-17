@@ -291,17 +291,16 @@ defmodule Exograph.Web.QueryLive do
       </header>
 
       <div class="flex flex-col flex-1 min-h-0">
-        <div class="h-[160px] border-b border-zinc-800">
+        <div id="editor-wrapper" class="h-[160px] border-b border-zinc-800" phx-update="ignore">
           <div
             id="editor"
             phx-hook="Editor"
-            phx-update="ignore"
             class="h-full"
             data-query={@initial_query}
           />
         </div>
 
-        <div class="flex-1 overflow-auto scrollbar-thin scrollbar-thumb-zinc-700 scrollbar-track-transparent p-4 space-y-3">
+        <div id="results-wrapper" class="flex-1 overflow-auto scrollbar-thin scrollbar-thumb-zinc-700 scrollbar-track-transparent p-4 space-y-3">
           <div :if={@error} class="p-4 text-red-400 font-mono text-sm whitespace-pre-wrap">
             {@error}
           </div>

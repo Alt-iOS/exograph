@@ -17,7 +17,7 @@ defmodule Exograph.Web.QueryExecutor do
         case mode do
           "text" ->
             case Exograph.search_text(index, query_string, limit: limit, skip: skip) do
-              {:ok, results} -> {:ok, results, limit}
+              {:ok, results} -> {:ok, results, limit, nil}
               error -> error
             end
 
@@ -30,8 +30,8 @@ defmodule Exograph.Web.QueryExecutor do
       end)
 
     case result do
-      {:ok, results, effective_limit} ->
-        {:ok, results, Float.round(elapsed_us / 1000, 1), effective_limit}
+      {:ok, results, effective_limit, total} ->
+        {:ok, results, Float.round(elapsed_us / 1000, 1), effective_limit, total}
 
       {:error, error} ->
         {:error, error}
@@ -40,16 +40,17 @@ defmodule Exograph.Web.QueryExecutor do
 
   defp run_parsed(index, %Exograph.DSL.Query{} = query, limit, skip) do
     effective_limit = query.limit || limit
+    total = query.limit
 
     case Exograph.all(index, query, limit: effective_limit, skip: skip) do
-      {:ok, results} -> {:ok, results, effective_limit}
+      {:ok, results} -> {:ok, results, effective_limit, total}
       error -> error
     end
   end
 
   defp run_parsed(index, pattern, limit, skip) when is_binary(pattern) do
     case Exograph.search(index, pattern, limit: limit, skip: skip) do
-      {:ok, results} -> {:ok, results, limit}
+      {:ok, results} -> {:ok, results, limit, nil}
       error -> error
     end
   end

@@ -59,6 +59,8 @@ defmodule Exograph.Web.QueryLive do
        has_more: false,
        current_page: 1,
        page_size: 20,
+       total_pages: 1,
+       total_results: nil,
        search_mode: "structural",
        viewing_source: nil
      )}
@@ -119,6 +121,8 @@ defmodule Exograph.Web.QueryLive do
         loading: true,
         all_results: [],
         current_page: 1,
+        total_pages: 1,
+        total_results: nil,
         has_more: false
       )
 
@@ -192,21 +196,28 @@ defmodule Exograph.Web.QueryLive do
   def handle_info({:query_result, query, result, mode}, socket) do
     socket =
       case result do
-        {:ok, new_results, elapsed_ms, effective_limit} ->
+        {:ok, new_results, elapsed_ms, effective_limit, total} ->
           page_size = socket.assigns.page_size
+          has_more = length(new_results) >= min(effective_limit, page_size)
 
-          base =
-            socket
-            |> assign(
-              all_results: new_results,
-              results: ResultFormatter.format(new_results),
-              result_count: length(new_results),
-              elapsed_ms: elapsed_ms,
-              has_more: length(new_results) >= min(effective_limit, page_size),
-              loading: false
-            )
+          total_pages =
+            cond do
+              total -> ceil(total / page_size)
+              has_more -> socket.assigns.current_page + 1
+              true -> socket.assigns.current_page
+            end
 
-          base
+          socket
+          |> assign(
+            all_results: new_results,
+            results: ResultFormatter.format(new_results),
+            result_count: length(new_results),
+            elapsed_ms: elapsed_ms,
+            has_more: has_more,
+            total_pages: max(total_pages, socket.assigns.total_pages),
+            total_results: total,
+            loading: false
+          )
           |> push_event("set_diagnostics", %{markers: []})
           |> push_event("update_url", %{q: query})
 
@@ -233,8 +244,8 @@ defmodule Exograph.Web.QueryLive do
         </div>
         <div class="flex items-center gap-4 text-sm text-zinc-400">
           <span :if={@result_count} class="tabular-nums">
-            <span :if={@result_count == 1}>1 result</span>
-            <span :if={@result_count != 1}>{@result_count} results</span>
+            <span :if={@total_results}>{@total_results} results</span>
+            <span :if={!@total_results}>{@result_count} results</span>
             across {length(@results || [])}
             <span :if={length(@results || []) == 1}>package</span>
             <span :if={length(@results || []) != 1}>packages</span>
@@ -379,30 +390,42 @@ defmodule Exograph.Web.QueryLive do
             </div>
           </div>
 
-          <div
+          <nav
             :if={@has_more || @current_page > 1}
-            class="flex items-center justify-center gap-1 py-3"
+            class="flex items-center justify-center gap-0.5 py-3"
           >
             <button
-              :if={@current_page > 1}
               phx-click="prev_page"
-              class="px-2 py-1 text-xs text-zinc-500 hover:text-zinc-200 cursor-pointer"
+              disabled={@current_page == 1}
+              class={[
+                "px-2 py-1 text-xs rounded transition-colors",
+                if(@current_page == 1,
+                  do: "text-zinc-700 cursor-default",
+                  else: "text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200 cursor-pointer"
+                )
+              ]}
             >
-              ←
+              Previous
             </button>
-            <.page_button
-              :for={page <- page_numbers(@current_page, @has_more)}
+            <.page_btn
+              :for={page <- page_window(@current_page, @total_pages)}
               page={page}
               current={@current_page}
             />
             <button
-              :if={@has_more}
               phx-click="next_page"
-              class="px-2 py-1 text-xs text-zinc-500 hover:text-zinc-200 cursor-pointer"
+              disabled={!@has_more}
+              class={[
+                "px-2 py-1 text-xs rounded transition-colors",
+                if(@has_more,
+                  do: "text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200 cursor-pointer",
+                  else: "text-zinc-700 cursor-default"
+                )
+              ]}
             >
-              →
+              Next
             </button>
-          </div>
+          </nav>
 
           <div :if={@results == []} class="p-8 text-center text-zinc-500">No results</div>
           <div :if={is_nil(@results) && is_nil(@error)} class="px-6 py-8">
@@ -472,25 +495,25 @@ defmodule Exograph.Web.QueryLive do
     _ -> 0
   end
 
-  attr(:page, :integer, required: true)
+  attr(:page, :any, required: true)
   attr(:current, :integer, required: true)
 
-  defp page_button(%{page: :ellipsis} = assigns) do
+  defp page_btn(%{page: :ellipsis} = assigns) do
     ~H"""
-    <span class="px-1 text-xs text-zinc-600">…</span>
+    <span class="px-1 py-1 text-xs text-zinc-600">…</span>
     """
   end
 
-  defp page_button(assigns) do
+  defp page_btn(assigns) do
     ~H"""
     <button
       phx-click="go_to_page"
       phx-value-page={@page}
       class={[
-        "w-7 h-7 text-xs rounded cursor-pointer transition-colors",
+        "min-w-[28px] px-1.5 py-1 text-xs rounded tabular-nums transition-colors",
         if(@page == @current,
           do: "bg-blue-600 text-white",
-          else: "text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800"
+          else: "text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200 cursor-pointer"
         )
       ]}
     >
@@ -499,26 +522,18 @@ defmodule Exograph.Web.QueryLive do
     """
   end
 
-  defp page_numbers(current, has_more) do
-    last_known = if has_more, do: current + 1, else: current
+  defp page_window(current, total) when total <= 7, do: Enum.to_list(1..total)
 
-    pages =
-      1..last_known
-      |> Enum.to_list()
+  defp page_window(current, total) when current <= 3 do
+    Enum.to_list(1..min(5, total)) ++ [:ellipsis, total]
+  end
 
-    cond do
-      length(pages) <= 7 ->
-        pages
+  defp page_window(current, total) when current >= total - 2 do
+    [1, :ellipsis] ++ Enum.to_list(max(total - 4, 1)..total)
+  end
 
-      current <= 4 ->
-        Enum.take(pages, 5) ++ [:ellipsis, last_known]
-
-      current >= last_known - 3 ->
-        [1, :ellipsis] ++ Enum.slice(pages, (last_known - 5)..(last_known - 1))
-
-      true ->
-        [1, :ellipsis, current - 1, current, current + 1, :ellipsis, last_known]
-    end
+  defp page_window(current, total) do
+    [1, :ellipsis, current - 1, current, current + 1, :ellipsis, total]
   end
 
   defp fetch_file_source(assigns, relative_path) do

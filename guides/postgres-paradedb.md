@@ -54,10 +54,47 @@ Raw SQL is limited to areas Ecto cannot express directly:
 - ParadeDB operators such as `|||` and `&&&`
 - ParadeDB scoring such as `pdb.score(...)`
 
+## Recommended Postgres settings
+
+Default Postgres settings are conservative. For large indexes (10M+ fragments),
+tuning makes a significant difference — benchmarks show 2–37× faster queries.
+
+```sql
+-- More parallel workers for ParadeDB BM25 scans
+ALTER SYSTEM SET max_parallel_workers_per_gather = 4;
+ALTER SYSTEM SET max_parallel_workers = 16;
+ALTER SYSTEM SET max_worker_processes = 24;
+
+-- Memory: adjust to your available RAM
+ALTER SYSTEM SET shared_buffers = '4GB';           -- ~25% of RAM
+ALTER SYSTEM SET effective_cache_size = '12GB';     -- ~75% of RAM
+ALTER SYSTEM SET work_mem = '256MB';                -- per-operation sort/hash
+ALTER SYSTEM SET maintenance_work_mem = '1GB';      -- for CREATE INDEX / VACUUM
+
+SELECT pg_reload_conf();  -- applies all except shared_buffers
+-- shared_buffers requires a Postgres restart
+```
+
+After restarting, prewarm the BM25 indexes into the buffer cache:
+
+```sql
+CREATE EXTENSION IF NOT EXISTS pg_prewarm;
+SELECT pg_prewarm('myprefix_files_bm25_idx');
+SELECT pg_prewarm('myprefix_fragments_bm25_idx');
+SELECT pg_prewarm('myprefix_definitions_bm25_idx');
+```
+
+For write-heavy indexing runs, increase parallelism for index creation:
+
+```sql
+SET max_parallel_maintenance_workers = 8;
+SET maintenance_work_mem = '2GB';
+```
+
 ## Fallback behavior
 
 Exograph remains usable without ParadeDB. Text/code-fact search falls back to
-Postgres-backed candidate retrieval plus verification where applicable.
+Postgres ILIKE (accelerated by `pg_trgm` GIN indexes) and `~*` for regex.
 
 ## CLI examples
 

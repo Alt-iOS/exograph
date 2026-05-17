@@ -50,6 +50,8 @@ defmodule Exograph.MixProject do
       {:phoenix_live_view, "~> 1.1", optional: true},
       {:volt, "~> 0.11.1", optional: true},
       {:bandit, "~> 1.5", optional: true},
+      {:hex_core, "~> 0.15", optional: true},
+      {:req, "~> 0.5", optional: true},
       {:jason, "~> 1.2"},
       {:makeup, "~> 1.0", optional: true},
       {:makeup_elixir, "~> 1.0", optional: true},

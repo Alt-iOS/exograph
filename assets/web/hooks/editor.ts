@@ -241,16 +241,6 @@ export const Editor = {
       );
     });
 
-    document.addEventListener(
-      "keydown",
-      (e: KeyboardEvent) => {
-        if (container.contains(e.target as Node)) {
-          e.stopPropagation();
-        }
-      },
-      true,
-    );
-
     this.editor = editor;
     (container as HTMLElement & { _monacoEditor: MonacoEditor })._monacoEditor = editor;
   },

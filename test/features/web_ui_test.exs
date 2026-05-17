@@ -101,27 +101,38 @@ defmodule Exograph.Features.WebUITest do
     |> assert_has("a[href*='hex.pm']")
   end
 
-  test "editor cursor movement works after running a query", %{conn: conn} do
+  test "arrow keys work in editor after running a query", %{conn: conn} do
     conn
     |> wait_for_monaco()
     |> set_editor("from(f in Fragment, where: matches(f, \"def _ do ... end\"), limit: 5)")
     |> click_button("Run")
     |> assert_has("span", text: "results")
+    |> click("#editor")
     |> evaluate(
       """
       () => {
         const ed = document.querySelector('#editor')._monacoEditor;
-        ed.focus();
-        ed.setPosition({ lineNumber: 1, column: 1 });
-        // Use Monaco's cursor action API which triggers the same code path as real arrow keys
-        ed.trigger('test', 'cursorRight', null);
-        return new Promise(r => setTimeout(() => {
-          r(ed.getPosition().column);
-        }, 100));
+        ed.setPosition({ lineNumber: 1, column: 5 });
+        return ed.getPosition().column;
       }
       """,
       [is_function: true],
-      fn column -> assert column == 2 end
+      fn col -> assert col == 5 end
+    )
+    |> evaluate(
+      """
+      () => {
+        const ed = document.querySelector('#editor')._monacoEditor;
+        ed.trigger('test', 'cursorRight', null);
+        ed.trigger('test', 'cursorRight', null);
+        ed.trigger('test', 'cursorRight', null);
+        return new Promise(r => setTimeout(() => r(ed.getPosition().column), 50));
+      }
+      """,
+      [is_function: true],
+      fn col ->
+        assert col == 8, "Cursor did not move: column is #{col}, expected 8"
+      end
     )
   end
 end

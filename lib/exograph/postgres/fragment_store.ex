@@ -414,16 +414,23 @@ defmodule Exograph.Postgres.FragmentStore do
 
   defp upsert_terms(store, terms) do
     entries = Enum.map(terms, &%{term: &1})
+    source = terms_source(store)
+    {table_name, _schema} = source
 
-    Postgres.bulk_insert_all(
-      store.repo,
-      terms_source(store),
-      entries,
-      conflict_target: [:term],
-      on_conflict: :nothing,
-      max_concurrency: 1,
-      timeout: :infinity
-    )
+    Enum.chunk_every(entries, 1_000)
+    |> Enum.each(fn chunk ->
+      store.repo.transaction(fn ->
+        store.repo.query!("SELECT pg_advisory_xact_lock(hashtext($1))", [table_name])
+
+        store.repo.insert_all(
+          source,
+          chunk,
+          conflict_target: [:term],
+          on_conflict: :nothing,
+          timeout: :infinity
+        )
+      end)
+    end)
   end
 
   defp load_term_ids(store, terms) do

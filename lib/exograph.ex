@@ -123,7 +123,7 @@ defmodule Exograph do
     Similarity.search(index, source_or_ast, opts)
   end
 
-  @doc false
+  @doc "Searches source text by literal string or regex."
   @spec search_text(Index.t(), String.t() | Regex.t(), keyword()) :: {:ok, [TextHit.t()]}
   def search_text(index, literal_or_regex, opts \\ [])
 

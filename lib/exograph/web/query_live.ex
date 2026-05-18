@@ -153,6 +153,27 @@ defmodule Exograph.Web.QueryLive do
     go_to_page(socket, String.to_integer(page))
   end
 
+  def handle_event("view_source", %{"file" => file, "line" => line, "package" => package}, socket) do
+    line = String.to_integer(line)
+    source = fetch_file_source(socket.assigns, file)
+
+    socket =
+      socket
+      |> assign(viewing_source: %{file: file, source: source, line: line, package: package})
+      |> push_event("scroll_to_line", %{line: line})
+
+    {:noreply, socket}
+  end
+
+  def handle_event("close_source", _params, socket) do
+    {:noreply, assign(socket, viewing_source: nil)}
+  end
+
+  def handle_event("completion", %{"hint" => hint}, socket) do
+    items = Exograph.Web.Completion.complete(hint, socket.assigns.index)
+    {:reply, %{items: items}, socket}
+  end
+
   defp go_to_page(socket, page) do
     index = socket.assigns.index
     query = socket.assigns.query
@@ -170,31 +191,7 @@ defmodule Exograph.Web.QueryLive do
   end
 
   @impl true
-  def handle_event("view_source", %{"file" => file, "line" => line, "package" => package}, socket) do
-    line = String.to_integer(line)
-    source = fetch_file_source(socket.assigns, file)
-
-    socket =
-      socket
-      |> assign(viewing_source: %{file: file, source: source, line: line, package: package})
-      |> push_event("scroll_to_line", %{line: line})
-
-    {:noreply, socket}
-  end
-
-  @impl true
-  def handle_event("close_source", _params, socket) do
-    {:noreply, assign(socket, viewing_source: nil)}
-  end
-
-  @impl true
-  def handle_event("completion", %{"hint" => hint}, socket) do
-    items = Exograph.Web.Completion.complete(hint, socket.assigns.index)
-    {:reply, %{items: items}, socket}
-  end
-
-  @impl true
-  def handle_info({:query_result, query, result, mode}, socket) do
+  def handle_info({:query_result, query, result, _mode}, socket) do
     socket =
       case result do
         {:ok, new_results, elapsed_ms, effective_limit, total} ->
@@ -522,7 +519,7 @@ defmodule Exograph.Web.QueryLive do
     """
   end
 
-  defp page_window(current, total) when total <= 7, do: Enum.to_list(1..total)
+  defp page_window(_current, total) when total <= 7, do: Enum.to_list(1..total)
 
   defp page_window(current, total) when current <= 3 do
     Enum.to_list(1..min(5, total)) ++ [:ellipsis, total]

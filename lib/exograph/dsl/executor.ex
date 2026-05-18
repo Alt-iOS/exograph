@@ -184,6 +184,8 @@ defmodule Exograph.DSL.Executor do
     _ -> nil
   end
 
+  defp structural_query_kind(_), do: nil
+
   defp structural_query_name_arity(%StructuralQuery{source: pattern}) when is_binary(pattern) do
     case ExAST.Pattern.compile(pattern) do
       {kind, _, [{name, _, args} | _]}
@@ -202,8 +204,6 @@ defmodule Exograph.DSL.Executor do
   end
 
   defp structural_query_name_arity(_), do: {nil, nil}
-
-  defp structural_query_kind(_), do: nil
 
   defp structural_fragment_batch(
          index,

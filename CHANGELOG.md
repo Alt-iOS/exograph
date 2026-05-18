@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.7.1
+
+- Fixed Safari: editor content duplication after Run (morphdom updating `data-query` attribute on ignored div)
+- Fixed Safari: arrow keys breaking after Run (`phx-update="ignore"` moved to outer wrapper with stable ID)
+- Replaced "Load more" with numbered page pagination (Previous 1 2 … N Next)
+- Fixed API controller pattern match for executor return tuple
+- Added regression tests for editor functionality after search
+
 ## 0.7.0
 
 - **37× faster joins**: LATERAL join for line-range containment replaces nested loop over all fragments

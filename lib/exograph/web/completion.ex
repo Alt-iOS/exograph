@@ -3,7 +3,8 @@ defmodule Exograph.Web.Completion do
 
   alias Exograph.Postgres.Options
 
-  import Exograph.DSL
+  # imported for @eval_env to capture DSL macros
+  import Exograph.DSL, warn: false
   @eval_env __ENV__
 
   @dsl_sources [

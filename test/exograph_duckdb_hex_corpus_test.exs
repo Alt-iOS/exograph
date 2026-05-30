@@ -19,17 +19,26 @@ defmodule ExographDuckDBHexCorpusTest do
             concurrency: 1,
             min_mass: 4,
             resume: false,
-            bm25?: false,
+            bm25?: true,
             timeout: 120_000
           )
         )
 
       assert results.ok >= 1
       assert [_fragment | _] = indexed_fragments(prefix)
+      assert {:ok, [_hit | _]} = search_text(prefix, "defmodule")
     end
   end
 
   defp indexed_fragments(prefix) do
+    prefix
+    |> index!()
+    |> then(&Exograph.Postgres.FragmentStore.all(&1.fragment_store))
+  end
+
+  defp search_text(prefix, literal), do: Exograph.search_text(index!(prefix), literal)
+
+  defp index!(prefix) do
     {:ok, index} =
       Exograph.index([],
         backend: :duckdb,
@@ -38,6 +47,6 @@ defmodule ExographDuckDBHexCorpusTest do
         migrate?: false
       )
 
-    Exograph.Postgres.FragmentStore.all(index.fragment_store)
+    index
   end
 end

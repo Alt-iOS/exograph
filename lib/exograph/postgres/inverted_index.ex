@@ -128,31 +128,39 @@ defmodule Exograph.Postgres.InvertedIndex do
   end
 
   defp search_file_field(index, literal, :source, opts) do
-    file_search(
-      index,
-      literal,
-      opts,
-      fn files_source, limit ->
-        source_search_query(index, files_source, literal, limit, match_operator(opts))
-      end,
-      fn files_source, limit ->
-        source_ilike_query(index, files_source, literal, limit)
-      end
-    )
+    if duckdb?(index) do
+      duckdb_file_search(index, literal, :source, opts)
+    else
+      file_search(
+        index,
+        literal,
+        opts,
+        fn files_source, limit ->
+          source_search_query(index, files_source, literal, limit, match_operator(opts))
+        end,
+        fn files_source, limit ->
+          source_ilike_query(index, files_source, literal, limit)
+        end
+      )
+    end
   end
 
   defp search_file_field(index, literal, :comments_text, opts) do
-    file_search(
-      index,
-      literal,
-      opts,
-      fn files_source, limit ->
-        comments_search_query(index, files_source, literal, limit, match_operator(opts))
-      end,
-      fn files_source, limit ->
-        comments_ilike_query(index, files_source, literal, limit)
-      end
-    )
+    if duckdb?(index) do
+      duckdb_file_search(index, literal, :comments_text, opts)
+    else
+      file_search(
+        index,
+        literal,
+        opts,
+        fn files_source, limit ->
+          comments_search_query(index, files_source, literal, limit, match_operator(opts))
+        end,
+        fn files_source, limit ->
+          comments_ilike_query(index, files_source, literal, limit)
+        end
+      )
+    end
   end
 
   defp source_search_query(index, _files_source, literal, limit, :all) do
@@ -229,6 +237,123 @@ defmodule Exograph.Postgres.InvertedIndex do
     if order_clause, do: order_by(q, ^order_clause), else: q
   end
 
+  defp duckdb_file_search(index, literal, field, opts) do
+    limit = Keyword.get(opts, :limit, 50)
+    {files_table, _schema} = files_source(index)
+    schema = QuackDB.FTS.schema_name("main.#{files_table}")
+    field_name = Atom.to_string(field)
+
+    sql = """
+    SELECT
+      id, package_id, package_version_id, file_id, content_hash, ast,
+      kind, module, name, arity, line, end_line, mass,
+      exact_hash, terms, sub_hashes, inserted_at, updated_at,
+      source, path
+    FROM (
+      SELECT
+        fr.id, fr.package_id, fr.package_version_id, fr.file_id, fr.content_hash, fr.ast,
+        fr.kind, fr.module, fr.name, fr.arity, fr.line, fr.end_line, fr.mass,
+        fr.exact_hash, fr.terms, fr.sub_hashes, fr.inserted_at, fr.updated_at,
+        file.source, file.path,
+        "#{schema}".match_bm25(file.id, ?, fields := '#{field_name}') AS score,
+        row_number() OVER (PARTITION BY file.id ORDER BY fr.line ASC) AS rn
+      FROM #{Exograph.Postgres.table(index.prefix, "fragments")} AS fr
+      INNER JOIN #{Exograph.Postgres.table(index.prefix, "files")} AS file ON file.id = fr.file_id
+      WHERE "#{schema}".match_bm25(file.id, ?, fields := '#{field_name}') > 0
+    ) AS ranked
+    WHERE rn = 1
+    ORDER BY score DESC, path ASC, line ASC
+    LIMIT ?
+    """
+
+    {:ok, hits_from_duckdb_rows(index.repo.query!(sql, [literal, literal, limit]).rows)}
+  rescue
+    _ in [QuackDB.Error, Ecto.QueryError] ->
+      duckdb_ilike_file_search(index, literal, field, Keyword.get(opts, :limit, 50))
+  end
+
+  defp duckdb_ilike_file_search(index, literal, field, limit) do
+    column = Atom.to_string(field)
+    pattern = "%#{escape_like(literal)}%"
+
+    sql = """
+    SELECT
+      id, package_id, package_version_id, file_id, content_hash, ast,
+      kind, module, name, arity, line, end_line, mass,
+      exact_hash, terms, sub_hashes, inserted_at, updated_at,
+      source, path
+    FROM (
+      SELECT
+        fr.id, fr.package_id, fr.package_version_id, fr.file_id, fr.content_hash, fr.ast,
+        fr.kind, fr.module, fr.name, fr.arity, fr.line, fr.end_line, fr.mass,
+        fr.exact_hash, fr.terms, fr.sub_hashes, fr.inserted_at, fr.updated_at,
+        file.source, file.path,
+        row_number() OVER (PARTITION BY file.id ORDER BY fr.line ASC) AS rn
+      FROM #{Exograph.Postgres.table(index.prefix, "fragments")} AS fr
+      INNER JOIN #{Exograph.Postgres.table(index.prefix, "files")} AS file ON file.id = fr.file_id
+      WHERE file."#{column}" ILIKE ?
+    ) AS ranked
+    WHERE rn = 1
+    ORDER BY path ASC, line ASC
+    LIMIT ?
+    """
+
+    {:ok, hits_from_duckdb_rows(index.repo.query!(sql, [pattern, limit]).rows)}
+  end
+
+  defp hits_from_duckdb_rows(rows) do
+    Enum.map(rows, fn row ->
+      {record, source, path} = duckdb_fragment_record(row)
+      Hit.new(fragment: Options.hydrate_fragment(record, source, path), score: 1.0)
+    end)
+  end
+
+  defp duckdb_fragment_record([
+         id,
+         package_id,
+         package_version_id,
+         file_id,
+         content_hash,
+         ast,
+         kind,
+         module,
+         name,
+         arity,
+         line,
+         end_line,
+         mass,
+         exact_hash,
+         terms,
+         sub_hashes,
+         inserted_at,
+         updated_at,
+         source,
+         path
+       ]) do
+    {%FragmentRecord{
+       id: id,
+       package_id: package_id,
+       package_version_id: package_version_id,
+       file_id: file_id,
+       content_hash: content_hash,
+       ast: ast,
+       kind: String.to_existing_atom(kind),
+       module: module,
+       name: name,
+       arity: arity,
+       line: line,
+       end_line: end_line,
+       mass: mass,
+       exact_hash: exact_hash,
+       terms: terms || [],
+       sub_hashes: sub_hashes || [],
+       inserted_at: inserted_at,
+       updated_at: updated_at
+     }, source, path}
+  end
+
+  defp duckdb?(index), do: index.repo.__adapter__() == Ecto.Adapters.QuackDB
+
   defp escape_like(str), do: str |> String.replace("%", "\\%") |> String.replace("_", "\\_")
 
   defp match_operator(opts) do
@@ -247,7 +372,7 @@ defmodule Exograph.Postgres.InvertedIndex do
         q = bm25_fun.(files, limit) |> where_scope(opts)
         index.repo.all(q)
       rescue
-        _ in [Postgrex.Error, Ecto.QueryError] ->
+        _ in [Postgrex.Error, QuackDB.Error, Ecto.QueryError] ->
           q = ilike_fun.(files, limit) |> where_scope(opts)
           index.repo.all(q)
       end

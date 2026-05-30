@@ -53,7 +53,7 @@ defmodule Exograph.Postgres do
   end
 
   defp run_migration!(repo, prefix, module) do
-    Application.put_env(:exograph, module, prefix: prefix)
+    Application.put_env(:exograph, module, prefix: prefix, backend: :postgres)
 
     Runner.run(repo, repo.config(), 1, module, :forward, :up, :up,
       log: false,

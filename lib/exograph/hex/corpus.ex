@@ -15,7 +15,9 @@ defmodule Exograph.Hex.Corpus do
     entries = list_entries(mode, opts)
     total = length(entries)
 
-    migrate!(repo, prefix, opts)
+    backend = Keyword.get(opts, :backend, :postgres)
+
+    migrate!(backend, repo, prefix, opts)
     existing = if resume?, do: existing_versions(repo, prefix), else: MapSet.new()
 
     Progress.start_run(total)
@@ -86,7 +88,11 @@ defmodule Exograph.Hex.Corpus do
   defp list_entries(:top, opts), do: Registry.top(opts)
   defp list_entries(:all, opts), do: Registry.all_versions(opts)
 
-  defp migrate!(repo, prefix, opts) do
+  defp migrate!(:duckdb, repo, prefix, _opts) do
+    Exograph.DuckDB.migrate!(repo: repo, prefix: prefix)
+  end
+
+  defp migrate!(_backend, repo, prefix, opts) do
     bm25? = Keyword.get(opts, :bm25?, true)
     Exograph.Postgres.migrate!(repo: repo, prefix: prefix, bm25?: bm25?)
   end
@@ -127,6 +133,7 @@ defmodule Exograph.Hex.Corpus do
       write_files!(tmp_dir, files)
 
       index_opts = [
+        backend: Keyword.get(opts, :backend, :postgres),
         repo: repo,
         prefix: prefix,
         bm25?: Keyword.get(opts, :bm25?, true),

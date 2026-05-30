@@ -91,9 +91,14 @@ defmodule Exograph.Postgres.Migrations.CreateSchema do
       )
     )
 
-    create_if_not_exists(
-      index(name("fragments"), [:terms], using: :gin, name: index_name("fragments", "terms_gin"))
-    )
+    if postgres?() do
+      create_if_not_exists(
+        index(name("fragments"), [:terms],
+          using: :gin,
+          name: index_name("fragments", "terms_gin")
+        )
+      )
+    end
 
     create_if_not_exists(
       index(name("fragments"), [:package_id, :package_version_id],
@@ -117,12 +122,14 @@ defmodule Exograph.Postgres.Migrations.CreateSchema do
       )
     )
 
-    create_if_not_exists(
-      index(name("fragments"), [:file_id, :line, :end_line],
-        where: "kind IN ('def','defp','defmacro','defmacrop')",
-        name: index_name("fragments", "containment")
+    if postgres?() do
+      create_if_not_exists(
+        index(name("fragments"), [:file_id, :line, :end_line],
+          where: "kind IN ('def','defp','defmacro','defmacrop')",
+          name: index_name("fragments", "containment")
+        )
       )
-    )
+    end
 
     create_if_not_exists table(name("comments")) do
       add(:package_id, references(name("packages"), on_delete: :delete_all))
@@ -300,5 +307,9 @@ defmodule Exograph.Postgres.Migrations.CreateSchema do
 
   defp table_prefix do
     Application.fetch_env!(:exograph, __MODULE__)[:prefix]
+  end
+
+  defp postgres? do
+    Application.fetch_env!(:exograph, __MODULE__)[:backend] != :duckdb
   end
 end

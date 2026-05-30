@@ -30,7 +30,10 @@ defmodule Mix.Tasks.Exograph.Index.Hex do
     * `--no-bm25` - skip ParadeDB BM25 index creation
     * `--mirror` - tarball mirror URL (repeatable)
     * `--cache-tarballs` - directory to cache downloaded tarballs
+    * `--backend` - `postgres` (default) or `duckdb`
     * `--database-url` - Postgres URL (or set `EXOGRAPH_DATABASE_URL`)
+    * `--quackdb-uri` - QuackDB URI for DuckDB backend (or set `QUACKDB_URI` / `QUACKDB_TEST_URI`)
+    * `--quackdb-token` - QuackDB token for DuckDB backend (or set `QUACKDB_TOKEN` / `QUACKDB_TEST_TOKEN`)
     * `--repo` - Ecto repo module (uses built-in if omitted)
     * `--timeout` - per-package timeout in seconds (default: `300`)
     * `--web` - start web UI with live progress dashboard
@@ -46,6 +49,7 @@ defmodule Mix.Tasks.Exograph.Index.Hex do
     {opts, _rest, invalid} =
       OptionParser.parse(args,
         strict: [
+          backend: :string,
           mode: :string,
           limit: :integer,
           prefix: :string,
@@ -57,6 +61,8 @@ defmodule Mix.Tasks.Exograph.Index.Hex do
           mirror: :keep,
           cache_tarballs: :string,
           database_url: :string,
+          quackdb_uri: :string,
+          quackdb_token: :string,
           repo: :string,
           timeout: :integer,
           web: :boolean,
@@ -68,13 +74,14 @@ defmodule Mix.Tasks.Exograph.Index.Hex do
       Mix.raise("Invalid options: #{inspect(invalid)}")
     end
 
-    repo = resolve_repo(opts)
+    backend = backend!(Keyword.get(opts, :backend, "postgres"))
+    repo = resolve_repo(backend, opts)
     prefix = Keyword.get(opts, :prefix, "hex")
 
     Exograph.Hex.Progress.start_link()
 
     if Keyword.get(opts, :web, false) do
-      start_web!(repo, prefix, opts)
+      start_web!(backend, repo, prefix, opts)
     end
 
     mirrors = mirrors_from_opts(opts)
@@ -83,6 +90,7 @@ defmodule Mix.Tasks.Exograph.Index.Hex do
       if Keyword.get(opts, :reach, false), do: [:ex_ast, :reach], else: [:ex_ast]
 
     corpus_opts = [
+      backend: backend,
       mode: String.to_atom(Keyword.get(opts, :mode, "latest")),
       limit: Keyword.get(opts, :limit),
       prefix: prefix,
@@ -108,7 +116,11 @@ defmodule Mix.Tasks.Exograph.Index.Hex do
 
   defp iex_running?, do: Code.ensure_loaded?(IEx) and IEx.started?()
 
-  defp resolve_repo(opts) do
+  defp backend!("postgres"), do: :postgres
+  defp backend!("duckdb"), do: :duckdb
+  defp backend!(backend), do: Mix.raise("Unknown backend #{inspect(backend)}")
+
+  defp resolve_repo(:postgres, opts) do
     case Keyword.get(opts, :repo) do
       nil ->
         database_url =
@@ -132,7 +144,34 @@ defmodule Mix.Tasks.Exograph.Index.Hex do
     end
   end
 
-  defp start_web!(repo, prefix, opts) do
+  defp resolve_repo(:duckdb, opts) do
+    case Keyword.get(opts, :repo) do
+      nil ->
+        Application.ensure_all_started(:ecto_sql)
+        Application.ensure_all_started(:quackdb)
+
+        Application.put_env(:exograph, Exograph.DuckDBRepo,
+          uri:
+            Keyword.get(opts, :quackdb_uri) || System.get_env("QUACKDB_URI") ||
+              System.get_env("QUACKDB_TEST_URI") || Mix.raise("Missing --quackdb-uri"),
+          token:
+            Keyword.get(opts, :quackdb_token) || System.get_env("QUACKDB_TOKEN") ||
+              System.get_env("QUACKDB_TEST_TOKEN") || "",
+          pool_size: Keyword.get(opts, :concurrency, 4),
+          log: false,
+          timeout: 120_000
+        )
+
+        {:ok, _} = Exograph.DuckDBRepo.start_link()
+        Exograph.DuckDBRepo
+
+      repo_str ->
+        Mix.Task.run("app.start")
+        Module.concat([repo_str])
+    end
+  end
+
+  defp start_web!(backend, repo, prefix, opts) do
     port = Keyword.get(opts, :port, 4200)
 
     Application.ensure_all_started(:phoenix)
@@ -140,6 +179,7 @@ defmodule Mix.Tasks.Exograph.Index.Hex do
 
     {:ok, index} =
       Exograph.index([],
+        backend: backend,
         repo: repo,
         prefix: prefix,
         migrate?: false,

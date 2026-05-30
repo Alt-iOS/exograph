@@ -420,7 +420,7 @@ defmodule Exograph.Postgres.FragmentStore do
     Enum.chunk_every(entries, 1_000)
     |> Enum.each(fn chunk ->
       store.repo.transaction(fn ->
-        store.repo.query!("SELECT pg_advisory_xact_lock(hashtext($1))", [table_name])
+        lock_terms_table(store.repo, table_name)
 
         store.repo.insert_all(
           source,
@@ -431,6 +431,12 @@ defmodule Exograph.Postgres.FragmentStore do
         )
       end)
     end)
+  end
+
+  defp lock_terms_table(repo, table_name) do
+    if repo.__adapter__() == Ecto.Adapters.Postgres do
+      repo.query!("SELECT pg_advisory_xact_lock(hashtext($1))", [table_name])
+    end
   end
 
   defp load_term_ids(store, terms) do

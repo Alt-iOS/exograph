@@ -42,6 +42,15 @@ defmodule Exograph do
     opts = normalize_backend(opts)
     indexer_opts = extractor_opts(opts)
     store_opts = store_opts(opts)
+
+    store_opts =
+      if opts[:backend] == :duckdb do
+        if Keyword.get(opts, :migrate?, false), do: Exograph.DuckDB.migrate!(opts)
+        Keyword.put(store_opts, :migrate?, false)
+      else
+        store_opts
+      end
+
     store_opts_without_migration = Keyword.put(store_opts, :migrate?, false)
     batch_size = Keyword.get(opts, :index_batch_size, 2_000)
 
@@ -201,9 +210,23 @@ defmodule Exograph do
 
   defp normalize_backend(opts) do
     case Keyword.get(opts, :backend, :postgres) do
-      :postgres -> opts
-      "postgres" -> Keyword.put(opts, :backend, :postgres)
-      other -> raise ArgumentError, "unsupported backend #{inspect(other)}; use :postgres"
+      nil ->
+        Keyword.put(opts, :backend, :postgres)
+
+      :postgres ->
+        opts
+
+      "postgres" ->
+        Keyword.put(opts, :backend, :postgres)
+
+      :duckdb ->
+        opts
+
+      "duckdb" ->
+        Keyword.put(opts, :backend, :duckdb)
+
+      other ->
+        raise ArgumentError, "unsupported backend #{inspect(other)}; use :postgres or :duckdb"
     end
   end
 

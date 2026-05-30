@@ -27,7 +27,7 @@ defmodule Exograph.Postgres.FactQuery do
 
         index.repo.all(query)
       rescue
-        _ in [Postgrex.Error, Ecto.QueryError] ->
+        _ in [Postgrex.Error, QuackDB.Error, Ecto.QueryError] ->
           query =
             from(fragment in {Options.fragments_source(index.prefix), FragmentRecord},
               join: fact in ^table_source,

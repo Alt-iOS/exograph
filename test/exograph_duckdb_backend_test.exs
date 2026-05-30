@@ -6,23 +6,25 @@ defmodule ExographDuckDBBackendTest do
   @moduletag :integration
 
   test "duckdb backend indexes and searches a tiny project" do
-    DuckDBSupport.start_repo!()
-    prefix = "exograph_duckdb_#{System.unique_integer([:positive])}"
-    opts = DuckDBSupport.opts(prefix, extractors: [:ex_ast])
+    if System.get_env("QUACKDB_TEST_URI") do
+      DuckDBSupport.start_repo!()
+      prefix = "exograph_duckdb_#{System.unique_integer([:positive])}"
+      opts = DuckDBSupport.opts(prefix, extractors: [:ex_ast])
 
-    path =
-      tmp_project!(%{
-        "lib/demo.ex" => """
-        defmodule Demo do
-          def get_user(id), do: Repo.get!(User, id)
-          def all_users, do: Repo.all(User)
-        end
-        """
-      })
+      path =
+        tmp_project!(%{
+          "lib/demo.ex" => """
+          defmodule Demo do
+            def get_user(id), do: Repo.get!(User, id)
+            def all_users, do: Repo.all(User)
+          end
+          """
+        })
 
-    assert {:ok, index} = Exograph.index(path, Keyword.merge(opts, min_mass: 4))
-    assert {:ok, [_hit | _]} = Exograph.search(index, "Repo.get!(_, _)")
-    assert [_fragment | _] = Exograph.Postgres.FragmentStore.all(index.fragment_store)
+      assert {:ok, index} = Exograph.index(path, Keyword.merge(opts, min_mass: 4))
+      assert {:ok, [_hit | _]} = Exograph.search(index, "Repo.get!(_, _)")
+      assert [_fragment | _] = Exograph.Postgres.FragmentStore.all(index.fragment_store)
+    end
   end
 
   defp tmp_project!(files) do

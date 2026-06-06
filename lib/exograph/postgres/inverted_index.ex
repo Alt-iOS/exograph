@@ -12,13 +12,14 @@ defmodule Exograph.Postgres.InvertedIndex do
   alias Exograph.Postgres.{CallEdgeRecord, FactQuery, FragmentRecord, Options}
   alias Exograph.StructuralQuery
 
-  defstruct repo: nil, prefix: "exograph", package: nil, package_version: nil
+  defstruct repo: nil, prefix: "exograph", package: nil, package_version: nil, bm25?: true
 
   @type t :: %__MODULE__{
           repo: module(),
           prefix: String.t(),
           package: Package.t() | nil,
-          package_version: PackageVersion.t() | nil
+          package_version: PackageVersion.t() | nil,
+          bm25?: boolean()
         }
 
   def new(opts \\ []), do: {:ok, Options.store(__MODULE__, opts)}
@@ -239,37 +240,39 @@ defmodule Exograph.Postgres.InvertedIndex do
 
   defp duckdb_file_search(index, literal, field, opts) do
     limit = Keyword.get(opts, :limit, 50)
+
+    if index.bm25? do
+      duckdb_bm25_file_search(index, literal, field, limit)
+    else
+      duckdb_ilike_file_search(index, literal, field, limit)
+    end
+  end
+
+  defp duckdb_bm25_file_search(index, literal, field, limit) do
     {files_table, _schema} = files_source(index)
     schema = QuackDB.FTS.schema_name("main.#{files_table}")
     field_name = Atom.to_string(field)
 
     sql = """
-    SELECT
-      id, package_id, package_version_id, file_id, content_hash, ast,
-      kind, module, name, arity, line, end_line, mass,
-      exact_hash, terms, sub_hashes, inserted_at, updated_at,
-      source, path
-    FROM (
+    WITH matched_files AS (
       SELECT
-        fr.id, fr.package_id, fr.package_version_id, fr.file_id, fr.content_hash, fr.ast,
-        fr.kind, fr.module, fr.name, fr.arity, fr.line, fr.end_line, fr.mass,
-        fr.exact_hash, fr.terms, fr.sub_hashes, fr.inserted_at, fr.updated_at,
-        file.source, file.path,
-        "#{schema}".match_bm25(file.id, ?, fields := '#{field_name}') AS score,
-        row_number() OVER (PARTITION BY file.id ORDER BY fr.line ASC) AS rn
-      FROM #{Exograph.Postgres.table(index.prefix, "fragments")} AS fr
-      INNER JOIN #{Exograph.Postgres.table(index.prefix, "files")} AS file ON file.id = fr.file_id
-      WHERE "#{schema}".match_bm25(file.id, ?, fields := '#{field_name}') > 0
-    ) AS ranked
-    WHERE rn = 1
-    ORDER BY score DESC, path ASC, line ASC
-    LIMIT ?
+        id,
+        source,
+        path,
+        "#{schema}".match_bm25(id, ?, fields := '#{field_name}') AS score
+      FROM #{Exograph.Postgres.table(index.prefix, "files")}
+      WHERE "#{schema}".match_bm25(id, ?, fields := '#{field_name}') > 0
+      ORDER BY score DESC, path ASC
+      LIMIT ?
+    )
+    #{duckdb_first_fragment_sql(index.prefix)}
+    ORDER BY matched_files.score DESC, matched_files.path ASC, fr.line ASC
     """
 
     {:ok, hits_from_duckdb_rows(index.repo.query!(sql, [literal, literal, limit]).rows)}
   rescue
     _ in [QuackDB.Error, Ecto.QueryError] ->
-      duckdb_ilike_file_search(index, literal, field, Keyword.get(opts, :limit, 50))
+      duckdb_ilike_file_search(index, literal, field, limit)
   end
 
   defp duckdb_ilike_file_search(index, literal, field, limit) do
@@ -277,28 +280,39 @@ defmodule Exograph.Postgres.InvertedIndex do
     pattern = "%#{escape_like(literal)}%"
 
     sql = """
-    SELECT
-      id, package_id, package_version_id, file_id, content_hash, ast,
-      kind, module, name, arity, line, end_line, mass,
-      exact_hash, terms, sub_hashes, inserted_at, updated_at,
-      source, path
-    FROM (
-      SELECT
-        fr.id, fr.package_id, fr.package_version_id, fr.file_id, fr.content_hash, fr.ast,
-        fr.kind, fr.module, fr.name, fr.arity, fr.line, fr.end_line, fr.mass,
-        fr.exact_hash, fr.terms, fr.sub_hashes, fr.inserted_at, fr.updated_at,
-        file.source, file.path,
-        row_number() OVER (PARTITION BY file.id ORDER BY fr.line ASC) AS rn
-      FROM #{Exograph.Postgres.table(index.prefix, "fragments")} AS fr
-      INNER JOIN #{Exograph.Postgres.table(index.prefix, "files")} AS file ON file.id = fr.file_id
-      WHERE file."#{column}" ILIKE ?
-    ) AS ranked
-    WHERE rn = 1
-    ORDER BY path ASC, line ASC
-    LIMIT ?
+    WITH matched_files AS (
+      SELECT id, source, path
+      FROM #{Exograph.Postgres.table(index.prefix, "files")}
+      WHERE "#{column}" ILIKE ?
+      ORDER BY path ASC
+      LIMIT ?
+    )
+    #{duckdb_first_fragment_sql(index.prefix)}
+    ORDER BY matched_files.path ASC, fr.line ASC
     """
 
     {:ok, hits_from_duckdb_rows(index.repo.query!(sql, [pattern, limit]).rows)}
+  end
+
+  defp duckdb_first_fragment_sql(prefix) do
+    """
+    SELECT
+      fr.id, fr.package_id, fr.package_version_id, fr.file_id, fr.content_hash, fr.ast,
+      fr.kind, fr.module, fr.name, fr.arity, fr.line, fr.end_line, fr.mass,
+      fr.exact_hash, fr.terms, fr.sub_hashes, fr.inserted_at, fr.updated_at,
+      matched_files.source, matched_files.path
+    FROM matched_files
+    INNER JOIN LATERAL (
+      SELECT
+        id, package_id, package_version_id, file_id, content_hash, ast,
+        kind, module, name, arity, line, end_line, mass,
+        exact_hash, terms, sub_hashes, inserted_at, updated_at
+      FROM #{Exograph.Postgres.table(prefix, "fragments")}
+      WHERE file_id = matched_files.id
+      ORDER BY line ASC
+      LIMIT 1
+    ) AS fr ON true
+    """
   end
 
   defp hits_from_duckdb_rows(rows) do

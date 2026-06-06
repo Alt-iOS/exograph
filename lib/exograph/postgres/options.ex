@@ -33,7 +33,8 @@ defmodule Exograph.Postgres.Options do
       prefix: prefix(opts),
       package: package(opts),
       package_version: package_version(opts),
-      extractors: extractors(opts)
+      extractors: extractors(opts),
+      bm25?: Keyword.get(opts, :bm25?, true)
     }
 
     module

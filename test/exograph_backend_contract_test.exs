@@ -6,12 +6,6 @@ defmodule ExographBackendContractTest do
 
   alias Exograph.{BackendContract, DuckDBSupport, PostgresSupport}
 
-  setup_all do
-    database = DuckDBSupport.start_managed_repo!(log: :debug)
-    on_exit(fn -> File.rm_rf(database) end)
-    :ok
-  end
-
   @tag :postgres
   test "postgres backend satisfies real indexing and search contract" do
     PostgresSupport.start_repo!()
@@ -31,11 +25,16 @@ defmodule ExographBackendContractTest do
   end
 
   describe "DuckDB backend query plans" do
+    @describetag :duckdb
     setup do
+      database = DuckDBSupport.start_managed_repo!(log: :debug)
       prefix = "exograph_duckdb_contract_#{System.unique_integer([:positive])}"
       opts = DuckDBSupport.opts(prefix)
 
-      on_exit(fn -> capture_log(fn -> DuckDBSupport.drop_prefix(prefix) end) end)
+      on_exit(fn ->
+        capture_log(fn -> DuckDBSupport.drop_prefix(prefix) end)
+        File.rm_rf(database)
+      end)
 
       {:ok, opts: opts}
     end

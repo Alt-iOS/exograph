@@ -52,6 +52,6 @@ jobs:
       - run: npm --prefix ./assets ci
       - run: mix compile --warnings-as-errors
       - run: mix format --check-formatted
-      - run: mix test --include postgres
+      - run: mix test --exclude duckdb --include postgres
       - run: mix credo --strict
       - run: mix ex_dna

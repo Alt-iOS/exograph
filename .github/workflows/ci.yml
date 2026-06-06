@@ -49,6 +49,7 @@ jobs:
           restore-keys: mix-29-1.20-
 
       - run: mix deps.get
+      - run: npm --prefix ./assets ci
       - run: mix compile --warnings-as-errors
       - run: mix format --check-formatted
       - run: mix test --include postgres

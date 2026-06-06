@@ -129,6 +129,7 @@ defmodule Exograph.BackendContract do
           "definitions",
           "comments",
           "fragments",
+          "fragment_terms",
           "terms",
           "files",
           "package_versions",

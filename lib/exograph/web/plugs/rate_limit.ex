@@ -38,7 +38,7 @@ defmodule Exograph.Web.Plugs.RateLimit do
 
   defp client_ip(conn) do
     case get_req_header(conn, "x-forwarded-for") do
-      [ip | _] -> ip |> String.split(",") |> List.first() |> String.trim()
+      [ip | _] -> ip |> String.split(",", parts: 2) |> List.first() |> String.trim()
       [] -> conn.remote_ip |> :inet.ntoa() |> to_string()
     end
   end

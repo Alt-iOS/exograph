@@ -40,7 +40,7 @@ defmodule Exograph.Postgres.InvertedIndex do
 
     records =
       base_query(index)
-      |> where_term_ids(required_ids, optional_ids)
+      |> where_term_ids(index, required_ids, optional_ids)
       |> where_scope(opts)
       |> limit(^limit)
       |> with_file(index, include_source?(query))
@@ -427,18 +427,61 @@ defmodule Exograph.Postgres.InvertedIndex do
   defp maybe_where_package_version(queryable, package_version_id),
     do: where(queryable, [fragment], fragment.package_version_id == ^package_version_id)
 
-  defp where_term_ids(queryable, [], []), do: queryable
+  defp where_term_ids(queryable, _index, [], []), do: queryable
 
-  defp where_term_ids(queryable, required_ids, []) when required_ids != [] do
-    where(queryable, [fragment], fragment("? @> ?", fragment.terms, ^required_ids))
+  defp where_term_ids(queryable, index, required_ids, []) when required_ids != [] do
+    if duckdb?(index) do
+      join_required_term_candidates(queryable, index, required_ids)
+    else
+      where(queryable, [fragment], fragment("? @> ?", fragment.terms, ^required_ids))
+    end
   end
 
-  defp where_term_ids(queryable, [], optional_ids) when optional_ids != [] do
-    where(queryable, [fragment], fragment("? && ?", fragment.terms, ^optional_ids))
+  defp where_term_ids(queryable, index, [], optional_ids) when optional_ids != [] do
+    if duckdb?(index) do
+      candidates = duckdb_any_term_candidates(index, optional_ids)
+
+      join(queryable, :inner, [fragment], candidate in subquery(candidates),
+        on: candidate.fragment_id == fragment.id
+      )
+    else
+      where(queryable, [fragment], fragment("? && ?", fragment.terms, ^optional_ids))
+    end
   end
 
-  defp where_term_ids(queryable, required_ids, _optional_ids) do
-    where(queryable, [fragment], fragment("? @> ?", fragment.terms, ^required_ids))
+  defp where_term_ids(queryable, index, required_ids, _optional_ids) do
+    if duckdb?(index) do
+      join_required_term_candidates(queryable, index, required_ids)
+    else
+      where(queryable, [fragment], fragment("? @> ?", fragment.terms, ^required_ids))
+    end
+  end
+
+  defp join_required_term_candidates(queryable, index, required_ids) do
+    candidates = duckdb_required_term_candidates(index, required_ids)
+
+    join(queryable, :inner, [fragment], candidate in subquery(candidates),
+      on: candidate.fragment_id == fragment.id
+    )
+  end
+
+  defp duckdb_required_term_candidates(index, ids) do
+    required_count = length(ids)
+
+    from(term in Options.fragment_terms_source(index.prefix),
+      where: term.term_id in ^ids,
+      group_by: term.fragment_id,
+      having: count(term.term_id, :distinct) == ^required_count,
+      select: term.fragment_id
+    )
+  end
+
+  defp duckdb_any_term_candidates(index, ids) do
+    from(term in Options.fragment_terms_source(index.prefix),
+      where: term.term_id in ^ids,
+      distinct: term.fragment_id,
+      select: term.fragment_id
+    )
   end
 
   defp hit({%FragmentRecord{} = record, source, path}, _query, required_id_set, optional_id_set) do

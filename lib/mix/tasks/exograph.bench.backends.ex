@@ -18,7 +18,7 @@ defmodule Mix.Tasks.Exograph.Bench.Backends do
   `postgres_plain`, `postgres_bm25`, `duckdb_plain`, and `duckdb_bm25`.
   """
 
-  @tables ~w(tree_nodes call_edges graph_nodes references definitions comments fragments terms files package_versions packages schema_migrations)
+  @tables ~w(tree_nodes call_edges graph_nodes references definitions comments fragments fragment_terms terms files package_versions packages schema_migrations)
 
   @impl true
   def run(args) do
@@ -185,12 +185,13 @@ defmodule Mix.Tasks.Exograph.Bench.Backends do
 
           counts = Enum.map(samples, &elem(&1, 1))
           times = Enum.map(samples, &elem(&1, 0))
+          {min_ms, max_ms} = min_max(times)
 
           {name,
            %{
              median_ms: median(times),
-             min_ms: Enum.min(times),
-             max_ms: Enum.max(times),
+             min_ms: min_ms,
+             max_ms: max_ms,
              result_count: median(counts)
            }}
         rescue
@@ -213,12 +214,13 @@ defmodule Mix.Tasks.Exograph.Bench.Backends do
 
         counts = Enum.map(samples, &elem(&1, 1))
         times = Enum.map(samples, &elem(&1, 0))
+        {min_ms, max_ms} = min_max(times)
 
         {name,
          %{
            median_ms: median(times),
-           min_ms: Enum.min(times),
-           max_ms: Enum.max(times),
+           min_ms: min_ms,
+           max_ms: max_ms,
            result_count: median(counts)
          }}
       rescue
@@ -277,10 +279,11 @@ defmodule Mix.Tasks.Exograph.Bench.Backends do
     sql
     |> String.split("?")
     |> Enum.with_index()
-    |> Enum.map_join(fn
+    |> Enum.map(fn
       {part, 0} -> part
-      {part, index} -> "$#{index}#{part}"
+      {part, index} -> ["$", Integer.to_string(index), part]
     end)
+    |> IO.iodata_to_binary()
   end
 
   defp timed(fun) do
@@ -288,6 +291,12 @@ defmodule Mix.Tasks.Exograph.Bench.Backends do
     result = fun.()
     stop = System.monotonic_time(:microsecond)
     {(stop - start) / 1000, result}
+  end
+
+  defp min_max([first | rest]) do
+    Enum.reduce(rest, {first, first}, fn value, {min, max} ->
+      {Kernel.min(min, value), Kernel.max(max, value)}
+    end)
   end
 
   defp median(values) do
@@ -333,19 +342,28 @@ defmodule Mix.Tasks.Exograph.Bench.Backends do
     all_query_names(results)
     |> Enum.each(fn name ->
       line =
-        Enum.map(results, fn result ->
+        results
+        |> Enum.map(fn result ->
           case Keyword.fetch(result.queries, name) do
             {:ok, %{error: error}} ->
-              "#{result.label}=error(#{short_error(error)})"
+              [to_string(result.label), "=error(", short_error(error), ")"]
 
             {:ok, stats} ->
-              "#{result.label}=#{format_ms(stats.median_ms)}ms(n=#{stats.result_count})"
+              [
+                to_string(result.label),
+                "=",
+                format_ms(stats.median_ms),
+                "ms(n=",
+                to_string(stats.result_count),
+                ")"
+              ]
 
             :error ->
-              "#{result.label}=n/a"
+              [to_string(result.label), "=n/a"]
           end
         end)
-        |> Enum.join("  ")
+        |> Enum.intersperse("  ")
+        |> IO.iodata_to_binary()
 
       Mix.shell().info("  #{name}: #{line}")
     end)
@@ -378,7 +396,7 @@ defmodule Mix.Tasks.Exograph.Bench.Backends do
 
   defp short_error(error) do
     error
-    |> String.split("\n")
+    |> String.split("\n", parts: 2)
     |> hd()
     |> String.slice(0, 80)
   end

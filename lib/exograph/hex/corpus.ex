@@ -102,6 +102,8 @@ defmodule Exograph.Hex.Corpus do
   defp finalize_bm25!(:duckdb, repo, prefix, opts) do
     if Keyword.get(opts, :bm25?, true) do
       Exograph.DuckDB.create_bm25_indexes!(repo: repo, prefix: prefix)
+    else
+      Exograph.DuckDB.optimize_structural_indexes!(repo: repo, prefix: prefix)
     end
   end
 
@@ -291,17 +293,5 @@ defmodule Exograph.Hex.Corpus do
     ]
   end
 
-  defp format_duration(seconds) when seconds < 60, do: "#{round(seconds)}s"
-
-  defp format_duration(seconds) when seconds < 3600 do
-    m = div(round(seconds), 60)
-    s = rem(round(seconds), 60)
-    "#{m}m#{String.pad_leading("#{s}", 2, "0")}s"
-  end
-
-  defp format_duration(seconds) do
-    h = div(round(seconds), 3600)
-    m = div(rem(round(seconds), 3600), 60)
-    "#{h}h#{String.pad_leading("#{m}", 2, "0")}m"
-  end
+  defp format_duration(seconds), do: Exograph.Duration.format(seconds)
 end

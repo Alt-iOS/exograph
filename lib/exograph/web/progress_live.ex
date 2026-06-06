@@ -155,16 +155,7 @@ defmodule Exograph.Web.ProgressLive do
 
   defp elapsed(_), do: "—"
 
-  defp format_duration(s) when s < 60, do: "#{round(s)}s"
-
-  defp format_duration(s) when s < 3600,
-    do: "#{div(round(s), 60)}m#{String.pad_leading("#{rem(round(s), 60)}", 2, "0")}s"
-
-  defp format_duration(s) do
-    h = div(round(s), 3600)
-    m = div(rem(round(s), 3600), 60)
-    "#{h}h#{String.pad_leading("#{m}", 2, "0")}m"
-  end
+  defp format_duration(seconds), do: Exograph.Duration.format(seconds)
 
   defp status_badge(:idle), do: "bg-zinc-800 text-zinc-500"
   defp status_badge(:running), do: "bg-blue-500/15 text-blue-400"

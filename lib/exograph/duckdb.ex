@@ -42,6 +42,23 @@ defmodule Exograph.DuckDB do
     create_fts_index!(repo, prefix, "definitions", :id, [:name, :module, :qualified_name, :kind])
     create_fts_index!(repo, prefix, "references", :id, [:name, :module, :qualified_name, :kind])
 
+    optimize_structural_indexes!(repo: repo, prefix: prefix)
+
+    :ok
+  end
+
+  @doc "Sorts DuckDB structural inverted tables for zonemap-friendly term lookups."
+  def optimize_structural_indexes!(opts) do
+    repo = Keyword.fetch!(opts, :repo)
+    prefix = Keyword.get(opts, :prefix, "exograph")
+    table = "#{prefix}_fragment_terms"
+
+    repo.query!(
+      ~s|CREATE OR REPLACE TABLE "#{table}" AS SELECT DISTINCT term_id, fragment_id FROM "#{table}" ORDER BY term_id, fragment_id|,
+      [],
+      timeout: :infinity
+    )
+
     :ok
   end
 

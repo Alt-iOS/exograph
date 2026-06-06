@@ -63,6 +63,9 @@ defmodule Exograph.Postgres.Options do
   def call_edges_source(prefix), do: {"#{prefix}_call_edges", Exograph.Postgres.CallEdgeRecord}
   def terms_source(prefix), do: {"#{prefix}_terms", Exograph.Postgres.TermRecord}
 
+  def fragment_terms_source(prefix),
+    do: {"#{prefix}_fragment_terms", Exograph.Postgres.FragmentTermRecord}
+
   def migrate(opts) do
     if Keyword.get(opts, :migrate?, false), do: Postgres.migrate!(opts)
   end

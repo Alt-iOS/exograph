@@ -77,10 +77,11 @@ defmodule Exograph.Web.SafeEval do
     |> Keyword.get_values(:join)
     |> Enum.reduce_while({:ok, []}, fn join_ast, {:ok, acc} ->
       case extract_join(join_ast, parent_binding) do
-        {:ok, join} -> {:cont, {:ok, acc ++ [join]}}
+        {:ok, join} -> {:cont, {:ok, [join | acc]}}
         {:error, _} = err -> {:halt, err}
       end
     end)
+    |> reverse_ok()
   end
 
   defp extract_join(
@@ -108,10 +109,11 @@ defmodule Exograph.Web.SafeEval do
     |> Keyword.get_values(:where)
     |> Enum.reduce_while({:ok, []}, fn where_ast, {:ok, acc} ->
       case extract_predicate(where_ast, all_bindings) do
-        {:ok, pred} -> {:cont, {:ok, acc ++ [pred]}}
+        {:ok, pred} -> {:cont, {:ok, [pred | acc]}}
         {:error, _} = err -> {:halt, err}
       end
     end)
+    |> reverse_ok()
   end
 
   defp extract_predicate({:matches, _, [binding_ast, pattern]}, _bindings)
@@ -206,12 +208,14 @@ defmodule Exograph.Web.SafeEval do
   end
 
   defp extract_values(list) when is_list(list) do
-    Enum.reduce_while(list, {:ok, []}, fn item, {:ok, acc} ->
+    list
+    |> Enum.reduce_while({:ok, []}, fn item, {:ok, acc} ->
       case extract_value(item) do
-        {:ok, v} -> {:cont, {:ok, acc ++ [v]}}
+        {:ok, value} -> {:cont, {:ok, [value | acc]}}
         {:error, _} = err -> {:halt, err}
       end
     end)
+    |> reverse_ok()
   end
 
   defp extract_select(clauses) do
@@ -231,6 +235,9 @@ defmodule Exograph.Web.SafeEval do
       _ -> {:error, error("Limit must be a positive integer")}
     end
   end
+
+  defp reverse_ok({:ok, values}), do: {:ok, Enum.reverse(values)}
+  defp reverse_ok({:error, _} = error), do: error
 
   defp error(message), do: %{message: message, markers: []}
 

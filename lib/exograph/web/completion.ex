@@ -87,7 +87,7 @@ defmodule Exograph.Web.Completion do
         String.starts_with?(Atom.to_string(mod), prefix),
         parts = Module.split(mod),
         length(parts) >= depth,
-        name = Enum.at(parts, depth - 1),
+        name = module_part(parts, depth - 1),
         child = parts |> Enum.take(depth) |> Module.concat(),
         uniq: true,
         do: item(name, "module", module_detail(child))
@@ -129,21 +129,22 @@ defmodule Exograph.Web.Completion do
     imports =
       for {mod, funs} <- @eval_env.functions ++ @eval_env.macros,
           {name, arity} <- funs,
-          name_str = Atom.to_string(name),
-          String.starts_with?(name_str, hint),
-          not String.starts_with?(name_str, "__"),
+          name_string = Atom.to_string(name),
+          String.starts_with?(name_string, hint),
+          not String.starts_with?(name_string, "__"),
           do:
             item("#{name}/#{arity}", "function", function_detail(mod, name, arity),
-              insert_text: name_str
+              insert_text: name_string
             )
 
-    special =
-      for {name, arity} <- Kernel.SpecialForms.__info__(:macros),
-          name_str = Atom.to_string(name),
-          String.starts_with?(name_str, hint),
-          do: item("#{name}/#{arity}", "function", "Kernel.SpecialForms", insert_text: name_str)
+    imports ++ complete_special_forms(hint)
+  end
 
-    imports ++ special
+  defp complete_special_forms(hint) do
+    for {name, arity} <- Kernel.SpecialForms.__info__(:macros),
+        name_string = Atom.to_string(name),
+        String.starts_with?(name_string, hint),
+        do: item("#{name}/#{arity}", "function", "Kernel.SpecialForms", insert_text: name_string)
   end
 
   defp expand_dot_path({:var, _var}), do: :error
@@ -239,12 +240,7 @@ defmodule Exograph.Web.Completion do
   end
 
   defp function_detail(mod, name, arity) do
-    mod_name =
-      case Atom.to_string(mod) do
-        "Elixir." <> name -> name
-        name -> name
-      end
-
+    mod_name = module_name(mod)
     doc = fetch_function_doc(mod, name, arity)
     if doc, do: "#{mod_name} — #{doc}", else: mod_name
   end
@@ -254,7 +250,7 @@ defmodule Exograph.Web.Completion do
       {:docs_v1, _, _, _format, _, _, docs} ->
         Enum.find_value(docs, fn
           {{_, ^name, ^arity}, _, _, %{"en" => doc}, _} ->
-            doc |> String.split("\n\n") |> List.first() |> String.trim()
+            doc |> first_paragraph() |> String.trim()
 
           _ ->
             nil
@@ -270,7 +266,7 @@ defmodule Exograph.Web.Completion do
   defp module_detail(mod) do
     case Code.fetch_docs(mod) do
       {:docs_v1, _, _, _, %{"en" => doc}, _, _} ->
-        doc |> String.split("\n\n") |> List.first() |> String.trim()
+        doc |> first_paragraph() |> String.trim()
 
       _ ->
         "module"
@@ -278,6 +274,17 @@ defmodule Exograph.Web.Completion do
   rescue
     _ -> "module"
   end
+
+  defp module_part(parts, index), do: parts |> Enum.drop(index) |> hd()
+
+  defp module_name(mod) do
+    case Atom.to_string(mod) do
+      "Elixir." <> name -> name
+      name -> name
+    end
+  end
+
+  defp first_paragraph(doc), do: doc |> String.split("\n\n", parts: 2) |> hd()
 
   defp split_last_dot(string) do
     case :binary.matches(string, ".") do

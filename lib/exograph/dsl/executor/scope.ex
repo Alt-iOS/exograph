@@ -4,6 +4,7 @@ defmodule Exograph.DSL.Executor.Scope do
   import Ecto.Query
 
   alias Exograph.DSL.Compiler
+  alias Exograph.Postgres.Options
   alias Exograph.Postgres.InvertedIndex, as: PostgresInvertedIndex
 
   @doc false
@@ -82,7 +83,7 @@ defmodule Exograph.DSL.Executor.Scope do
   def where_structural_terms(queryable, index, plan) do
     case resolve_structural_term_ids(index, plan) do
       [] -> queryable
-      ids -> where(queryable, [fragment], fragment("? @> ?", fragment.terms, ^ids))
+      ids -> where_fragment_term_ids(queryable, index, ids)
     end
   end
 
@@ -90,9 +91,52 @@ defmodule Exograph.DSL.Executor.Scope do
   def where_structural_terms_second(queryable, index, plan) do
     case resolve_structural_term_ids(index, plan) do
       [] -> queryable
-      ids -> where(queryable, [_first, fragment], fragment("? @> ?", fragment.terms, ^ids))
+      ids -> where_second_fragment_term_ids(queryable, index, ids)
     end
   end
+
+  @doc false
+  def where_fragment_term_ids(queryable, _index, []), do: queryable
+
+  def where_fragment_term_ids(queryable, index, ids) do
+    if duckdb?(index) do
+      candidates = duckdb_term_candidates(index, ids)
+
+      join(queryable, :inner, [fragment], candidate in subquery(candidates),
+        on: candidate.fragment_id == fragment.id
+      )
+    else
+      where(queryable, [fragment], fragment("? @> ?", fragment.terms, ^ids))
+    end
+  end
+
+  @doc false
+  def where_second_fragment_term_ids(queryable, _index, []), do: queryable
+
+  def where_second_fragment_term_ids(queryable, index, ids) do
+    if duckdb?(index) do
+      candidates = duckdb_term_candidates(index, ids)
+
+      join(queryable, :inner, [_first, fragment], candidate in subquery(candidates),
+        on: candidate.fragment_id == fragment.id
+      )
+    else
+      where(queryable, [_first, fragment], fragment("? @> ?", fragment.terms, ^ids))
+    end
+  end
+
+  defp duckdb_term_candidates(index, ids) do
+    required_count = length(ids)
+
+    from(term in Options.fragment_terms_source(index.inverted.prefix),
+      where: term.term_id in ^ids,
+      group_by: term.fragment_id,
+      having: count(term.term_id, :distinct) == ^required_count,
+      select: term.fragment_id
+    )
+  end
+
+  defp duckdb?(index), do: index.inverted.repo.__adapter__() == Ecto.Adapters.QuackDB
 
   defp resolve_structural_term_ids(index, plan) do
     required_terms = Compiler.required_terms(plan.query)

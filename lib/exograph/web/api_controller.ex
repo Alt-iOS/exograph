@@ -96,7 +96,7 @@ defmodule Exograph.Web.APIController do
 
     counts =
       for table <-
-            ~w(packages package_versions files fragments definitions references comments call_edges terms),
+            ~w(packages package_versions files fragments fragment_terms definitions references comments call_edges terms),
           into: %{} do
         {:ok, %{rows: [[count]]}} =
           Ecto.Adapters.SQL.query(repo, "SELECT count(*) FROM #{prefix}_#{table}", [],

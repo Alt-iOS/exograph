@@ -190,36 +190,14 @@ defmodule Mix.Tasks.Exograph.Index.Hex do
     Application.put_env(:exograph, :web_repo, repo)
     Application.put_env(:exograph, :web_prefix, prefix)
 
-    endpoint_config =
-      Application.get_env(:exograph, Exograph.Web.Endpoint, [])
-      |> Keyword.merge(
-        adapter: Bandit.PhoenixAdapter,
-        http: [ip: {127, 0, 0, 1}, port: port],
-        url: [host: "localhost", port: port],
-        server: true,
-        secret_key_base: :crypto.strong_rand_bytes(64) |> Base.encode64(),
-        live_view: [signing_salt: :crypto.strong_rand_bytes(8) |> Base.encode64()],
-        pubsub_server: Exograph.Web.PubSub,
-        render_errors: [
-          formats: [html: Exograph.Web.ErrorHTML, json: Exograph.Web.ErrorJSON],
-          layout: false
-        ],
-        check_origin: false
-      )
-
-    Application.put_env(:exograph, Exograph.Web.Endpoint, endpoint_config)
+    Exograph.Web.Server.put_endpoint_config(port)
 
     Exograph.Web.Monaco.ensure_bundled!()
     Mix.Task.rerun("volt.build")
 
     if Code.ensure_loaded?(Hammer), do: Exograph.Web.RateLimiter.start_link([])
 
-    {:ok, _} =
-      Supervisor.start_link([{Phoenix.PubSub, name: Exograph.Web.PubSub}],
-        strategy: :one_for_one
-      )
-
-    {:ok, _} = Exograph.Web.Endpoint.start_link()
+    {:ok, _} = Exograph.Web.Server.start_pubsub_and_endpoint!()
 
     Mix.shell().info([
       "Progress dashboard at ",

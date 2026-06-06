@@ -66,6 +66,11 @@ defmodule Exograph.Postgres.Migrations.CreateSchema do
 
     create_if_not_exists(unique_index(name("terms"), [:term], name: index_name("terms", "term")))
 
+    create_if_not_exists table(name("fragment_terms"), primary_key: false) do
+      add(:term_id, :integer, null: false)
+      add(:fragment_id, :integer, null: false)
+    end
+
     create_if_not_exists table(name("fragments")) do
       add(:package_id, references(name("packages"), on_delete: :delete_all))
       add(:package_version_id, references(name("package_versions"), on_delete: :delete_all))
@@ -285,6 +290,8 @@ defmodule Exograph.Postgres.Migrations.CreateSchema do
     create_if_not_exists(
       index(name("tree_nodes"), [:fragment_id], name: index_name("tree_nodes", "fragment"))
     )
+
+    backfill_duckdb_fragment_terms()
   end
 
   def down do
@@ -295,6 +302,7 @@ defmodule Exograph.Postgres.Migrations.CreateSchema do
     drop_if_exists(table(name("definitions")))
     drop_if_exists(table(name("comments")))
     drop_if_exists(table(name("fragments")))
+    drop_if_exists(table(name("fragment_terms")))
     drop_if_exists(table(name("terms")))
     drop_if_exists(table(name("files")))
     drop_if_exists(table(name("package_versions")))
@@ -311,5 +319,17 @@ defmodule Exograph.Postgres.Migrations.CreateSchema do
 
   defp postgres? do
     Application.fetch_env!(:exograph, __MODULE__)[:backend] != :duckdb
+  end
+
+  defp backfill_duckdb_fragment_terms do
+    if Application.fetch_env!(:exograph, __MODULE__)[:backend] == :duckdb do
+      execute(~s|DELETE FROM "#{name("fragment_terms")}"|)
+
+      execute(~s|
+      INSERT INTO "#{name("fragment_terms")}" (term_id, fragment_id)
+      SELECT DISTINCT unnest(terms) AS term_id, id AS fragment_id
+      FROM "#{name("fragments")}"
+      |)
+    end
   end
 end

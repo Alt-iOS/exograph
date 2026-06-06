@@ -37,11 +37,11 @@ defmodule Exograph.Hex.Registry do
     Stream.iterate(1, &(&1 + 1))
     |> Enum.reduce_while([], fn page, acc ->
       batch = get_json!("#{@api_url}?sort=downloads&page=#{page}", timeout)
-      next = acc ++ batch
+      next = Enum.reverse(batch, acc)
 
       cond do
-        length(next) >= limit -> {:halt, Enum.take(next, limit)}
-        batch == [] -> {:halt, next}
+        length(next) >= limit -> {:halt, next |> Enum.reverse() |> Enum.take(limit)}
+        batch == [] -> {:halt, Enum.reverse(next)}
         true -> {:cont, next}
       end
     end)

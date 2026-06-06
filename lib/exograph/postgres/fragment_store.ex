@@ -375,7 +375,9 @@ defmodule Exograph.Postgres.FragmentStore do
       )
     end
 
-    resolved_hashed ++ unhashed
+    resolved = resolved_hashed ++ unhashed
+    upsert_fragment_terms(store, resolved)
+    resolved
   end
 
   defp normalize_terms(store, fragments) do
@@ -409,6 +411,38 @@ defmodule Exograph.Postgres.FragmentStore do
           %{fragment | terms: term_ids}
         end
       end)
+    end
+  end
+
+  defp upsert_fragment_terms(store, fragments) do
+    entries =
+      fragments
+      |> Enum.flat_map(fn fragment ->
+        if is_integer(fragment.id) do
+          fragment.terms
+          |> MapSet.to_list()
+          |> Enum.filter(&is_integer/1)
+          |> Enum.map(&%{fragment_id: fragment.id, term_id: &1})
+        else
+          []
+        end
+      end)
+      |> Enum.uniq()
+
+    if entries != [] do
+      fragment_ids = entries |> Enum.map(& &1.fragment_id) |> Enum.uniq()
+      source = Options.fragment_terms_source(store.prefix)
+
+      from(term in source, where: term.fragment_id in ^fragment_ids)
+      |> store.repo.delete_all(timeout: :infinity)
+
+      Postgres.bulk_insert_all(
+        store.repo,
+        source,
+        entries,
+        timeout: :infinity,
+        chunk_size: 10_000
+      )
     end
   end
 

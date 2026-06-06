@@ -198,13 +198,11 @@ defmodule Exograph do
                                                                             {inverted,
                                                                              fragment_store,
                                                                              tree_store}} ->
-      with {:ok, inverted} <- PostgresInvertedIndex.add(inverted, batch),
-           {:ok, fragment_store} <- PostgresFragmentStore.put(fragment_store, batch),
-           {:ok, tree_store} <- PostgresTreeStore.put_fragments(tree_store, batch) do
-        {:cont, {:ok, {inverted, fragment_store, tree_store}}}
-      else
-        {:error, reason} -> {:halt, {:error, reason}}
-      end
+      {:ok, inverted} = PostgresInvertedIndex.add(inverted, batch)
+      {:ok, fragment_store} = PostgresFragmentStore.put(fragment_store, batch)
+      {:ok, tree_store} = PostgresTreeStore.put_fragments(tree_store, batch)
+
+      {:cont, {:ok, {inverted, fragment_store, tree_store}}}
     end)
   end
 
@@ -264,8 +262,6 @@ defmodule Exograph do
 
   defp text_match?(source, literal) when is_binary(literal),
     do: Text.literal_match?(source, literal)
-
-  defp text_match?(source, %Regex{} = regex), do: Text.regex_match?(source, regex)
 
   defp comments_text(source) when is_binary(source), do: Exograph.File.comments_text(source)
 

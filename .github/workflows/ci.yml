@@ -37,16 +37,16 @@ jobs:
 
       - uses: erlef/setup-beam@v1
         with:
-          elixir-version: "1.19"
-          otp-version: "27"
+          elixir-version: "1.20"
+          otp-version: "29"
 
       - uses: actions/cache@v4
         with:
           path: |
             deps
             _build
-          key: mix-27-1.19-${{ hashFiles('mix.lock') }}
-          restore-keys: mix-27-1.19-
+          key: mix-29-1.20-${{ hashFiles('mix.lock') }}
+          restore-keys: mix-29-1.20-
 
       - run: mix deps.get
       - run: mix compile --warnings-as-errors

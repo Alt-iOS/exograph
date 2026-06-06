@@ -16,10 +16,8 @@ defmodule Exograph.Web.QueryExecutor do
       :timer.tc(fn ->
         case mode do
           "text" ->
-            case Exograph.search_text(index, query_string, limit: limit, skip: skip) do
-              {:ok, results} -> {:ok, results, limit, nil}
-              error -> error
-            end
+            {:ok, results} = Exograph.search_text(index, query_string, limit: limit, skip: skip)
+            {:ok, results, limit, nil}
 
           _ ->
             case SafeEval.eval(query_string) do
@@ -53,13 +51,5 @@ defmodule Exograph.Web.QueryExecutor do
       {:ok, results} -> {:ok, results, limit, nil}
       error -> error
     end
-  end
-
-  defp run_parsed(_index, other, _limit, _skip) do
-    {:error,
-     %{
-       message: "Expected a DSL query or pattern string, got: #{inspect(other, limit: 200)}",
-       markers: []
-     }}
   end
 end

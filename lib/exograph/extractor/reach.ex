@@ -199,8 +199,6 @@ defmodule Exograph.Extractor.Reach do
   defp maybe_field(nil, _field), do: nil
   defp maybe_field(struct, field), do: Map.get(struct, field)
 
-  defp module_name(nil), do: nil
-
   defp module_name(module) when is_atom(module),
     do: Atom.to_string(module) |> String.trim_leading("Elixir.")
 

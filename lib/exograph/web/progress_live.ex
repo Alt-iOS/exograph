@@ -157,11 +157,9 @@ defmodule Exograph.Web.ProgressLive do
 
   defp format_duration(seconds), do: Exograph.Duration.format(seconds)
 
-  defp status_badge(:idle), do: "bg-zinc-800 text-zinc-500"
   defp status_badge(:running), do: "bg-blue-500/15 text-blue-400"
   defp status_badge(:done), do: "bg-green-500/15 text-green-400"
 
-  defp status_label(:idle), do: "Idle"
   defp status_label(:running), do: "Running"
   defp status_label(:done), do: "Complete"
 

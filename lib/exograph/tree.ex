@@ -103,11 +103,11 @@ defmodule Exograph.Tree do
     if module, do: "#{module}.#{fun}/#{length(args)}", else: "#{fun}/#{length(args)}"
   end
 
-  defp label({name, _, args}) when is_atom(name) and is_list(args), do: "#{name}/#{length(args)}"
-
   defp label({:__aliases__, _, parts}) when is_list(parts) do
     if Enum.all?(parts, &is_atom/1), do: Enum.join(parts, "."), else: nil
   end
+
+  defp label({name, _, args}) when is_atom(name) and is_list(args), do: "#{name}/#{length(args)}"
 
   defp label(atom) when is_atom(atom), do: Atom.to_string(atom)
   defp label(binary) when is_binary(binary), do: binary

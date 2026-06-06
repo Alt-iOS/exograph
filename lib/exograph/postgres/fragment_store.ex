@@ -436,13 +436,58 @@ defmodule Exograph.Postgres.FragmentStore do
       from(term in source, where: term.fragment_id in ^fragment_ids)
       |> store.repo.delete_all(timeout: :infinity)
 
+      bulk_insert_fragment_terms(store.repo, source, entries)
+    end
+  end
+
+  defp bulk_insert_fragment_terms(repo, source, entries) do
+    bulk_insert_duckdb_or_postgres(repo, source, entries,
+      chunk_size: 10_000,
+      columns: [term_id: :integer, fragment_id: :integer]
+    )
+  end
+
+  defp bulk_insert_facts(repo, source, entries, opts) do
+    Postgres.bulk_insert_all(
+      repo,
+      source,
+      entries,
+      chunk_size: Keyword.fetch!(opts, :chunk_size),
+      on_conflict: :nothing,
+      timeout: :infinity
+    )
+  end
+
+  defp bulk_insert_duckdb_or_postgres(repo, {table, _schema} = source, entries, opts) do
+    if repo.__adapter__() == Ecto.Adapters.QuackDB do
+      bulk_insert_duckdb(repo, table, entries, opts)
+    else
       Postgres.bulk_insert_all(
-        store.repo,
+        repo,
         source,
         entries,
-        timeout: :infinity,
-        chunk_size: 10_000
+        chunk_size: Keyword.fetch!(opts, :chunk_size),
+        on_conflict: :nothing,
+        timeout: :infinity
       )
+    end
+  end
+
+  defp bulk_insert_duckdb(repo, table, entries, opts) do
+    {:ok, conn} =
+      QuackDB.start_link(uri: repo.config()[:uri], token: repo.config()[:token] || "")
+
+    append_opts = [chunk_every: Keyword.fetch!(opts, :chunk_size), timeout: :infinity]
+
+    append_opts =
+      if opts[:columns],
+        do: Keyword.put(append_opts, :columns, opts[:columns]),
+        else: append_opts
+
+    try do
+      QuackDB.insert_stream!(conn, table, entries, append_opts)
+    after
+      GenServer.stop(conn)
     end
   end
 
@@ -682,14 +727,7 @@ defmodule Exograph.Postgres.FragmentStore do
         |> Map.merge(%{inserted_at: now, updated_at: now})
       end)
 
-    Postgres.bulk_insert_all(
-      store.repo,
-      source,
-      entries,
-      chunk_size: 3_000,
-      on_conflict: :nothing,
-      timeout: :infinity
-    )
+    bulk_insert_facts(store.repo, source, entries, chunk_size: 3_000)
   end
 
   defp package_from_version(%PackageVersion{} = version) do

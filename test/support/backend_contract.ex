@@ -44,9 +44,6 @@ defmodule Exograph.BackendContract do
         Process.exit(pid, :normal)
         true
 
-      {:error, {:already_started, _pid}} ->
-        true
-
       {:error, _reason} ->
         false
     end

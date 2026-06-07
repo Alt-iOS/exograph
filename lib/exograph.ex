@@ -50,6 +50,32 @@ defmodule Exograph do
     do_index(ExASTExtractor.stream_sources(sources, extractor_opts(opts)), opts)
   end
 
+  @doc false
+  def open_sharded(manifest, opts \\ []) do
+    manifest = Exograph.DuckDBShards.load_manifest(manifest)
+
+    with {:ok, shards} <- Exograph.DuckDBShards.open(manifest, opts) do
+      shard_indexes =
+        Enum.map(shards, fn shard ->
+          {:ok, index} =
+            Exograph.DuckDBShards.with_repo(shard, fn ->
+              Exograph.index([],
+                backend: :duckdb,
+                repo: shard.repo,
+                prefix: shard.prefix,
+                migrate?: false,
+                bm25?: Keyword.get(opts, :bm25?, true),
+                duckdb_threads: Keyword.get(opts, :duckdb_threads)
+              )
+            end)
+
+          Map.put(shard, :index, index)
+        end)
+
+      {:ok, ShardedIndex.new(shard_indexes, manifest: manifest)}
+    end
+  end
+
   defp do_index(fragments, opts) do
     store_opts = store_opts(opts)
 
@@ -328,6 +354,7 @@ defmodule Exograph do
     shard_opts = Keyword.put(opts, :limit, limit + skip)
 
     shards
+    |> candidate_shards(opts)
     |> Task.async_stream(
       fn shard ->
         Exograph.DuckDBShards.with_repo(shard, fn ->
@@ -344,6 +371,41 @@ defmodule Exograph do
       {:exit, reason}, _acc -> {:halt, {:error, reason}}
     end)
   end
+
+  defp candidate_shards(shards, opts) do
+    case package_version_filter(opts) do
+      nil -> shards
+      package_version -> Enum.filter(shards, &shard_has_package_version?(&1, package_version))
+    end
+  end
+
+  defp package_version_filter(opts) do
+    case Keyword.get(opts, :package_version) do
+      nil -> nil
+      value when is_integer(value) -> nil
+      value -> value
+    end
+  end
+
+  defp shard_has_package_version?(%{packages: packages}, package_version)
+       when is_list(packages) do
+    Enum.any?(packages, &package_version_match?(&1, package_version))
+  end
+
+  defp shard_has_package_version?(_shard, _package_version), do: true
+
+  defp package_version_match?(package, package_version) do
+    package_name(package) == package_name(package_version) and
+      package_version(package) == package_version(package_version)
+  end
+
+  defp package_name(value) when is_map(value), do: Map.get(value, :name)
+  defp package_name(value) when is_list(value), do: Keyword.get(value, :name)
+  defp package_name(_value), do: nil
+
+  defp package_version(value) when is_map(value), do: Map.get(value, :version)
+  defp package_version(value) when is_list(value), do: Keyword.get(value, :version)
+  defp package_version(_value), do: nil
 
   defp shard_index(%Index{} = index), do: index
   defp shard_index(%{index: %Index{} = index}), do: index

@@ -164,6 +164,7 @@ defmodule Exograph.Hex.Corpus do
       end)
 
     manifest = Exograph.DuckDBShards.manifest(shard_indexes, prefix: prefix)
+    write_manifest(manifest, Keyword.get(opts, :manifest_path))
 
     results
     |> combine_results()
@@ -194,6 +195,16 @@ defmodule Exograph.Hex.Corpus do
   end
 
   defp package_keys(entries), do: Enum.map(entries, &Map.take(&1, [:name, :version]))
+
+  defp write_manifest(_manifest, nil), do: :ok
+
+  defp write_manifest(manifest, path) do
+    path
+    |> Path.dirname()
+    |> File.mkdir_p!()
+
+    File.write!(path, :erlang.term_to_binary(manifest))
+  end
 
   defp combine_results(results) do
     Enum.reduce(results, %{ok: 0, skipped: 0, error: 0}, fn result, acc ->

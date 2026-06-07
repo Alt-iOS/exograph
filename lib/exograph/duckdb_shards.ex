@@ -1,6 +1,32 @@
 defmodule Exograph.DuckDBShards do
   @moduledoc false
 
+  defmodule Manifest do
+    @moduledoc false
+
+    defstruct version: 1,
+              backend: :duckdb,
+              shard_count: 0,
+              prefix: nil,
+              shards: []
+  end
+
+  defmodule Shard do
+    @moduledoc false
+
+    defstruct id: nil,
+              repo: nil,
+              dynamic_repo: nil,
+              prefix: nil,
+              database: nil,
+              uri: nil,
+              token: nil,
+              server: nil,
+              packages: [],
+              index: nil,
+              entries: []
+  end
+
   def start_managed(count, opts \\ []) when count > 0 do
     Application.ensure_all_started(:ecto_sql)
     Application.ensure_all_started(:quackdb)
@@ -31,7 +57,7 @@ defmodule Exograph.DuckDBShards do
         uri = QuackDB.Server.uri(server)
         dynamic_repo = start_repo!(name, uri, token, Keyword.get(opts, :pool_size, 1))
 
-        %{
+        %Shard{
           id: index,
           repo: Exograph.DuckDBRepo,
           dynamic_repo: dynamic_repo,
@@ -39,29 +65,36 @@ defmodule Exograph.DuckDBShards do
           database: database,
           uri: uri,
           token: token,
-          server: server,
-          packages: []
+          server: server
         }
       end)
 
     {:ok, shards}
   end
 
-  def open(manifest, opts \\ []) do
-    shards = Map.fetch!(manifest, :shards)
+  def load_manifest(%Manifest{} = manifest), do: manifest
+
+  def load_manifest(path) when is_binary(path) do
+    path
+    |> File.read!()
+    |> :erlang.binary_to_term([:safe])
+  end
+
+  def open(manifest, opts \\ [])
+
+  def open(%Manifest{} = manifest, opts) do
     port_base = Keyword.get(opts, :port_base, 9_700)
     duckdb_threads = Keyword.get(opts, :duckdb_threads)
 
     opened =
-      Enum.map(shards, fn shard ->
-        id = Map.fetch!(shard, :id)
+      Enum.map(manifest.shards, fn %Shard{} = shard ->
         token = Keyword.get(opts, :token, "exograph-shard-#{System.unique_integer([:positive])}")
-        endpoint = "quack:localhost:#{port_base + id}"
+        endpoint = "quack:localhost:#{port_base + shard.id}"
 
         {:ok, server} =
           QuackDB.Server.start_link(
             duckdb: Keyword.get(opts, :duckdb, :managed),
-            database: Map.fetch!(shard, :database),
+            database: shard.database,
             endpoint: endpoint,
             token: token,
             settings: duckdb_settings(duckdb_threads)
@@ -71,16 +104,20 @@ defmodule Exograph.DuckDBShards do
         uri = QuackDB.Server.uri(server)
         dynamic_repo = start_repo!(name, uri, token, Keyword.get(opts, :pool_size, 1))
 
-        shard
-        |> Map.put(:repo, Exograph.DuckDBRepo)
-        |> Map.put(:dynamic_repo, dynamic_repo)
-        |> Map.put(:uri, uri)
-        |> Map.put(:token, token)
-        |> Map.put(:server, server)
+        %{
+          shard
+          | repo: Exograph.DuckDBRepo,
+            dynamic_repo: dynamic_repo,
+            uri: uri,
+            token: token,
+            server: server
+        }
       end)
 
     {:ok, opened}
   end
+
+  def open(path, opts) when is_binary(path), do: path |> load_manifest() |> open(opts)
 
   def with_repo(%{dynamic_repo: dynamic_repo}, fun) when is_function(fun, 0) do
     previous = Exograph.DuckDBRepo.get_dynamic_repo()
@@ -96,14 +133,12 @@ defmodule Exograph.DuckDBShards do
   def with_repo(_shard, fun) when is_function(fun, 0), do: fun.()
 
   def manifest(shards, opts \\ []) do
-    %{
-      version: 1,
-      backend: :duckdb,
+    %Manifest{
       shard_count: length(shards),
       prefix: Keyword.get(opts, :prefix),
       shards:
         Enum.map(shards, fn shard ->
-          %{
+          %Shard{
             id: shard.id,
             prefix: shard.prefix,
             database: shard.database,

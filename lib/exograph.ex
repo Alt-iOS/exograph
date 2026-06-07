@@ -26,6 +26,7 @@ defmodule Exograph do
     Hit,
     Index,
     ReferenceHit,
+    ShardedIndex,
     Similarity,
     StructuralQuery,
     Text,
@@ -86,6 +87,14 @@ defmodule Exograph do
           {:ok, [map()]} | {:error, term()}
   def search(index, pattern_or_selector, opts \\ [])
 
+  def search(%ShardedIndex{} = index, pattern_or_selector, opts) do
+    compiled = compile(pattern_or_selector)
+
+    index
+    |> fanout(:search, [compiled], opts)
+    |> merge_hits(opts)
+  end
+
   def search(%Index{} = index, pattern_or_selector, opts) do
     compiled = compile(pattern_or_selector)
     limit = Keyword.get(opts, :limit, 50)
@@ -116,6 +125,10 @@ defmodule Exograph do
   @spec all(Index.t(), DSL.Query.t(), keyword()) :: {:ok, [map()]} | {:error, term()}
   def all(index, query, opts \\ [])
 
+  def all(%ShardedIndex{} = index, %DSL.Query{} = query, opts) do
+    fanout(index, :all, [query], opts)
+  end
+
   def all(%Index{} = index, %DSL.Query{source: :fragment} = query, opts) do
     DSL.Executor.all(index, query, opts)
   end
@@ -125,12 +138,28 @@ defmodule Exograph do
   end
 
   @spec search_callers(Index.t(), String.t(), keyword()) :: {:ok, [Exograph.CallEdge.t()]}
-  def search_callers(%Index{} = index, callee, opts \\ []) when is_binary(callee) do
+  def search_callers(index, callee, opts \\ [])
+
+  def search_callers(%ShardedIndex{} = index, callee, opts) when is_binary(callee) do
+    index
+    |> fanout(:search_callers, [callee], opts)
+    |> merge_hits(opts)
+  end
+
+  def search_callers(%Index{} = index, callee, opts) when is_binary(callee) do
     PostgresInvertedIndex.search_callers(index.inverted, callee, opts)
   end
 
   @spec search_callees(Index.t(), String.t(), keyword()) :: {:ok, [Exograph.CallEdge.t()]}
-  def search_callees(%Index{} = index, caller, opts \\ []) when is_binary(caller) do
+  def search_callees(index, caller, opts \\ [])
+
+  def search_callees(%ShardedIndex{} = index, caller, opts) when is_binary(caller) do
+    index
+    |> fanout(:search_callees, [caller], opts)
+    |> merge_hits(opts)
+  end
+
+  def search_callees(%Index{} = index, caller, opts) when is_binary(caller) do
     PostgresInvertedIndex.search_callees(index.inverted, caller, opts)
   end
 
@@ -143,6 +172,12 @@ defmodule Exograph do
   @doc "Searches source text by literal string or regex."
   @spec search_text(Index.t(), String.t() | Regex.t(), keyword()) :: {:ok, [TextHit.t()]}
   def search_text(index, literal_or_regex, opts \\ [])
+
+  def search_text(%ShardedIndex{} = index, literal_or_regex, opts) do
+    index
+    |> fanout(:search_text, [literal_or_regex], opts)
+    |> merge_hits(opts)
+  end
 
   def search_text(%Index{} = index, %Regex{} = regex, opts) do
     {:ok, hits} = PostgresInvertedIndex.search_text_regex(index.inverted, regex, opts)
@@ -159,7 +194,15 @@ defmodule Exograph do
 
   @doc false
   @spec search_comments(Index.t(), String.t(), keyword()) :: {:ok, [CommentHit.t()]}
-  def search_comments(%Index{} = index, literal, opts \\ []) when is_binary(literal) do
+  def search_comments(index, literal, opts \\ [])
+
+  def search_comments(%ShardedIndex{} = index, literal, opts) when is_binary(literal) do
+    index
+    |> fanout(:search_comments, [literal], opts)
+    |> merge_hits(opts)
+  end
+
+  def search_comments(%Index{} = index, literal, opts) when is_binary(literal) do
     {:ok, hits} = PostgresInvertedIndex.search_comments(index.inverted, literal, opts)
 
     hits
@@ -169,7 +212,16 @@ defmodule Exograph do
 
   @doc false
   @spec search_definitions(Index.t(), String.t(), keyword()) :: {:ok, [DefinitionHit.t()]}
-  def search_definitions(%Index{} = index, partial_name, opts \\ [])
+  def search_definitions(index, partial_name, opts \\ [])
+
+  def search_definitions(%ShardedIndex{} = index, partial_name, opts)
+      when is_binary(partial_name) do
+    index
+    |> fanout(:search_definitions, [partial_name], opts)
+    |> merge_hits(opts)
+  end
+
+  def search_definitions(%Index{} = index, partial_name, opts)
       when is_binary(partial_name) do
     case PostgresInvertedIndex.search_definitions(index.inverted, partial_name, opts) do
       {:ok, hits} -> typed_hits(hits, DefinitionHit)
@@ -179,7 +231,16 @@ defmodule Exograph do
 
   @doc false
   @spec search_references(Index.t(), String.t(), keyword()) :: {:ok, [ReferenceHit.t()]}
-  def search_references(%Index{} = index, partial_name, opts \\ [])
+  def search_references(index, partial_name, opts \\ [])
+
+  def search_references(%ShardedIndex{} = index, partial_name, opts)
+      when is_binary(partial_name) do
+    index
+    |> fanout(:search_references, [partial_name], opts)
+    |> merge_hits(opts)
+  end
+
+  def search_references(%Index{} = index, partial_name, opts)
       when is_binary(partial_name) do
     case PostgresInvertedIndex.search_references(index.inverted, partial_name, opts) do
       {:ok, hits} -> typed_hits(hits, ReferenceHit)
@@ -189,6 +250,7 @@ defmodule Exograph do
 
   @doc false
   @spec compile(ExAST.Pattern.pattern() | ExAST.Selector.t()) :: StructuralQuery.t()
+  def compile(%StructuralQuery{} = query), do: query
   def compile(%ExAST.Selector{} = selector), do: StructuralQuery.selector(selector)
   def compile(pattern), do: StructuralQuery.pattern(pattern)
 
@@ -259,6 +321,55 @@ defmodule Exograph do
       :extractors
     ])
   end
+
+  defp fanout(%ShardedIndex{shards: shards}, function, args, opts) do
+    limit = Keyword.get(opts, :limit, 50)
+    skip = Keyword.get(opts, :skip, 0)
+    shard_opts = Keyword.put(opts, :limit, limit + skip)
+
+    shards
+    |> Task.async_stream(
+      fn shard -> apply(__MODULE__, function, [shard | args] ++ [shard_opts]) end,
+      max_concurrency: Keyword.get(opts, :shard_concurrency, length(shards)),
+      timeout: Keyword.get(opts, :timeout, :infinity),
+      ordered: false
+    )
+    |> Enum.reduce_while({:ok, []}, fn
+      {:ok, {:ok, hits}}, {:ok, acc} -> {:cont, {:ok, hits ++ acc}}
+      {:ok, {:error, reason}}, _acc -> {:halt, {:error, reason}}
+      {:exit, reason}, _acc -> {:halt, {:error, reason}}
+    end)
+  end
+
+  defp merge_hits({:error, reason}, _opts), do: {:error, reason}
+
+  defp merge_hits({:ok, hits}, opts) do
+    limit = Keyword.get(opts, :limit, 50)
+    skip = Keyword.get(opts, :skip, 0)
+
+    {:ok,
+     hits
+     |> Enum.sort_by(&hit_sort_key/1)
+     |> Stream.drop(skip)
+     |> Enum.take(limit)}
+  end
+
+  defp hit_sort_key(hit) do
+    fragment = Map.get(hit, :fragment)
+    score = Map.get(hit, :score, 1.0) || 1.0
+
+    {
+      -score,
+      fragment_sort_value(fragment, :path),
+      fragment_sort_value(fragment, :line),
+      Map.get(hit, :id) || Map.get(fragment || %{}, :id) || 0
+    }
+  end
+
+  defp fragment_sort_value(nil, :path), do: ""
+  defp fragment_sort_value(nil, :line), do: 0
+  defp fragment_sort_value(fragment, :path), do: Map.get(fragment, :path) || ""
+  defp fragment_sort_value(fragment, :line), do: Map.get(fragment, :line) || 0
 
   defp typed_hits(hits, module) do
     {:ok,

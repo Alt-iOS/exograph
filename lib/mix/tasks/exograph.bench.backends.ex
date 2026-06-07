@@ -294,6 +294,8 @@ defmodule Mix.Tasks.Exograph.Bench.Backends do
         Map.put(shard, :index, index)
       end)
 
+    sharded_index = Exograph.ShardedIndex.new(Enum.map(shard_indexes, & &1.index))
+
     %{
       label: label,
       backend: :duckdb_sharded,
@@ -303,7 +305,7 @@ defmodule Mix.Tasks.Exograph.Bench.Backends do
       corpus: combine_corpus_results(corpus_results),
       fragments: Enum.sum(Enum.map(shards, &count_rows(&1.repo, &1.prefix, "fragments"))),
       files: Enum.sum(Enum.map(shards, &count_rows(&1.repo, &1.prefix, "files"))),
-      queries: benchmark_sharded_queries(bm25?, shard_indexes, config)
+      queries: benchmark_sharded_queries(bm25?, sharded_index, config)
     }
   rescue
     error ->
@@ -430,17 +432,17 @@ defmodule Mix.Tasks.Exograph.Bench.Backends do
     end)
   end
 
-  defp benchmark_sharded_queries(bm25?, shards, config) do
+  defp benchmark_sharded_queries(bm25?, index, config) do
     raw_results =
       Enum.map(queries(bm25?), fn {name, table, where, params} ->
         try do
           Enum.each(1..config.warmup//1, fn _ ->
-            run_sharded_count_query(shards, table, where, params)
+            run_sharded_count_query(index, table, where, params)
           end)
 
           samples =
             Enum.map(1..config.iterations//1, fn _ ->
-              timed(fn -> run_sharded_count_query(shards, table, where, params) end)
+              timed(fn -> run_sharded_count_query(index, table, where, params) end)
             end)
 
           counts = Enum.map(samples, &elem(&1, 1))
@@ -459,51 +461,15 @@ defmodule Mix.Tasks.Exograph.Bench.Backends do
         end
       end)
 
-    raw_results ++ benchmark_sharded_api_queries(shards, config)
+    raw_results ++ benchmark_api_queries(index, config)
   end
 
-  defp run_sharded_count_query(shards, table, where, params) do
+  defp run_sharded_count_query(%Exograph.ShardedIndex{shards: shards}, table, where, params) do
     shards
     |> Task.async_stream(
-      fn shard -> run_count_query(:duckdb, shard.repo, shard.prefix, table, where, params) end,
-      max_concurrency: length(shards),
-      timeout: :infinity,
-      ordered: false
-    )
-    |> Enum.reduce(0, fn {:ok, count}, acc -> acc + count end)
-  end
-
-  defp benchmark_sharded_api_queries(shards, config) do
-    Enum.map(api_queries(), fn {name, fun} ->
-      try do
-        Enum.each(1..config.warmup//1, fn _ -> run_sharded_api_query(shards, fun) end)
-
-        samples =
-          Enum.map(1..config.iterations//1, fn _ ->
-            timed(fn -> run_sharded_api_query(shards, fun) end)
-          end)
-
-        counts = Enum.map(samples, &elem(&1, 1))
-        times = Enum.map(samples, &elem(&1, 0))
-        {min_ms, max_ms} = min_max(times)
-
-        {name,
-         %{
-           median_ms: median(times),
-           min_ms: min_ms,
-           max_ms: max_ms,
-           result_count: median(counts)
-         }}
-      rescue
-        error -> {name, %{error: Exception.message(error)}}
-      end
-    end)
-  end
-
-  defp run_sharded_api_query(shards, fun) do
-    shards
-    |> Task.async_stream(
-      fn shard -> run_api_query(shard.index, fun) end,
+      fn shard ->
+        run_count_query(:duckdb, shard.inverted.repo, shard.inverted.prefix, table, where, params)
+      end,
       max_concurrency: length(shards),
       timeout: :infinity,
       ordered: false

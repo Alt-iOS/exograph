@@ -49,11 +49,13 @@ defmodule Exograph.DuckDBSupport do
   end
 
   def drop_prefix(prefix) do
-    Enum.each(
-      ~w(tree_nodes call_edges graph_nodes references definitions comments fragments fragment_terms terms files package_versions packages schema_migrations),
-      fn suffix ->
-        Exograph.DuckDBRepo.query!(~s|DROP TABLE IF EXISTS "#{prefix}_#{suffix}"|, [])
-      end
-    )
+    if Process.whereis(Exograph.DuckDBRepo) do
+      Enum.each(
+        ~w(tree_nodes call_edges graph_nodes references definitions comments fragments fragment_terms terms files package_versions packages schema_migrations),
+        fn suffix ->
+          Exograph.DuckDBRepo.query!(~s|DROP TABLE IF EXISTS "#{prefix}_#{suffix}"|, [])
+        end
+      )
+    end
   end
 end

@@ -6,6 +6,14 @@ defmodule Exograph.Hex.Corpus do
   require Logger
 
   def index(opts \\ []) do
+    if Keyword.get(opts, :backend, :postgres) == :duckdb and Keyword.get(opts, :shards, 1) > 1 do
+      index_sharded(opts)
+    else
+      index_single(opts)
+    end
+  end
+
+  defp index_single(opts) do
     mode = Keyword.get(opts, :mode, :latest)
     concurrency = Keyword.get(opts, :concurrency, 4)
     repo = Keyword.fetch!(opts, :repo)
@@ -32,6 +40,7 @@ defmodule Exograph.Hex.Corpus do
       |> Stream.with_index()
       |> Task.async_stream(
         fn {entry, index} ->
+          set_dynamic_repo(opts)
           key = {entry.name, entry.version}
 
           if MapSet.member?(existing, key) do
@@ -87,6 +96,81 @@ defmodule Exograph.Hex.Corpus do
     results
   end
 
+  defp index_sharded(opts) do
+    shard_count = Keyword.fetch!(opts, :shards)
+    mode = Keyword.get(opts, :mode, :latest)
+    entries = list_entries(mode, opts)
+    entries_by_shard = entries_by_shard(entries, shard_count)
+    prefix = Keyword.get(opts, :prefix, "hex")
+
+    {:ok, shards} =
+      Exograph.DuckDBShards.start_managed(shard_count,
+        directory: Keyword.get_lazy(opts, :shard_directory, &System.tmp_dir!/0),
+        prefix: prefix,
+        port_base: Keyword.get(opts, :shard_port_base, 9_600),
+        duckdb_threads: Keyword.get(opts, :duckdb_threads)
+      )
+
+    shards =
+      Enum.map(shards, fn shard ->
+        shard
+        |> Map.put(:entries, Map.fetch!(entries_by_shard, shard.id))
+        |> Map.put(:packages, package_keys(Map.fetch!(entries_by_shard, shard.id)))
+      end)
+
+    Enum.each(shards, fn shard ->
+      Exograph.DuckDBShards.with_repo(shard, fn ->
+        Exograph.DuckDB.migrate!(repo: shard.repo, prefix: shard.prefix)
+      end)
+    end)
+
+    results =
+      shards
+      |> Task.async_stream(
+        fn shard ->
+          Exograph.DuckDBShards.with_repo(shard, fn ->
+            index_single(
+              opts
+              |> Keyword.put(:repo, shard.repo)
+              |> Keyword.put(:dynamic_repo, shard.dynamic_repo)
+              |> Keyword.put(:prefix, shard.prefix)
+              |> Keyword.put(:entries, shard.entries)
+              |> Keyword.put(:migrate?, false)
+              |> Keyword.put(:shards, 1)
+            )
+          end)
+        end,
+        max_concurrency: shard_count,
+        timeout: :infinity,
+        ordered: true
+      )
+      |> Enum.map(fn {:ok, result} -> result end)
+
+    shard_indexes =
+      Enum.map(shards, fn shard ->
+        {:ok, index} =
+          Exograph.DuckDBShards.with_repo(shard, fn ->
+            Exograph.index([],
+              backend: :duckdb,
+              repo: shard.repo,
+              prefix: shard.prefix,
+              migrate?: false,
+              bm25?: Keyword.get(opts, :bm25?, true),
+              duckdb_threads: Keyword.get(opts, :duckdb_threads)
+            )
+          end)
+
+        Map.put(shard, :index, index)
+      end)
+
+    manifest = Exograph.DuckDBShards.manifest(shard_indexes, prefix: prefix)
+
+    results
+    |> combine_results()
+    |> Map.put(:index, Exograph.ShardedIndex.new(shard_indexes, manifest: manifest))
+    |> Map.put(:manifest, manifest)
+  end
+
   defp list_entries(mode, opts) do
     case Keyword.fetch(opts, :entries) do
       {:ok, entries} -> entries
@@ -98,7 +182,31 @@ defmodule Exograph.Hex.Corpus do
   defp list_registry_entries(:top, opts), do: Registry.top(opts)
   defp list_registry_entries(:all, opts), do: Registry.all_versions(opts)
 
+  defp entries_by_shard(entries, shard_count) do
+    empty = Map.new(0..(shard_count - 1), &{&1, []})
+
+    entries
+    |> Enum.with_index()
+    |> Enum.reduce(empty, fn {entry, index}, acc ->
+      Map.update!(acc, rem(index, shard_count), &[entry | &1])
+    end)
+    |> Map.new(fn {index, entries} -> {index, Enum.reverse(entries)} end)
+  end
+
+  defp package_keys(entries), do: Enum.map(entries, &Map.take(&1, [:name, :version]))
+
+  defp combine_results(results) do
+    Enum.reduce(results, %{ok: 0, skipped: 0, error: 0}, fn result, acc ->
+      %{
+        ok: acc.ok + result.ok,
+        skipped: acc.skipped + result.skipped,
+        error: acc.error + result.error
+      }
+    end)
+  end
+
   defp configure_backend!(:duckdb, repo, opts) do
+    set_dynamic_repo(opts)
     Exograph.DuckDB.configure_threads!(repo, Keyword.get(opts, :duckdb_threads))
   end
 
@@ -144,6 +252,7 @@ defmodule Exograph.Hex.Corpus do
   end
 
   defp index_one(entry, index, opts) do
+    set_dynamic_repo(opts)
     repo = Keyword.fetch!(opts, :repo)
     prefix = Keyword.get(opts, :prefix, "hex")
     min_mass = Keyword.get(opts, :min_mass, 8)
@@ -197,6 +306,13 @@ defmodule Exograph.Hex.Corpus do
     end
 
     Path.join(parts)
+  end
+
+  defp set_dynamic_repo(opts) do
+    case Keyword.get(opts, :dynamic_repo) do
+      nil -> :ok
+      dynamic_repo -> Keyword.fetch!(opts, :repo).put_dynamic_repo(dynamic_repo)
+    end
   end
 
   # --- CLI output ---

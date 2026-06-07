@@ -329,7 +329,11 @@ defmodule Exograph do
 
     shards
     |> Task.async_stream(
-      fn shard -> apply(__MODULE__, function, [shard | args] ++ [shard_opts]) end,
+      fn shard ->
+        Exograph.DuckDBShards.with_repo(shard, fn ->
+          apply(__MODULE__, function, [shard_index(shard) | args] ++ [shard_opts])
+        end)
+      end,
       max_concurrency: Keyword.get(opts, :shard_concurrency, length(shards)),
       timeout: Keyword.get(opts, :timeout, :infinity),
       ordered: false
@@ -340,6 +344,9 @@ defmodule Exograph do
       {:exit, reason}, _acc -> {:halt, {:error, reason}}
     end)
   end
+
+  defp shard_index(%Index{} = index), do: index
+  defp shard_index(%{index: %Index{} = index}), do: index
 
   defp merge_hits({:error, reason}, _opts), do: {:error, reason}
 

@@ -9,14 +9,17 @@ defmodule Exograph.ShardedIndex do
 
   alias Exograph.Index
 
-  @type shard :: Index.t()
+  @type shard :: Index.t() | %{required(:index) => Index.t(), optional(:dynamic_repo) => term()}
 
   @type t :: %__MODULE__{
-          shards: [shard()]
+          shards: [shard()],
+          manifest: map() | nil
         }
 
-  defstruct shards: []
+  defstruct shards: [], manifest: nil
 
-  @spec new([Index.t()]) :: t()
-  def new(shards) when is_list(shards), do: %__MODULE__{shards: shards}
+  @spec new([shard()], keyword()) :: t()
+  def new(shards, opts \\ []) when is_list(shards) do
+    %__MODULE__{shards: shards, manifest: Keyword.get(opts, :manifest)}
+  end
 end

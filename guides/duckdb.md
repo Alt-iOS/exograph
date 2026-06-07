@@ -96,10 +96,14 @@ Current indexing uses parallelism at several levels:
 
 For the current workload, full CPU saturation is not guaranteed. After DuckDB append/staging optimizations, remaining wall time is often split across Hex download/cache, BEAM parsing, ExAST/Reach extraction, term normalization, and per-package orchestration. Too much DuckDB internal threading can oversubscribe the machine, so `--duckdb-threads 1` with several package/shard workers has benchmarked better than letting each DuckDB server use every core.
 
-A good starting point on a laptop is:
+Good starting points:
 
 ```bash
+# Smaller corpora / fewer cores
 --duckdb-shards 4 --duckdb-threads 1 --concurrency 4
+
+# Larger corpora / more cores
+--duckdb-shards 8 --duckdb-threads 1 --concurrency 4
 ```
 
-Then tune by watching CPU utilization and benchmark output. If CPU is underused, increase shards or package concurrency. If run queue is high and latency gets worse, reduce DuckDB threads or package concurrency.
+Then tune by watching CPU utilization and benchmark output. If CPU is underused, increase shards before increasing DuckDB threads. If run queue is high and latency gets worse, reduce DuckDB threads or package concurrency. In local `top --limit 100` sweeps, 8 shards indexed faster than 4, and 4 indexed faster than 2; single-shard DuckDB still had competitive indexing but slower broad analytical counts than sharded DuckDB.

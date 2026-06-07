@@ -375,8 +375,7 @@ defmodule Mix.Tasks.Exograph.Bench.Backends do
 
   defp count_rows(repo, prefix, table) do
     %{rows: [[count]]} =
-      Ecto.Adapters.SQL.query!(
-        repo,
+      repo.query!(
         "SELECT COUNT(*) FROM #{Exograph.Postgres.table(prefix, table)}",
         []
       )
@@ -388,14 +387,14 @@ defmodule Mix.Tasks.Exograph.Bench.Backends do
     sql =
       "SELECT COUNT(*) FROM #{Exograph.Postgres.table(prefix, table)} WHERE #{pg_placeholders(where)}"
 
-    %{rows: [[count]]} = Ecto.Adapters.SQL.query!(repo, sql, params)
+    %{rows: [[count]]} = repo.query!(sql, params)
     count
   end
 
   defp run_count_query(:duckdb, repo, prefix, table, where, params) do
     where = duckdb_where(prefix, table, where)
     sql = "SELECT COUNT(*) FROM #{Exograph.Postgres.table(prefix, table)} WHERE #{where}"
-    %{rows: [[count]]} = Ecto.Adapters.SQL.query!(repo, sql, params)
+    %{rows: [[count]]} = repo.query!(sql, params)
     count
   end
 
@@ -561,7 +560,7 @@ defmodule Mix.Tasks.Exograph.Bench.Backends do
   end
 
   defp query(repo, sql) do
-    Ecto.Adapters.SQL.query(repo, sql, [])
+    repo.query(sql, [])
     :ok
   rescue
     _ -> :ok

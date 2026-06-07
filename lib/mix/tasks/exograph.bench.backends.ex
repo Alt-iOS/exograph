@@ -10,11 +10,13 @@ defmodule Mix.Tasks.Exograph.Bench.Backends do
       mix exograph.bench.backends --mode top --limit 20 --iterations 10
       mix exograph.bench.backends --mode top --limit 20 --concurrency 4 --duckdb-threads 1
       mix exograph.bench.backends --mode top --limit 20 --duckdb-shards 4 --duckdb-threads 1
+      mix exograph.bench.backends --mode top --limit 100 --duckdb-shards 8 --duckdb-threads 1 --duckdb-recovery-mode no_wal_writes --append-metrics
 
   Required services:
 
     * Postgres: `EXOGRAPH_DATABASE_URL` or `--database-url`
     * DuckDB: `QUACKDB_URI` / `QUACKDB_TEST_URI` or `--quackdb-uri`
+    * Sharded DuckDB starts managed QuackDB servers and can use `--duckdb-recovery-mode no_wal_writes`
 
   The benchmark uses fresh prefixes and reports separate plain and BM25 variants:
   `postgres_plain`, `postgres_bm25`, `duckdb_plain`, and `duckdb_bm25`.
@@ -44,6 +46,8 @@ defmodule Mix.Tasks.Exograph.Bench.Backends do
           quackdb_token: :string,
           duckdb_threads: :integer,
           duckdb_shards: :integer,
+          duckdb_recovery_mode: :string,
+          append_metrics: :boolean,
           timeout: :integer
         ]
       )
@@ -61,8 +65,11 @@ defmodule Mix.Tasks.Exograph.Bench.Backends do
       timeout: Keyword.get(opts, :timeout, 300) * 1000,
       cache_dir: Keyword.get(opts, :cache_tarballs),
       duckdb_threads: Keyword.get(opts, :duckdb_threads),
-      duckdb_shards: Keyword.get(opts, :duckdb_shards, 0)
+      duckdb_shards: Keyword.get(opts, :duckdb_shards, 0),
+      duckdb_recovery_mode: recovery_mode(Keyword.get(opts, :duckdb_recovery_mode))
     }
+
+    metrics = maybe_start_append_metrics(Keyword.get(opts, :append_metrics, false))
 
     postgres_repo = start_postgres!(opts)
     duckdb_repo = start_duckdb!(opts, config.concurrency, config.duckdb_threads)
@@ -90,7 +97,61 @@ defmodule Mix.Tasks.Exograph.Bench.Backends do
       end
 
     print_results(results ++ sharded_results, config)
+    maybe_print_append_metrics(metrics)
   end
+
+  def handle_quackdb_telemetry([:quackdb, :append, :start], _measurements, metadata, agent) do
+    Agent.update(agent, fn state ->
+      case Map.get(metadata, :telemetry_span_context) do
+        nil -> state
+        context -> put_in(state, [:append_context, context], append_table(metadata))
+      end
+    end)
+  end
+
+  def handle_quackdb_telemetry([:quackdb, :append, :stop], measurements, metadata, agent) do
+    Agent.update(agent, fn state ->
+      context = Map.get(metadata, :telemetry_span_context)
+      {table, contexts} = Map.pop(state.append_context, context, append_table(metadata))
+      duration = Map.get(measurements, :duration, 0)
+
+      state
+      |> Map.put(:append_context, contexts)
+      |> update_in([:append, table], fn current ->
+        current = current || empty_append_metric()
+
+        current
+        |> Map.update!(:calls, &(&1 + 1))
+        |> Map.update!(:rows, &(&1 + Map.get(metadata, :rows, 0)))
+        |> Map.update!(:batches, &(&1 + Map.get(metadata, :batches, 0)))
+        |> Map.update!(:duration, &(&1 + duration))
+        |> add_native(metadata, :append_duration)
+        |> add_native(metadata, :encode_duration)
+        |> add_native(metadata, :transport_duration)
+        |> add_native(metadata, :decode_duration)
+        |> Map.update!(:request_bytes, &(&1 + Map.get(metadata, :request_bytes, 0)))
+        |> Map.update!(:response_bytes, &(&1 + Map.get(metadata, :response_bytes, 0)))
+      end)
+    end)
+  end
+
+  def handle_quackdb_telemetry([:quackdb, :query, :stop], measurements, metadata, agent) do
+    Agent.update(agent, fn state ->
+      command = Map.get(metadata, :command, :unknown)
+      duration = Map.get(measurements, :duration, 0)
+
+      update_in(state, [:query, command], fn current ->
+        current = current || %{calls: 0, rows: 0, duration: 0}
+
+        current
+        |> Map.update!(:calls, &(&1 + 1))
+        |> Map.update!(:rows, &(&1 + Map.get(metadata, :rows, 0)))
+        |> Map.update!(:duration, &(&1 + duration))
+      end)
+    end)
+  end
+
+  def handle_quackdb_telemetry(_event, _measurements, _metadata, _agent), do: :ok
 
   defp start_postgres!(opts) do
     url =
@@ -127,6 +188,7 @@ defmodule Mix.Tasks.Exograph.Bench.Backends do
       uri: uri,
       token: token,
       pool_size: pool_size,
+      telemetry_prefix: [:quackdb],
       log: false,
       timeout: 120_000
     )
@@ -215,6 +277,7 @@ defmodule Mix.Tasks.Exograph.Bench.Backends do
       timeout: config.timeout,
       cache_dir: config.cache_dir,
       duckdb_threads: config.duckdb_threads,
+      recovery_mode: config.duckdb_recovery_mode,
       shards: config.duckdb_shards
     ]
 
@@ -543,6 +606,102 @@ defmodule Mix.Tasks.Exograph.Bench.Backends do
   end
 
   defp format_ms(value), do: :erlang.float_to_binary(value / 1.0, decimals: 1)
+
+  defp recovery_mode(nil), do: nil
+  defp recovery_mode("no_wal_writes"), do: :no_wal_writes
+  defp recovery_mode(value), do: Mix.raise("Unknown DuckDB recovery mode #{inspect(value)}")
+
+  defp maybe_start_append_metrics(false), do: nil
+
+  defp maybe_start_append_metrics(true) do
+    id = "exograph-bench-quackdb-#{System.unique_integer([:positive])}"
+    {:ok, agent} = Agent.start_link(fn -> %{append: %{}, append_context: %{}, query: %{}} end)
+
+    :telemetry.attach_many(
+      id,
+      [
+        [:quackdb, :append, :start],
+        [:quackdb, :append, :stop],
+        [:quackdb, :query, :stop]
+      ],
+      &__MODULE__.handle_quackdb_telemetry/4,
+      agent
+    )
+
+    {id, agent}
+  end
+
+  defp maybe_print_append_metrics(nil), do: :ok
+
+  defp maybe_print_append_metrics({id, agent}) do
+    :telemetry.detach(id)
+    %{append: append, query: query} = Agent.get(agent, & &1)
+    Agent.stop(agent)
+
+    Mix.shell().info("\nQuackDB append metrics")
+
+    append
+    |> Enum.sort_by(fn {_table, metrics} -> -metrics.rows end)
+    |> Enum.each(fn {table, metrics} ->
+      seconds = native_seconds(metrics.append_duration)
+      rows_per_second = if seconds > 0, do: metrics.rows / seconds, else: 0.0
+
+      Mix.shell().info(
+        "  #{table}: rows=#{metrics.rows} batches=#{metrics.batches} calls=#{metrics.calls} rows_per_sec=#{format_ms(rows_per_second)} encode_ms=#{format_native_ms(metrics.encode_duration)} transport_ms=#{format_native_ms(metrics.transport_duration)} decode_ms=#{format_native_ms(metrics.decode_duration)} request_mb=#{format_ms(metrics.request_bytes / 1_000_000)}"
+      )
+    end)
+
+    Mix.shell().info("\nQuackDB query metrics")
+
+    query
+    |> Enum.sort_by(fn {_command, metrics} -> -metrics.duration end)
+    |> Enum.each(fn {command, metrics} ->
+      Mix.shell().info(
+        "  #{command}: calls=#{metrics.calls} rows=#{metrics.rows} total_ms=#{format_native_ms(metrics.duration)}"
+      )
+    end)
+  end
+
+  defp empty_append_metric do
+    %{
+      calls: 0,
+      rows: 0,
+      batches: 0,
+      duration: 0,
+      append_duration: 0,
+      encode_duration: 0,
+      transport_duration: 0,
+      decode_duration: 0,
+      request_bytes: 0,
+      response_bytes: 0
+    }
+  end
+
+  defp append_table(metadata) do
+    schema = Map.get(metadata, :schema, "")
+    table = Map.get(metadata, :table, "unknown")
+
+    table = normalize_append_table(table)
+
+    if schema in [nil, ""] do
+      table
+    else
+      schema <> "." <> table
+    end
+  end
+
+  defp normalize_append_table("quackdb_append_" <> _suffix), do: "quackdb_append_*"
+  defp normalize_append_table(table), do: table
+
+  defp add_native(metrics, metadata, key),
+    do: Map.update!(metrics, key, &(&1 + Map.get(metadata, key, 0)))
+
+  defp format_native_ms(value), do: value |> native_ms() |> format_ms()
+
+  defp native_ms(value), do: System.convert_time_unit(value, :native, :microsecond) / 1000
+
+  defp native_seconds(value),
+    do: System.convert_time_unit(value, :native, :microsecond) / 1_000_000
 
   defp drop_prefix(repo, prefix) do
     Enum.each(@tables, fn table ->

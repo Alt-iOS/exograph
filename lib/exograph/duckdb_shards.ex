@@ -50,6 +50,7 @@ defmodule Exograph.DuckDBShards do
             database: database,
             endpoint: endpoint,
             token: token,
+            recovery_mode: Keyword.get(opts, :recovery_mode),
             settings: duckdb_settings(duckdb_threads)
           )
 
@@ -97,6 +98,7 @@ defmodule Exograph.DuckDBShards do
             database: shard.database,
             endpoint: endpoint,
             token: token,
+            recovery_mode: Keyword.get(opts, :recovery_mode),
             settings: duckdb_settings(duckdb_threads)
           )
 
@@ -171,6 +173,7 @@ defmodule Exograph.DuckDBShards do
       uri: uri,
       token: token,
       pool_size: pool_size,
+      telemetry_prefix: [:quackdb],
       log: false,
       timeout: 120_000
     ]

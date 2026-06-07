@@ -26,6 +26,7 @@ defmodule Mix.Tasks.Exograph.Index.Hex do
     * `--concurrency` - parallel download+index workers (default: `4`)
     * `--duckdb-shards` - shard count for DuckDB corpus indexing (recommended for large corpora)
     * `--duckdb-threads` - DuckDB execution threads per shard/server
+    * `--duckdb-recovery-mode` - DuckDB managed-server recovery mode (`no_wal_writes` for rebuildable indexes)
     * `--manifest-path` - write a sharded DuckDB manifest to this path
     * `--shard-dir` - directory for managed DuckDB shard files
     * `--min-mass` - minimum fragment AST mass (default: `8`)
@@ -60,6 +61,7 @@ defmodule Mix.Tasks.Exograph.Index.Hex do
           concurrency: :integer,
           duckdb_shards: :integer,
           duckdb_threads: :integer,
+          duckdb_recovery_mode: :string,
           manifest_path: :string,
           shard_dir: :string,
           min_mass: :integer,
@@ -105,6 +107,7 @@ defmodule Mix.Tasks.Exograph.Index.Hex do
       concurrency: Keyword.get(opts, :concurrency, 4),
       shards: Keyword.get(opts, :duckdb_shards, 1),
       duckdb_threads: Keyword.get(opts, :duckdb_threads),
+      recovery_mode: recovery_mode(Keyword.get(opts, :duckdb_recovery_mode)),
       manifest_path: Keyword.get(opts, :manifest_path),
       shard_directory: Keyword.get(opts, :shard_dir),
       min_mass: Keyword.get(opts, :min_mass, 8),
@@ -131,6 +134,10 @@ defmodule Mix.Tasks.Exograph.Index.Hex do
   defp backend!("postgres"), do: :postgres
   defp backend!("duckdb"), do: :duckdb
   defp backend!(backend), do: Mix.raise("Unknown backend #{inspect(backend)}")
+
+  defp recovery_mode(nil), do: nil
+  defp recovery_mode("no_wal_writes"), do: :no_wal_writes
+  defp recovery_mode(value), do: Mix.raise("Unknown DuckDB recovery mode #{inspect(value)}")
 
   defp resolve_repo(:postgres, opts) do
     case Keyword.get(opts, :repo) do
@@ -171,6 +178,7 @@ defmodule Mix.Tasks.Exograph.Index.Hex do
               Keyword.get(opts, :quackdb_token) || System.get_env("QUACKDB_TOKEN") ||
                 System.get_env("QUACKDB_TEST_TOKEN") || "",
             pool_size: Keyword.get(opts, :concurrency, 4),
+            telemetry_prefix: [:quackdb],
             log: false,
             timeout: 120_000
           )

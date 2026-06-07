@@ -108,7 +108,8 @@ defmodule Exograph.Hex.Corpus do
         directory: Keyword.get_lazy(opts, :shard_directory, &System.tmp_dir!/0),
         prefix: prefix,
         port_base: Keyword.get(opts, :shard_port_base, 9_600),
-        duckdb_threads: Keyword.get(opts, :duckdb_threads)
+        duckdb_threads: Keyword.get(opts, :duckdb_threads),
+        recovery_mode: Keyword.get(opts, :recovery_mode)
       )
 
     shards =

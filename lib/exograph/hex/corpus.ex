@@ -18,7 +18,7 @@ defmodule Exograph.Hex.Corpus do
     backend = Keyword.get(opts, :backend, :postgres)
 
     configure_backend!(backend, repo, opts)
-    migrate!(backend, repo, prefix, opts)
+    if Keyword.get(opts, :migrate?, true), do: migrate!(backend, repo, prefix, opts)
     existing = if resume?, do: existing_versions(repo, prefix), else: MapSet.new()
 
     Progress.start_run(total)
@@ -87,9 +87,16 @@ defmodule Exograph.Hex.Corpus do
     results
   end
 
-  defp list_entries(:latest, opts), do: Registry.latest(opts)
-  defp list_entries(:top, opts), do: Registry.top(opts)
-  defp list_entries(:all, opts), do: Registry.all_versions(opts)
+  defp list_entries(mode, opts) do
+    case Keyword.fetch(opts, :entries) do
+      {:ok, entries} -> entries
+      :error -> list_registry_entries(mode, opts)
+    end
+  end
+
+  defp list_registry_entries(:latest, opts), do: Registry.latest(opts)
+  defp list_registry_entries(:top, opts), do: Registry.top(opts)
+  defp list_registry_entries(:all, opts), do: Registry.all_versions(opts)
 
   defp configure_backend!(:duckdb, repo, opts) do
     Exograph.DuckDB.configure_threads!(repo, Keyword.get(opts, :duckdb_threads))
@@ -160,7 +167,7 @@ defmodule Exograph.Hex.Corpus do
         bm25?: Keyword.get(opts, :bm25?, true),
         duckdb_threads: Keyword.get(opts, :duckdb_threads),
         min_mass: min_mass,
-        index_concurrency: Keyword.get(opts, :index_concurrency, System.schedulers_online()),
+        index_concurrency: Keyword.get(opts, :index_concurrency) || System.schedulers_online(),
         migrate?: false,
         extractors: extractors,
         package_version: [

@@ -9,6 +9,7 @@ defmodule Mix.Tasks.Exograph.Bench.Backends do
 
       mix exograph.bench.backends --mode top --limit 20 --iterations 10
       mix exograph.bench.backends --mode top --limit 20 --concurrency 4 --duckdb-threads 1
+      mix exograph.bench.backends --mode top --limit 20 --duckdb-shards 4 --duckdb-threads 1
 
   Required services:
 
@@ -42,6 +43,7 @@ defmodule Mix.Tasks.Exograph.Bench.Backends do
           quackdb_uri: :string,
           quackdb_token: :string,
           duckdb_threads: :integer,
+          duckdb_shards: :integer,
           timeout: :integer
         ]
       )
@@ -58,7 +60,8 @@ defmodule Mix.Tasks.Exograph.Bench.Backends do
       min_mass: Keyword.get(opts, :min_mass, 8),
       timeout: Keyword.get(opts, :timeout, 300) * 1000,
       cache_dir: Keyword.get(opts, :cache_tarballs),
-      duckdb_threads: Keyword.get(opts, :duckdb_threads)
+      duckdb_threads: Keyword.get(opts, :duckdb_threads),
+      duckdb_shards: Keyword.get(opts, :duckdb_shards, 0)
     }
 
     postgres_repo = start_postgres!(opts)
@@ -76,7 +79,19 @@ defmodule Mix.Tasks.Exograph.Bench.Backends do
         benchmark_backend(label, backend, bm25?, repo, prefix, config)
       end)
 
-    print_results(results, config)
+    sharded_results =
+      if config.duckdb_shards > 1 do
+        shard_repos = start_duckdb_shards!(config.duckdb_shards, config.duckdb_threads)
+
+        [
+          benchmark_sharded_duckdb(:duckdb_sharded_plain, false, shard_repos, run_id, config),
+          benchmark_sharded_duckdb(:duckdb_sharded_bm25, true, shard_repos, run_id, config)
+        ]
+      else
+        []
+      end
+
+    print_results(results ++ sharded_results, config)
   end
 
   defp start_postgres!(opts) do
@@ -106,7 +121,43 @@ defmodule Mix.Tasks.Exograph.Bench.Backends do
       Keyword.get(opts, :quackdb_token) || System.get_env("QUACKDB_TOKEN") ||
         System.get_env("QUACKDB_TEST_TOKEN") || ""
 
-    Application.put_env(:exograph, Exograph.DuckDBRepo,
+    start_duckdb_repo!(Exograph.DuckDBRepo, uri, token, pool_size, duckdb_threads)
+  end
+
+  defp start_duckdb_shards!(count, duckdb_threads) when count in 2..8 do
+    Application.ensure_all_started(:quackdb)
+
+    shard_repo_modules()
+    |> Enum.take(count)
+    |> Enum.with_index()
+    |> Enum.map(fn {repo, index} ->
+      database =
+        Path.join(
+          System.tmp_dir!(),
+          "exograph-bench-shard-#{index}-#{System.unique_integer([:positive])}.duckdb"
+        )
+
+      token = "bench-shard-#{index}"
+      endpoint = "quack:localhost:#{9600 + index}"
+
+      {:ok, server} =
+        QuackDB.Server.start_link(
+          duckdb: :managed,
+          database: database,
+          endpoint: endpoint,
+          token: token
+        )
+
+      start_duckdb_repo!(repo, QuackDB.Server.uri(server), token, 1, duckdb_threads)
+    end)
+  end
+
+  defp start_duckdb_shards!(count, _duckdb_threads) do
+    Mix.raise("--duckdb-shards must be between 2 and 8, got #{count}")
+  end
+
+  defp start_duckdb_repo!(repo, uri, token, pool_size, duckdb_threads) do
+    Application.put_env(:exograph, repo,
       uri: uri,
       token: token,
       pool_size: pool_size,
@@ -114,9 +165,22 @@ defmodule Mix.Tasks.Exograph.Bench.Backends do
       timeout: 120_000
     )
 
-    {:ok, _pid} = Exograph.DuckDBRepo.start_link()
-    Exograph.DuckDB.configure_threads!(Exograph.DuckDBRepo, duckdb_threads)
-    Exograph.DuckDBRepo
+    {:ok, _pid} = repo.start_link()
+    Exograph.DuckDB.configure_threads!(repo, duckdb_threads)
+    repo
+  end
+
+  defp shard_repo_modules do
+    [
+      Exograph.DuckDBShardRepo0,
+      Exograph.DuckDBShardRepo1,
+      Exograph.DuckDBShardRepo2,
+      Exograph.DuckDBShardRepo3,
+      Exograph.DuckDBShardRepo4,
+      Exograph.DuckDBShardRepo5,
+      Exograph.DuckDBShardRepo6,
+      Exograph.DuckDBShardRepo7
+    ]
   end
 
   defp benchmark_backend(label, backend, bm25?, repo, prefix, config) do
@@ -179,6 +243,134 @@ defmodule Mix.Tasks.Exograph.Bench.Backends do
       }
   end
 
+  defp benchmark_sharded_duckdb(label, bm25?, repos, run_id, config) do
+    entries = list_benchmark_entries(config)
+    shard_count = length(repos)
+
+    entries_by_shard = entries_by_shard(entries, shard_count)
+
+    shards =
+      repos
+      |> Enum.with_index()
+      |> Enum.map(fn {repo, index} ->
+        %{
+          repo: repo,
+          prefix: "bench_duck_shard_#{run_id}_#{if(bm25?, do: "bm25", else: "plain")}_#{index}",
+          entries: Map.fetch!(entries_by_shard, index)
+        }
+      end)
+
+    Enum.each(shards, fn shard ->
+      drop_prefix(shard.repo, shard.prefix)
+      Exograph.DuckDB.migrate!(repo: shard.repo, prefix: shard.prefix)
+    end)
+
+    Mix.shell().info("\nIndexing #{label} shards=#{shard_count}...")
+
+    {index_ms, corpus_results} =
+      timed(fn ->
+        shards
+        |> Task.async_stream(
+          fn shard -> index_shard(shard, bm25?, config) end,
+          max_concurrency: shard_count,
+          timeout: :infinity,
+          ordered: false
+        )
+        |> Enum.map(fn {:ok, result} -> result end)
+      end)
+
+    shard_indexes =
+      Enum.map(shards, fn shard ->
+        {:ok, index} =
+          Exograph.index([],
+            backend: :duckdb,
+            repo: shard.repo,
+            prefix: shard.prefix,
+            migrate?: false,
+            bm25?: bm25?,
+            duckdb_threads: config.duckdb_threads
+          )
+
+        Map.put(shard, :index, index)
+      end)
+
+    %{
+      label: label,
+      backend: :duckdb_sharded,
+      bm25?: bm25?,
+      prefix: "#{shard_count} shards",
+      index_ms: index_ms,
+      corpus: combine_corpus_results(corpus_results),
+      fragments: Enum.sum(Enum.map(shards, &count_rows(&1.repo, &1.prefix, "fragments"))),
+      files: Enum.sum(Enum.map(shards, &count_rows(&1.repo, &1.prefix, "files"))),
+      queries: benchmark_sharded_queries(bm25?, shard_indexes, config)
+    }
+  rescue
+    error ->
+      %{
+        label: label,
+        backend: :duckdb_sharded,
+        bm25?: bm25?,
+        prefix: "#{length(repos)} shards",
+        error: Exception.message(error),
+        index_ms: 0.0,
+        corpus: %{ok: 0, skipped: 0, error: 1},
+        fragments: 0,
+        files: 0,
+        queries: []
+      }
+  end
+
+  defp list_benchmark_entries(config) do
+    opts = [mode: config.mode, limit: config.limit, cache_dir: config.cache_dir]
+
+    case config.mode do
+      :latest -> Exograph.Hex.Registry.latest(opts)
+      :top -> Exograph.Hex.Registry.top(opts)
+      :all -> Exograph.Hex.Registry.all_versions(opts)
+    end
+  end
+
+  defp entries_by_shard(entries, shard_count) do
+    empty = Map.new(0..(shard_count - 1), &{&1, []})
+
+    entries
+    |> Enum.with_index()
+    |> Enum.reduce(empty, fn {entry, index}, acc ->
+      Map.update!(acc, rem(index, shard_count), &[entry | &1])
+    end)
+    |> Map.new(fn {index, entries} -> {index, Enum.reverse(entries)} end)
+  end
+
+  defp index_shard(shard, bm25?, config) do
+    Exograph.Hex.Corpus.index(
+      backend: :duckdb,
+      repo: shard.repo,
+      prefix: shard.prefix,
+      entries: shard.entries,
+      mode: config.mode,
+      concurrency: 1,
+      index_concurrency: config.index_concurrency,
+      min_mass: config.min_mass,
+      resume: false,
+      migrate?: false,
+      bm25?: bm25?,
+      timeout: config.timeout,
+      cache_dir: config.cache_dir,
+      duckdb_threads: config.duckdb_threads
+    )
+  end
+
+  defp combine_corpus_results(results) do
+    Enum.reduce(results, %{ok: 0, skipped: 0, error: 0}, fn result, acc ->
+      %{
+        ok: acc.ok + result.ok,
+        skipped: acc.skipped + result.skipped,
+        error: acc.error + result.error
+      }
+    end)
+  end
+
   defp benchmark_queries(backend, bm25?, repo, prefix, index, config) do
     raw_results =
       Enum.map(queries(bm25?), fn {name, table, where, params} ->
@@ -236,6 +428,87 @@ defmodule Mix.Tasks.Exograph.Bench.Backends do
         error -> {name, %{error: Exception.message(error)}}
       end
     end)
+  end
+
+  defp benchmark_sharded_queries(bm25?, shards, config) do
+    raw_results =
+      Enum.map(queries(bm25?), fn {name, table, where, params} ->
+        try do
+          Enum.each(1..config.warmup//1, fn _ ->
+            run_sharded_count_query(shards, table, where, params)
+          end)
+
+          samples =
+            Enum.map(1..config.iterations//1, fn _ ->
+              timed(fn -> run_sharded_count_query(shards, table, where, params) end)
+            end)
+
+          counts = Enum.map(samples, &elem(&1, 1))
+          times = Enum.map(samples, &elem(&1, 0))
+          {min_ms, max_ms} = min_max(times)
+
+          {name,
+           %{
+             median_ms: median(times),
+             min_ms: min_ms,
+             max_ms: max_ms,
+             result_count: median(counts)
+           }}
+        rescue
+          error -> {name, %{error: Exception.message(error)}}
+        end
+      end)
+
+    raw_results ++ benchmark_sharded_api_queries(shards, config)
+  end
+
+  defp run_sharded_count_query(shards, table, where, params) do
+    shards
+    |> Task.async_stream(
+      fn shard -> run_count_query(:duckdb, shard.repo, shard.prefix, table, where, params) end,
+      max_concurrency: length(shards),
+      timeout: :infinity,
+      ordered: false
+    )
+    |> Enum.reduce(0, fn {:ok, count}, acc -> acc + count end)
+  end
+
+  defp benchmark_sharded_api_queries(shards, config) do
+    Enum.map(api_queries(), fn {name, fun} ->
+      try do
+        Enum.each(1..config.warmup//1, fn _ -> run_sharded_api_query(shards, fun) end)
+
+        samples =
+          Enum.map(1..config.iterations//1, fn _ ->
+            timed(fn -> run_sharded_api_query(shards, fun) end)
+          end)
+
+        counts = Enum.map(samples, &elem(&1, 1))
+        times = Enum.map(samples, &elem(&1, 0))
+        {min_ms, max_ms} = min_max(times)
+
+        {name,
+         %{
+           median_ms: median(times),
+           min_ms: min_ms,
+           max_ms: max_ms,
+           result_count: median(counts)
+         }}
+      rescue
+        error -> {name, %{error: Exception.message(error)}}
+      end
+    end)
+  end
+
+  defp run_sharded_api_query(shards, fun) do
+    shards
+    |> Task.async_stream(
+      fn shard -> run_api_query(shard.index, fun) end,
+      max_concurrency: length(shards),
+      timeout: :infinity,
+      ordered: false
+    )
+    |> Enum.reduce(0, fn {:ok, count}, acc -> acc + count end)
   end
 
   defp run_api_query(index, fun) do
@@ -325,7 +598,7 @@ defmodule Mix.Tasks.Exograph.Bench.Backends do
     index_concurrency = config.index_concurrency || "corpus-default"
 
     Mix.shell().info(
-      "  workload: #{config.mode} limit=#{config.limit} concurrency=#{config.concurrency} index_concurrency=#{index_concurrency} duckdb_threads=#{duckdb_threads}"
+      "  workload: #{config.mode} limit=#{config.limit} concurrency=#{config.concurrency} index_concurrency=#{index_concurrency} duckdb_threads=#{duckdb_threads} duckdb_shards=#{config.duckdb_shards}"
     )
 
     Mix.shell().info("  queries: warmup=#{config.warmup} iterations=#{config.iterations}\n")

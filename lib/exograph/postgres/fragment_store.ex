@@ -441,10 +441,7 @@ defmodule Exograph.Postgres.FragmentStore do
   end
 
   defp bulk_insert_fragment_terms(repo, source, entries) do
-    bulk_insert_duckdb_or_postgres(repo, source, entries,
-      chunk_size: 10_000,
-      columns: [term_id: :integer, fragment_id: :integer]
-    )
+    bulk_insert_duckdb_or_postgres(repo, source, entries, chunk_size: 10_000)
   end
 
   defp bulk_insert_facts(repo, source, entries, opts) do
@@ -460,7 +457,18 @@ defmodule Exograph.Postgres.FragmentStore do
 
   defp bulk_insert_duckdb_or_postgres(repo, {table, _schema} = source, entries, opts) do
     if repo.__adapter__() == Ecto.Adapters.QuackDB do
-      bulk_insert_duckdb(repo, table, entries, opts)
+      {:ok, conn} =
+        QuackDB.start_link(uri: repo.config()[:uri], token: repo.config()[:token] || "")
+
+      try do
+        QuackDB.insert_stream!(conn, table, entries,
+          chunk_every: Keyword.fetch!(opts, :chunk_size),
+          columns: [term_id: :integer, fragment_id: :integer],
+          timeout: :infinity
+        )
+      after
+        GenServer.stop(conn)
+      end
     else
       Postgres.bulk_insert_all(
         repo,
@@ -470,24 +478,6 @@ defmodule Exograph.Postgres.FragmentStore do
         on_conflict: :nothing,
         timeout: :infinity
       )
-    end
-  end
-
-  defp bulk_insert_duckdb(repo, table, entries, opts) do
-    {:ok, conn} =
-      QuackDB.start_link(uri: repo.config()[:uri], token: repo.config()[:token] || "")
-
-    append_opts = [chunk_every: Keyword.fetch!(opts, :chunk_size), timeout: :infinity]
-
-    append_opts =
-      if opts[:columns],
-        do: Keyword.put(append_opts, :columns, opts[:columns]),
-        else: append_opts
-
-    try do
-      QuackDB.insert_stream!(conn, table, entries, append_opts)
-    after
-      GenServer.stop(conn)
     end
   end
 

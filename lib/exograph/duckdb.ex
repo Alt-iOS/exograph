@@ -3,8 +3,18 @@ defmodule Exograph.DuckDB do
   DuckDB schema helpers for the experimental QuackDB-backed Exograph backend.
   """
 
+  import Ecto.Query
+
   alias Ecto.Migration.Runner
-  alias Exograph.Postgres.Migrations.CreateSchema
+  alias Exograph.Postgres.{FragmentTermRecord, Migrations.CreateSchema}
+
+  @doc "Configures DuckDB execution threads for the current connection."
+  def configure_threads!(_repo, nil), do: :ok
+
+  def configure_threads!(repo, threads) when is_integer(threads) and threads > 0 do
+    repo.query!(QuackDB.SQL.set(:threads, threads), [], timeout: :infinity)
+    :ok
+  end
 
   @doc "Creates the Exograph DuckDB schema for a prefix."
   def migrate!(opts) do
@@ -53,9 +63,14 @@ defmodule Exograph.DuckDB do
     prefix = Keyword.get(opts, :prefix, "exograph")
     table = "#{prefix}_fragment_terms"
 
-    repo.query!(
-      ~s|CREATE OR REPLACE TABLE "#{table}" AS SELECT DISTINCT term_id, fragment_id FROM "#{table}" ORDER BY term_id, fragment_id|,
-      [],
+    query =
+      from(term in {table, FragmentTermRecord},
+        distinct: [term.term_id, term.fragment_id],
+        order_by: [asc: term.term_id, asc: term.fragment_id],
+        select: %{term_id: term.term_id, fragment_id: term.fragment_id}
+      )
+
+    repo.query!(QuackDB.DDL.create_table(table, as: query, or_replace: true), [],
       timeout: :infinity
     )
 

@@ -17,6 +17,7 @@ defmodule Exograph.Hex.Corpus do
 
     backend = Keyword.get(opts, :backend, :postgres)
 
+    configure_backend!(backend, repo, opts)
     migrate!(backend, repo, prefix, opts)
     existing = if resume?, do: existing_versions(repo, prefix), else: MapSet.new()
 
@@ -90,6 +91,12 @@ defmodule Exograph.Hex.Corpus do
   defp list_entries(:top, opts), do: Registry.top(opts)
   defp list_entries(:all, opts), do: Registry.all_versions(opts)
 
+  defp configure_backend!(:duckdb, repo, opts) do
+    Exograph.DuckDB.configure_threads!(repo, Keyword.get(opts, :duckdb_threads))
+  end
+
+  defp configure_backend!(_backend, _repo, _opts), do: :ok
+
   defp migrate!(:duckdb, repo, prefix, _opts) do
     Exograph.DuckDB.migrate!(repo: repo, prefix: prefix)
   end
@@ -136,20 +143,24 @@ defmodule Exograph.Hex.Corpus do
     extractors = Keyword.get(opts, :extractors, [:ex_ast])
     download_opts = Keyword.take(opts, [:mirrors, :mirror_strategy, :timeout, :cache_dir])
 
-    tmp_dir = Path.join(System.tmp_dir!(), "exograph-hex-#{entry.name}-#{entry.version}")
-
     try do
       files = Downloader.fetch(entry.name, entry.version, [{:index, index} | download_opts])
-      has_elixir? = Enum.any?(files, fn {path, _} -> String.ends_with?(path, ".ex") end)
-      unless has_elixir?, do: throw(:no_elixir)
-      write_files!(tmp_dir, files)
+
+      sources =
+        files
+        |> Enum.filter(fn {path, _source} -> String.ends_with?(path, [".ex", ".exs"]) end)
+        |> Enum.map(fn {path, source} -> {safe_path!(path), source} end)
+
+      if sources == [], do: throw(:no_elixir)
 
       index_opts = [
         backend: Keyword.get(opts, :backend, :postgres),
         repo: repo,
         prefix: prefix,
         bm25?: Keyword.get(opts, :bm25?, true),
+        duckdb_threads: Keyword.get(opts, :duckdb_threads),
         min_mass: min_mass,
+        index_concurrency: Keyword.get(opts, :index_concurrency, System.schedulers_online()),
         migrate?: false,
         extractors: extractors,
         package_version: [
@@ -160,7 +171,7 @@ defmodule Exograph.Hex.Corpus do
         ]
       ]
 
-      case Exograph.index(tmp_dir, index_opts) do
+      case Exograph.index_sources(sources, index_opts) do
         {:ok, _index} -> :ok
         {:error, reason} -> {:error, reason}
       end
@@ -168,19 +179,7 @@ defmodule Exograph.Hex.Corpus do
       error -> {:error, Exception.message(error)}
     catch
       :no_elixir -> :skipped
-    after
-      File.rm_rf(tmp_dir)
     end
-  end
-
-  defp write_files!(dir, files) do
-    File.mkdir_p!(dir)
-
-    Enum.each(files, fn {path, content} ->
-      output = Path.join(dir, safe_path!(path))
-      File.mkdir_p!(Path.dirname(output))
-      File.write!(output, content)
-    end)
   end
 
   defp safe_path!(path) do

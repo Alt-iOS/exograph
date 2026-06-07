@@ -8,6 +8,7 @@ defmodule Mix.Tasks.Exograph.Bench.Backends do
   the same Hex.pm package workload.
 
       mix exograph.bench.backends --mode top --limit 20 --iterations 10
+      mix exograph.bench.backends --mode top --limit 20 --concurrency 4 --duckdb-threads 1
 
   Required services:
 
@@ -32,6 +33,7 @@ defmodule Mix.Tasks.Exograph.Bench.Backends do
           mode: :string,
           limit: :integer,
           concurrency: :integer,
+          index_concurrency: :integer,
           iterations: :integer,
           warmup: :integer,
           min_mass: :integer,
@@ -39,6 +41,7 @@ defmodule Mix.Tasks.Exograph.Bench.Backends do
           database_url: :string,
           quackdb_uri: :string,
           quackdb_token: :string,
+          duckdb_threads: :integer,
           timeout: :integer
         ]
       )
@@ -49,15 +52,17 @@ defmodule Mix.Tasks.Exograph.Bench.Backends do
       mode: opts |> Keyword.get(:mode, "top") |> String.to_atom(),
       limit: Keyword.get(opts, :limit, 20),
       concurrency: Keyword.get(opts, :concurrency, 1),
+      index_concurrency: Keyword.get(opts, :index_concurrency),
       iterations: Keyword.get(opts, :iterations, 10),
       warmup: Keyword.get(opts, :warmup, 2),
       min_mass: Keyword.get(opts, :min_mass, 8),
       timeout: Keyword.get(opts, :timeout, 300) * 1000,
-      cache_dir: Keyword.get(opts, :cache_tarballs)
+      cache_dir: Keyword.get(opts, :cache_tarballs),
+      duckdb_threads: Keyword.get(opts, :duckdb_threads)
     }
 
     postgres_repo = start_postgres!(opts)
-    duckdb_repo = start_duckdb!(opts, config.concurrency)
+    duckdb_repo = start_duckdb!(opts, config.concurrency, config.duckdb_threads)
     run_id = System.unique_integer([:positive])
 
     results =
@@ -90,7 +95,7 @@ defmodule Mix.Tasks.Exograph.Bench.Backends do
     Exograph.Web.Repo
   end
 
-  defp start_duckdb!(opts, pool_size) do
+  defp start_duckdb!(opts, pool_size, duckdb_threads) do
     Application.ensure_all_started(:quackdb)
 
     uri =
@@ -110,6 +115,7 @@ defmodule Mix.Tasks.Exograph.Bench.Backends do
     )
 
     {:ok, _pid} = Exograph.DuckDBRepo.start_link()
+    Exograph.DuckDB.configure_threads!(Exograph.DuckDBRepo, duckdb_threads)
     Exograph.DuckDBRepo
   end
 
@@ -123,11 +129,13 @@ defmodule Mix.Tasks.Exograph.Bench.Backends do
       mode: config.mode,
       limit: config.limit,
       concurrency: config.concurrency,
+      index_concurrency: config.index_concurrency,
       min_mass: config.min_mass,
       resume: false,
       bm25?: bm25?,
       timeout: config.timeout,
-      cache_dir: config.cache_dir
+      cache_dir: config.cache_dir,
+      duckdb_threads: config.duckdb_threads
     ]
 
     Mix.shell().info("\nIndexing #{label} prefix=#{prefix}...")
@@ -140,7 +148,8 @@ defmodule Mix.Tasks.Exograph.Bench.Backends do
         repo: repo,
         prefix: prefix,
         migrate?: false,
-        bm25?: bm25?
+        bm25?: bm25?,
+        duckdb_threads: config.duckdb_threads
       )
 
     %{
@@ -312,8 +321,11 @@ defmodule Mix.Tasks.Exograph.Bench.Backends do
   defp print_results(results, config) do
     Mix.shell().info("\nBackend benchmark")
 
+    duckdb_threads = config.duckdb_threads || "default"
+    index_concurrency = config.index_concurrency || "corpus-default"
+
     Mix.shell().info(
-      "  workload: #{config.mode} limit=#{config.limit} concurrency=#{config.concurrency}"
+      "  workload: #{config.mode} limit=#{config.limit} concurrency=#{config.concurrency} index_concurrency=#{index_concurrency} duckdb_threads=#{duckdb_threads}"
     )
 
     Mix.shell().info("  queries: warmup=#{config.warmup} iterations=#{config.iterations}\n")

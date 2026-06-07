@@ -322,22 +322,7 @@ defmodule Exograph.Postgres.FragmentStore do
             |> Map.merge(%{inserted_at: now, updated_at: now})
           end)
 
-        inserted_by_hash =
-          entries
-          |> Enum.chunk_every(2_000)
-          |> Enum.reduce(%{}, fn chunk, acc ->
-            {_count, returning} =
-              store.repo.insert_all(
-                {source(store), FragmentRecord},
-                chunk,
-                conflict_target: [:content_hash],
-                on_conflict: :nothing,
-                returning: [:id, :content_hash],
-                timeout: :infinity
-              )
-
-            Map.merge(acc, Map.new(returning, fn r -> {r.content_hash, r.id} end))
-          end)
+        inserted_by_hash = insert_fragments_by_hash(store, entries)
 
         all_hashes = Enum.map(hashed_unique, & &1.content_hash)
 
@@ -378,6 +363,87 @@ defmodule Exograph.Postgres.FragmentStore do
     resolved = resolved_hashed ++ unhashed
     upsert_fragment_terms(store, resolved)
     resolved
+  end
+
+  defp insert_fragments_by_hash(%{repo: repo} = store, entries) do
+    if repo.__adapter__() == Ecto.Adapters.QuackDB do
+      insert_fragments_by_hash_with_staging(store, entries)
+    else
+      entries
+      |> Enum.chunk_every(2_000)
+      |> Enum.reduce(%{}, fn chunk, acc ->
+        {_count, returning} =
+          repo.insert_all(
+            {source(store), FragmentRecord},
+            chunk,
+            conflict_target: [:content_hash],
+            on_conflict: :nothing,
+            returning: [:id, :content_hash],
+            timeout: :infinity
+          )
+
+        Map.merge(acc, Map.new(returning, fn r -> {r.content_hash, r.id} end))
+      end)
+    end
+  end
+
+  defp insert_fragments_by_hash_with_staging(store, entries) do
+    staging = "#{store.prefix}_staging_fragments_#{System.unique_integer([:positive])}"
+    target_table = source(store)
+    target = {target_table, FragmentRecord}
+
+    try do
+      store.repo.query!(QuackDB.DDL.create_table(staging, FragmentRecord, or_replace: true), [],
+        timeout: :infinity
+      )
+
+      store.repo.insert_all({staging, FragmentRecord}, entries,
+        insert_method: :append,
+        chunk_every: 2_000,
+        timeout: :infinity
+      )
+
+      staged_new_fragments =
+        from(row in {staging, FragmentRecord},
+          as: :row,
+          where:
+            not exists(
+              from(fragment in {target_table, FragmentRecord},
+                where: fragment.content_hash == parent_as(:row).content_hash,
+                select: 1
+              )
+            ),
+          select: %{
+            package_id: row.package_id,
+            package_version_id: row.package_version_id,
+            file_id: row.file_id,
+            content_hash: row.content_hash,
+            ast: row.ast,
+            kind: row.kind,
+            module: row.module,
+            name: row.name,
+            arity: row.arity,
+            line: row.line,
+            end_line: row.end_line,
+            mass: row.mass,
+            exact_hash: row.exact_hash,
+            terms: row.terms,
+            sub_hashes: row.sub_hashes,
+            inserted_at: row.inserted_at,
+            updated_at: row.updated_at
+          }
+        )
+
+      {_count, returning} =
+        store.repo.insert_all(target, staged_new_fragments,
+          returning: [:id, :content_hash],
+          timeout: :infinity
+        )
+
+      Map.new(returning, fn r -> {r.content_hash, r.id} end)
+    after
+      store.repo.query!(QuackDB.DDL.drop_table(staging, if_exists: true), [], timeout: :infinity)
+    end
   end
 
   defp normalize_terms(store, fragments) do
@@ -445,30 +511,16 @@ defmodule Exograph.Postgres.FragmentStore do
   end
 
   defp bulk_insert_facts(repo, source, entries, opts) do
-    Postgres.bulk_insert_all(
-      repo,
-      source,
-      entries,
-      chunk_size: Keyword.fetch!(opts, :chunk_size),
-      on_conflict: :nothing,
-      timeout: :infinity
-    )
+    bulk_insert_duckdb_or_postgres(repo, source, entries, opts)
   end
 
-  defp bulk_insert_duckdb_or_postgres(repo, {table, _schema} = source, entries, opts) do
+  defp bulk_insert_duckdb_or_postgres(repo, source, entries, opts) do
     if repo.__adapter__() == Ecto.Adapters.QuackDB do
-      {:ok, conn} =
-        QuackDB.start_link(uri: repo.config()[:uri], token: repo.config()[:token] || "")
-
-      try do
-        QuackDB.insert_stream!(conn, table, entries,
-          chunk_every: Keyword.fetch!(opts, :chunk_size),
-          columns: [term_id: :integer, fragment_id: :integer],
-          timeout: :infinity
-        )
-      after
-        GenServer.stop(conn)
-      end
+      repo.insert_all(source, entries,
+        insert_method: :append,
+        chunk_every: Keyword.fetch!(opts, :chunk_size),
+        timeout: :infinity
+      )
     else
       Postgres.bulk_insert_all(
         repo,
@@ -486,12 +538,26 @@ defmodule Exograph.Postgres.FragmentStore do
     source = terms_source(store)
     {table_name, _schema} = source
 
-    Enum.chunk_every(entries, 1_000)
-    |> Enum.each(fn chunk ->
-      store.repo.transaction(fn ->
-        lock_terms_table(store.repo, table_name)
+    if store.repo.__adapter__() == Ecto.Adapters.QuackDB do
+      :global.trans(
+        {{__MODULE__, store.repo, table_name}, self()},
+        fn -> insert_term_chunks(store.repo, source, table_name, entries) end,
+        [node()],
+        1_000_000
+      )
+    else
+      insert_term_chunks(store.repo, source, table_name, entries)
+    end
+  end
 
-        store.repo.insert_all(
+  defp insert_term_chunks(repo, source, table_name, entries) do
+    entries
+    |> Enum.chunk_every(1_000)
+    |> Enum.each(fn chunk ->
+      repo.transaction(fn ->
+        lock_terms_table(repo, table_name)
+
+        repo.insert_all(
           source,
           chunk,
           conflict_target: [:term],

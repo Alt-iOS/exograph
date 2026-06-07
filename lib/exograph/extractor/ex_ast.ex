@@ -32,12 +32,31 @@ defmodule Exograph.Extractor.ExAST do
     end)
   end
 
+  def stream_sources(sources, opts \\ []) do
+    sources
+    |> Task.async_stream(fn {path, source} -> index_source(path, source, opts) end,
+      max_concurrency: Keyword.get(opts, :index_concurrency, System.schedulers_online()),
+      ordered: false,
+      timeout: :infinity
+    )
+    |> Stream.flat_map(fn
+      {:ok, fragments} -> fragments
+      {:exit, _reason} -> []
+    end)
+  end
+
   @spec index_file(String.t(), keyword()) :: [Fragment.t()]
   def index_file(file, opts \\ []) do
+    case File.read(file) do
+      {:ok, source} -> index_source(file, source, opts)
+      _ -> []
+    end
+  end
+
+  def index_source(file, source, opts \\ []) do
     opts = Keyword.merge(@default_opts, opts)
 
-    with {:ok, source} <- File.read(file),
-         {:ok, ast} <-
+    with {:ok, ast} <-
            Code.string_to_quoted(source,
              line: 1,
              columns: true,

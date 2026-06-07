@@ -40,11 +40,25 @@ defmodule Exograph do
   @spec index(String.t() | [String.t()], keyword()) :: {:ok, Index.t()} | {:error, term()}
   def index(paths, opts \\ []) do
     opts = normalize_backend(opts)
-    indexer_opts = extractor_opts(opts)
+    do_index(ExASTExtractor.stream_paths(paths, extractor_opts(opts)), opts)
+  end
+
+  @doc false
+  def index_sources(sources, opts \\ []) do
+    opts = normalize_backend(opts)
+    do_index(ExASTExtractor.stream_sources(sources, extractor_opts(opts)), opts)
+  end
+
+  defp do_index(fragments, opts) do
     store_opts = store_opts(opts)
 
     store_opts =
       if opts[:backend] == :duckdb do
+        Exograph.DuckDB.configure_threads!(
+          Keyword.fetch!(opts, :repo),
+          Keyword.get(opts, :duckdb_threads)
+        )
+
         if Keyword.get(opts, :migrate?, false), do: Exograph.DuckDB.migrate!(opts)
         Keyword.put(store_opts, :migrate?, false)
       else
@@ -58,13 +72,7 @@ defmodule Exograph do
          {:ok, fragment_store} <- PostgresFragmentStore.new(store_opts_without_migration),
          {:ok, tree_store} <- PostgresTreeStore.new(store_opts_without_migration),
          {:ok, {inverted, fragment_store, tree_store}} <-
-           put_fragment_stream(
-             ExASTExtractor.stream_paths(paths, indexer_opts),
-             batch_size,
-             inverted,
-             fragment_store,
-             tree_store
-           ) do
+           put_fragment_stream(fragments, batch_size, inverted, fragment_store, tree_store) do
       {:ok,
        %Index{
          inverted: inverted,

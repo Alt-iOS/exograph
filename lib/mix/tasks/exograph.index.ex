@@ -131,11 +131,5 @@ defmodule Mix.Tasks.Exograph.Index do
     end)
   end
 
-  defp json(value) do
-    if Code.ensure_loaded?(Jason) do
-      Jason.encode!(value)
-    else
-      inspect(value, limit: :infinity)
-    end
-  end
+  defp json(value), do: JSON.encode!(value)
 end

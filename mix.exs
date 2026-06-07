@@ -53,7 +53,6 @@ defmodule Exograph.MixProject do
       {:bandit, "~> 1.5", optional: true},
       {:hex_core, "~> 0.15", optional: true},
       {:req, "~> 0.5", optional: true},
-      {:jason, "~> 1.2"},
       {:makeup, "~> 1.0", optional: true},
       {:makeup_elixir, "~> 1.0", optional: true},
       {:hammer, "~> 7.3", optional: true},

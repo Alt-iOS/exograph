@@ -69,7 +69,7 @@ defmodule Mix.Tasks.Exograph.IndexTest do
     ])
 
     assert_receive {:mix_shell, :info, [json]}
-    assert %{"backend" => "postgres", "fragments" => fragments} = Jason.decode!(json)
+    assert %{"backend" => "postgres", "fragments" => fragments} = JSON.decode!(json)
     assert fragments > 0
   end
 

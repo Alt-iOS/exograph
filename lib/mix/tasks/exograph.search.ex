@@ -183,5 +183,5 @@ defmodule Mix.Tasks.Exograph.Search do
     }
   end
 
-  defp json(value), do: Jason.encode!(value)
+  defp json(value), do: JSON.encode!(value)
 end

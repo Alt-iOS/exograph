@@ -29,7 +29,7 @@ defmodule Exograph.Web.Endpoint do
   plug(Plug.Parsers,
     parsers: [:urlencoded, :multipart, :json],
     pass: ["*/*"],
-    json_decoder: Jason
+    json_decoder: JSON
   )
 
   plug(Plug.MethodOverride)

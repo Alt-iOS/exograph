@@ -27,7 +27,7 @@ defmodule Exograph.Web.Plugs.RateLimit do
           |> put_resp_content_type("application/json")
           |> send_resp(
             429,
-            Jason.encode!(%{error: "Rate limit exceeded", retry_after_ms: retry_after})
+            JSON.encode!(%{error: "Rate limit exceeded", retry_after_ms: retry_after})
           )
           |> halt()
       end

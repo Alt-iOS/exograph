@@ -322,7 +322,19 @@ defmodule Exograph.Postgres.FragmentStore do
             |> Map.merge(%{inserted_at: now, updated_at: now})
           end)
 
-        hash_to_id = resolve_fragment_ids_by_hash(store, entries, hashed_unique)
+        inserted_by_hash = insert_fragments_by_hash(store, entries)
+
+        all_hashes = Enum.map(hashed_unique, & &1.content_hash)
+
+        existing =
+          from(f in {source(store), FragmentRecord},
+            where: f.content_hash in ^all_hashes,
+            select: {f.content_hash, f.id}
+          )
+          |> store.repo.all()
+          |> Map.new()
+
+        hash_to_id = Map.merge(existing, inserted_by_hash)
 
         Enum.map(hashed, fn fragment ->
           %{fragment | id: Map.get(hash_to_id, fragment.content_hash)}
@@ -353,23 +365,9 @@ defmodule Exograph.Postgres.FragmentStore do
     resolved
   end
 
-  defp resolve_fragment_ids_by_hash(%{repo: repo} = store, entries, hashed_unique) do
-    inserted_by_hash = insert_fragments_by_hash(store, entries)
-
-    if repo.__adapter__() == Ecto.Adapters.QuackDB do
-      inserted_by_hash
-    else
-      all_hashes = Enum.map(hashed_unique, & &1.content_hash)
-
-      store.repo
-      |> fragment_ids_by_hash(source(store), all_hashes)
-      |> Map.merge(inserted_by_hash)
-    end
-  end
-
   defp insert_fragments_by_hash(%{repo: repo} = store, entries) do
     if repo.__adapter__() == Ecto.Adapters.QuackDB do
-      insert_fragments_by_hash_with_append(store, entries)
+      insert_fragments_by_hash_with_staging(store, entries)
     else
       entries
       |> Enum.chunk_every(2_000)
@@ -389,61 +387,63 @@ defmodule Exograph.Postgres.FragmentStore do
     end
   end
 
-  defp insert_fragments_by_hash_with_append(store, entries) do
-    :global.trans(
-      {{__MODULE__, store.repo, source(store), :fragments}, __MODULE__},
-      fn -> locked_insert_fragments_by_hash_with_append(store, entries) end,
-      [node()],
-      1_000_000
-    )
-  end
-
-  defp locked_insert_fragments_by_hash_with_append(store, entries) do
+  defp insert_fragments_by_hash_with_staging(store, entries) do
+    staging = "#{store.prefix}_staging_fragments_#{System.unique_integer([:positive])}"
     target_table = source(store)
     target = {target_table, FragmentRecord}
-    hashes = Enum.map(entries, & &1.content_hash)
-    existing = fragment_ids_by_hash(store.repo, target_table, hashes)
-    new_entries = Enum.reject(entries, &Map.has_key?(existing, &1.content_hash))
 
-    inserted =
-      if new_entries == [] do
-        %{}
-      else
-        ids = allocate_fragment_ids(store.repo, target_table, length(new_entries))
+    try do
+      store.repo.query!(QuackDB.DDL.create_table(staging, FragmentRecord, or_replace: true), [],
+        timeout: :infinity
+      )
 
-        rows =
-          new_entries
-          |> Enum.zip(ids)
-          |> Enum.map(fn {entry, id} -> Map.put(entry, :id, id) end)
+      store.repo.insert_all({staging, FragmentRecord}, entries,
+        insert_method: :append,
+        chunk_every: 2_000,
+        timeout: :infinity
+      )
 
-        store.repo.insert_all(target, rows,
-          insert_method: :append,
-          chunk_every: 2_000,
+      staged_new_fragments =
+        from(row in {staging, FragmentRecord},
+          as: :row,
+          where:
+            not exists(
+              from(fragment in {target_table, FragmentRecord},
+                where: fragment.content_hash == parent_as(:row).content_hash,
+                select: 1
+              )
+            ),
+          select: %{
+            package_id: row.package_id,
+            package_version_id: row.package_version_id,
+            file_id: row.file_id,
+            content_hash: row.content_hash,
+            ast: row.ast,
+            kind: row.kind,
+            module: row.module,
+            name: row.name,
+            arity: row.arity,
+            line: row.line,
+            end_line: row.end_line,
+            mass: row.mass,
+            exact_hash: row.exact_hash,
+            terms: row.terms,
+            sub_hashes: row.sub_hashes,
+            inserted_at: row.inserted_at,
+            updated_at: row.updated_at
+          }
+        )
+
+      {_count, returning} =
+        store.repo.insert_all(target, staged_new_fragments,
+          returning: [:id, :content_hash],
           timeout: :infinity
         )
 
-        Map.new(rows, fn row -> {row.content_hash, row.id} end)
-      end
-
-    Map.merge(existing, inserted)
-  end
-
-  defp fragment_ids_by_hash(repo, target_table, hashes) do
-    from(f in {target_table, FragmentRecord},
-      where: f.content_hash in ^hashes,
-      select: {f.content_hash, f.id}
-    )
-    |> repo.all(timeout: :infinity)
-    |> Map.new()
-  end
-
-  defp allocate_fragment_ids(repo, target_table, count) do
-    sequence = String.replace("#{target_table}_id_seq", "'", "''")
-
-    "SELECT nextval('#{sequence}') AS id FROM range(#{count})"
-    |> repo.query!([], timeout: :infinity)
-    |> Map.fetch!(:rows)
-    |> Enum.map(fn [id] -> id end)
+      Map.new(returning, fn r -> {r.content_hash, r.id} end)
+    after
+      store.repo.query!(QuackDB.DDL.drop_table(staging, if_exists: true), [], timeout: :infinity)
+    end
   end
 
   defp normalize_terms(store, fragments) do

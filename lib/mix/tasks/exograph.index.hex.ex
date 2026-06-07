@@ -24,6 +24,10 @@ defmodule Mix.Tasks.Exograph.Index.Hex do
     * `--limit` - max packages to index
     * `--prefix` - table prefix (default: `hex`)
     * `--concurrency` - parallel download+index workers (default: `4`)
+    * `--duckdb-shards` - shard count for DuckDB corpus indexing (recommended for large corpora)
+    * `--duckdb-threads` - DuckDB execution threads per shard/server
+    * `--manifest-path` - write a sharded DuckDB manifest to this path
+    * `--shard-dir` - directory for managed DuckDB shard files
     * `--min-mass` - minimum fragment AST mass (default: `8`)
     * `--reach` - include Reach call graph extraction
     * `--force` - re-index already-indexed packages
@@ -54,6 +58,10 @@ defmodule Mix.Tasks.Exograph.Index.Hex do
           limit: :integer,
           prefix: :string,
           concurrency: :integer,
+          duckdb_shards: :integer,
+          duckdb_threads: :integer,
+          manifest_path: :string,
+          shard_dir: :string,
           min_mass: :integer,
           reach: :boolean,
           force: :boolean,
@@ -95,6 +103,10 @@ defmodule Mix.Tasks.Exograph.Index.Hex do
       limit: Keyword.get(opts, :limit),
       prefix: prefix,
       concurrency: Keyword.get(opts, :concurrency, 4),
+      shards: Keyword.get(opts, :duckdb_shards, 1),
+      duckdb_threads: Keyword.get(opts, :duckdb_threads),
+      manifest_path: Keyword.get(opts, :manifest_path),
+      shard_directory: Keyword.get(opts, :shard_dir),
       min_mass: Keyword.get(opts, :min_mass, 8),
       resume: not Keyword.get(opts, :force, false),
       bm25?: !Keyword.get(opts, :no_bm25, false),
@@ -150,19 +162,22 @@ defmodule Mix.Tasks.Exograph.Index.Hex do
         Application.ensure_all_started(:ecto_sql)
         Application.ensure_all_started(:quackdb)
 
-        Application.put_env(:exograph, Exograph.DuckDBRepo,
-          uri:
-            Keyword.get(opts, :quackdb_uri) || System.get_env("QUACKDB_URI") ||
-              System.get_env("QUACKDB_TEST_URI") || Mix.raise("Missing --quackdb-uri"),
-          token:
-            Keyword.get(opts, :quackdb_token) || System.get_env("QUACKDB_TOKEN") ||
-              System.get_env("QUACKDB_TEST_TOKEN") || "",
-          pool_size: Keyword.get(opts, :concurrency, 4),
-          log: false,
-          timeout: 120_000
-        )
+        if Keyword.get(opts, :duckdb_shards, 1) <= 1 do
+          Application.put_env(:exograph, Exograph.DuckDBRepo,
+            uri:
+              Keyword.get(opts, :quackdb_uri) || System.get_env("QUACKDB_URI") ||
+                System.get_env("QUACKDB_TEST_URI") || Mix.raise("Missing --quackdb-uri"),
+            token:
+              Keyword.get(opts, :quackdb_token) || System.get_env("QUACKDB_TOKEN") ||
+                System.get_env("QUACKDB_TEST_TOKEN") || "",
+            pool_size: Keyword.get(opts, :concurrency, 4),
+            log: false,
+            timeout: 120_000
+          )
 
-        {:ok, _} = Exograph.DuckDBRepo.start_link()
+          {:ok, _} = Exograph.DuckDBRepo.start_link()
+        end
+
         Exograph.DuckDBRepo
 
       repo_str ->

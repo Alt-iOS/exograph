@@ -83,6 +83,7 @@ defmodule Exograph.MixProject do
         "guides/dsl.md",
         "guides/code-facts.md",
         "guides/call-graph.md",
+        "guides/duckdb.md",
         "guides/postgres-paradedb.md",
         "guides/package-indexing.md",
         "guides/mix-tasks.md",

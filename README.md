@@ -1,8 +1,8 @@
 # Exograph
 
-Local CodeQL-style code search for Elixir, backed by Postgres and ExAST.
+Local CodeQL-style code search for Elixir, backed by DuckDB/QuackDB or Postgres and ExAST.
 
-Exograph indexes Elixir source code into normalized Ecto/Postgres tables: files,
+Exograph indexes Elixir source code into normalized Ecto-backed tables: files,
 AST fragments, comments, definitions, references, package versions, and optional
 Reach call graph facts. You can then query that index with structural AST
 patterns, text/regex search, symbol/reference filters, and Ecto-shaped joins.
@@ -11,7 +11,7 @@ patterns, text/regex search, symbol/reference filters, and Ecto-shaped joins.
 
 Exograph is:
 
-- a library for indexing Elixir source code into Postgres
+- a library for indexing Elixir source code into DuckDB or Postgres
 - a set of Ecto schemas and migrations for normalized code facts
 - a structural search engine using ExAST for exact AST verification
 - an optional Reach-backed call graph index
@@ -45,12 +45,12 @@ def deps do
 end
 ```
 
-Exograph requires Postgres. ParadeDB's `pg_search` extension is optional and
-enables BM25-backed text/code-fact retrieval.
+DuckDB through QuackDB is the recommended local backend. Postgres remains supported;
+ParadeDB's `pg_search` extension is optional and enables BM25-backed text/code-fact retrieval.
 
 ## Quickstart
 
-Point Exograph at Elixir source and an Ecto repo:
+Point Exograph at Elixir source and an Ecto repo. For DuckDB, use a QuackDB-backed repo:
 
 ```elixir
 {:ok, index} =
@@ -62,18 +62,18 @@ Point Exograph at Elixir source and an Ecto repo:
 {:ok, hits} = Exograph.search(index, "Repo.get!(_, _)")
 ```
 
-Postgres retrieves candidates by term index; ExAST verifies the structural match.
+DuckDB/Postgres retrieves candidates by term index; ExAST verifies the structural match.
 
 ## Index Hex.pm
 
 Download and index packages directly from Hex.pm:
 
-    mix exograph.index.hex --mode latest --concurrency 8 --prefix hex
+    mix exograph.index.hex --backend duckdb --mode latest --duckdb-shards 4 --duckdb-threads 1 --prefix hex
 
 Modes: `latest` (one version per package), `top --limit 5000`, `all` (every version).
 Resumes automatically — already-indexed packages are skipped.
 
-On a full Hex.pm run: ~21k packages, 13.8M fragments, 35M references, ~34 GB, 28 minutes.
+For large corpora, DuckDB sharding keeps independent shard files and queries them through `%Exograph.ShardedIndex{}` without a merge step. Use `--manifest-path` to persist the shard manifest.
 
 ## Web UI
 
@@ -135,15 +135,15 @@ Exograph.search_callees(index, "MyApp.Accounts.update_user/2")
 | Reach | dependence analysis | in-memory graph/reports | APIs / Mix tasks | yes | call/data/control-flow analysis |
 | CodeQL | semantic code analysis | CodeQL database | QL language | not first-class Elixir | security analysis at scale |
 | Sourcegraph | cross-repo search | external index | text/structural depending setup | not Elixir-specific | organization-wide search |
-| Exograph | Elixir code fact index | Postgres/ParadeDB | ExAST + Ecto-shaped DSL | yes | local/self-hosted Elixir code intelligence, 21k+ package indexing |
+| Exograph | Elixir code fact index | DuckDB/QuackDB or Postgres/ParadeDB | ExAST + Ecto-shaped DSL | yes | local/self-hosted Elixir code intelligence, large Hex package indexing |
 
 ## Features
 
 - ExAST-backed structural search with exact verification
-- normalized Ecto/Postgres storage for files, fragments, comments, definitions, references, packages, versions, and call edges
+- normalized Ecto-backed storage for files, fragments, comments, definitions, references, packages, versions, and call edges
 - `mix exograph.index.hex` — streaming pipeline to index all of Hex.pm
 - package/version-scoped indexes for Hex or other source archives
-- text and regex search via `pg_trgm` GIN indexes (ParadeDB BM25 optional)
+- text and regex search via DuckDB FTS/BM25 or Postgres/ParadeDB
 - optional Reach call graph extraction
 - ExDNA-powered structural similarity
 - web UI with Monaco editor, live progress dashboard, and JSON API
@@ -152,12 +152,13 @@ Exograph.search_callees(index, "MyApp.Accounts.update_user/2")
 
 | Guide | Content |
 |-------|---------|
-| [Getting Started](guides/getting-started.md) | Installation, Postgres setup, first index/search |
+| [Getting Started](guides/getting-started.md) | Installation, backend setup, first index/search |
 | [Querying](guides/querying.md) | Structural, text, and regex search; planning/explain |
 | [DSL](guides/dsl.md) | `Exograph.DSL`, joins, selects, predicates |
 | [Code Facts](guides/code-facts.md) | Definitions, references, comments, typed hits |
 | [Call Graph](guides/call-graph.md) | Reach extraction, callers/callees, call edge DSL |
-| [Postgres and ParadeDB](guides/postgres-paradedb.md) | Storage backend, migrations, BM25, performance tuning |
+| [DuckDB and QuackDB](guides/duckdb.md) | Recommended backend, sharding, manifests, tuning |
+| [Postgres and ParadeDB](guides/postgres-paradedb.md) | Postgres backend, migrations, BM25, performance tuning |
 | [Package Indexing](guides/package-indexing.md) | Indexing Hex.pm and manual package archives |
 | [Mix Tasks](guides/mix-tasks.md) | CLI indexing, searching, web UI |
 | [Web UI](guides/web-ui.md) | Monaco editor, search modes, progress dashboard |

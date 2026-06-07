@@ -2,10 +2,9 @@
 
 ## Indexing Hex.pm
 
-`mix exograph.index.hex` is the primary way to index Hex packages. It downloads
-tarballs, extracts them to a temp directory, indexes them, and cleans up.
+`mix exograph.index.hex` is the primary way to index Hex packages. DuckDB sharding is recommended for large local corpora.
 
-    mix exograph.index.hex --mode latest --concurrency 8 --prefix hex
+    mix exograph.index.hex --backend duckdb --mode latest --duckdb-shards 4 --duckdb-threads 1 --prefix hex
 
 For a live dashboard during the run:
 
@@ -23,7 +22,7 @@ On a full Hex.pm run with `--mode latest`:
 | Fragments | 13.8M |
 | References | 35M |
 | Database size | ~34 GB |
-| Time (8 workers) | ~28 minutes |
+| Time (Postgres, 8 workers) | ~28 minutes |
 
 ### Modes
 
@@ -33,13 +32,44 @@ On a full Hex.pm run with `--mode latest`:
 | `top --limit N` | Top N most-downloaded packages |
 | `all` | Every published version |
 
+### DuckDB sharding
+
+With `--backend duckdb --duckdb-shards N`, Exograph splits the package list across `N` independent DuckDB files. Indexing runs shard workers in parallel and returns a `%Exograph.ShardedIndex{}`. Query APIs fan out across shards and merge the global result limit.
+
+Persist the shard manifest when you want to reopen the index later:
+
+    mix exograph.index.hex \
+      --backend duckdb \
+      --mode latest \
+      --duckdb-shards 4 \
+      --duckdb-threads 1 \
+      --manifest-path priv/exograph/hex.etf \
+      --shard-dir priv/exograph/shards
+
+Programmatic usage:
+
+```elixir
+result = Exograph.Hex.Corpus.index(
+  backend: :duckdb,
+  repo: Exograph.DuckDBRepo,
+  prefix: "hex",
+  shards: 4,
+  duckdb_threads: 1,
+  manifest_path: "priv/exograph/hex.etf"
+)
+
+{:ok, hits} = Exograph.search_text(result.index, "defmodule", limit: 50)
+```
+
+Reopen the manifest in a fresh process:
+
+```elixir
+{:ok, index} = Exograph.open_sharded("priv/exograph/hex.etf", duckdb_threads: 1)
+```
+
 ### Streaming pipeline
 
-Each package follows: download tarball → extract to tmpdir → index → cleanup.
-
-Peak disk usage is `concurrency × (largest package tarball)` — typically a few
-hundred MB regardless of total corpus size. Non-Elixir packages (no `.ex` files)
-are detected before disk write and skipped.
+Each package follows: download tarball → extract source files → index → cleanup. Peak disk usage is proportional to active workers and shard count, not total corpus size. Non-Elixir packages (no `.ex` files) are detected and skipped.
 
 ### Resume behavior
 
@@ -111,4 +141,5 @@ a package selector to scope the search without code changes.
 
 - [Mix Tasks](mix-tasks.md) — full `mix exograph.index.hex` option reference
 - [Web UI](web-ui.md) — progress dashboard
-- [Postgres and ParadeDB](postgres-paradedb.md) — performance tuning for large indexes
+- [DuckDB and QuackDB](duckdb.md) — recommended backend, sharding, manifests, tuning
+- [Postgres and ParadeDB](postgres-paradedb.md) — Postgres backend tuning

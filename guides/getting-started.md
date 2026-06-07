@@ -12,24 +12,19 @@ def deps do
 end
 ```
 
-**Postgres is required.** ParadeDB's `pg_search` extension is optional — without
-it, text search falls back to `pg_trgm` ILIKE, which is fast but not BM25-ranked.
+DuckDB through QuackDB is the recommended local backend. Postgres is also supported; ParadeDB's `pg_search` extension is optional for BM25-ranked Postgres search.
 
-Install `pg_trgm` if it is not already enabled:
-
-```sql
-CREATE EXTENSION IF NOT EXISTS pg_trgm;
-```
+For DuckDB, start a QuackDB server and configure a QuackDB-backed Ecto repo. For large Hex.pm corpora, prefer the sharded DuckDB mode shown below, which starts managed shard servers for you.
 
 ## Index your project
 
 Point Exograph at your source directories with `--migrate` to create the tables:
 
-    mix exograph.index --repo MyApp.Repo --migrate lib
+    mix exograph.index --backend duckdb --repo MyApp.ExographRepo --migrate lib
 
 To also index tests and set a custom prefix:
 
-    mix exograph.index --repo MyApp.Repo --migrate --prefix exograph lib test
+    mix exograph.index --backend duckdb --repo MyApp.ExographRepo --migrate --prefix exograph lib test
 
 From Elixir:
 
@@ -79,13 +74,16 @@ application repo:
 
 ## Index Hex.pm packages
 
-Download and index packages straight from Hex.pm:
+Download and index packages straight from Hex.pm with the recommended DuckDB sharded backend:
 
-    mix exograph.index.hex --mode top --limit 1000 --concurrency 8
+    mix exograph.index.hex \
+      --backend duckdb \
+      --mode top --limit 1000 \
+      --duckdb-shards 4 \
+      --duckdb-threads 1 \
+      --manifest-path priv/exograph/hex.etf
 
-This streams: download tarball → extract to tmpdir → index → cleanup. Peak disk
-usage is proportional to concurrency, not total package count. Already-indexed
-packages are skipped automatically.
+This streams package sources into independent DuckDB shard files. Already-indexed packages are skipped automatically inside each shard.
 
 Watch progress live by adding `--web`:
 
@@ -106,4 +104,5 @@ See [Package Indexing](package-indexing.md) for scale numbers and full options.
 - [Querying](querying.md) — structural patterns, text/regex search, planning
 - [DSL](dsl.md) — join code facts with structural predicates
 - [Mix Tasks](mix-tasks.md) — all CLI options
-- [Postgres and ParadeDB](postgres-paradedb.md) — performance tuning for large indexes
+- [DuckDB and QuackDB](duckdb.md) — recommended backend, sharding, manifests, tuning
+- [Postgres and ParadeDB](postgres-paradedb.md) — Postgres backend tuning

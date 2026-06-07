@@ -2,7 +2,7 @@
 
 ## mix exograph.index
 
-Index Elixir source files into Postgres.
+Index Elixir source files into DuckDB or Postgres.
 
     mix exograph.index --repo MyApp.Repo --migrate lib
     mix exograph.index --repo MyApp.Repo --migrate lib test
@@ -17,7 +17,7 @@ Index Elixir source files into Postgres.
 | `--min-mass` | `8` | Minimum AST fragment mass |
 | `--stats` | false | Print fragment statistics after indexing |
 | `--json` | false | Print summary as JSON |
-| `--backend` | `postgres` | Backend (only `postgres` is supported) |
+| `--backend` | `postgres` | `duckdb` or `postgres` |
 
 ## mix exograph.search
 
@@ -55,7 +55,7 @@ Download and index Hex.pm packages in a streaming pipeline.
 
     mix exograph.index.hex
     mix exograph.index.hex --mode top --limit 5000
-    mix exograph.index.hex --mode latest --concurrency 8 --prefix hex
+    mix exograph.index.hex --backend duckdb --mode latest --duckdb-shards 4 --duckdb-threads 1 --prefix hex
     mix exograph.index.hex --mode latest --web --port 4200
 
 | Option | Default | Description |
@@ -64,6 +64,11 @@ Download and index Hex.pm packages in a streaming pipeline.
 | `--limit` | — | Max packages to index |
 | `--prefix` | `hex` | Table prefix |
 | `--concurrency` | `4` | Parallel download+index workers |
+| `--backend` | `postgres` | `duckdb` or `postgres` |
+| `--duckdb-shards` | `1` | DuckDB shard count for corpus indexing |
+| `--duckdb-threads` | — | DuckDB execution threads per server/shard |
+| `--manifest-path` | — | Write sharded DuckDB manifest ETF |
+| `--shard-dir` | system temp | Directory for managed DuckDB shard files |
 | `--min-mass` | `8` | Minimum AST fragment mass |
 | `--reach` | false | Include Reach call graph extraction |
 | `--force` | false | Re-index already-indexed packages |
@@ -71,6 +76,8 @@ Download and index Hex.pm packages in a streaming pipeline.
 | `--mirror` | `https://repo.hex.pm` | Tarball mirror URL (repeatable, round-robin) |
 | `--cache-tarballs` | — | Directory to cache downloaded tarballs |
 | `--database-url` | `EXOGRAPH_DATABASE_URL` | Postgres connection URL |
+| `--quackdb-uri` | `QUACKDB_URI` | QuackDB URI for single DuckDB backend |
+| `--quackdb-token` | `QUACKDB_TOKEN` | QuackDB token for single DuckDB backend |
 | `--repo` | — | Ecto repo module (uses built-in if omitted) |
 | `--timeout` | `300` | Per-package timeout in seconds |
 | `--web` | false | Start web UI with live progress dashboard |

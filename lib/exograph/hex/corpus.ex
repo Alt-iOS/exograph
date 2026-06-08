@@ -252,7 +252,8 @@ defmodule Exograph.Hex.Corpus do
       bm25?: Keyword.get(opts, :bm25?, true),
       postgres_maintenance_work_mem: Keyword.get(opts, :postgres_maintenance_work_mem),
       postgres_max_parallel_maintenance_workers:
-        Keyword.get(opts, :postgres_max_parallel_maintenance_workers)
+        Keyword.get(opts, :postgres_max_parallel_maintenance_workers),
+      postgres_unlogged?: Keyword.get(opts, :postgres_unlogged?, false)
     )
   end
 

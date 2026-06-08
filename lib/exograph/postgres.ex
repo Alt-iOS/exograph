@@ -27,7 +27,8 @@ defmodule Exograph.Postgres do
           prefix: String.t(),
           bm25?: boolean(),
           postgres_maintenance_work_mem: String.t() | nil,
-          postgres_max_parallel_maintenance_workers: non_neg_integer() | nil
+          postgres_max_parallel_maintenance_workers: non_neg_integer() | nil,
+          postgres_unlogged?: boolean()
         ]
 
   @tables ~w(files fragments terms fragment_terms comments definitions references graph_nodes call_edges tree_nodes packages package_versions)
@@ -45,6 +46,8 @@ defmodule Exograph.Postgres do
       while creating indexes
     * `:postgres_max_parallel_maintenance_workers` - session-local
       `max_parallel_maintenance_workers` while creating indexes
+    * `:postgres_unlogged?` - create Exograph tables as `UNLOGGED` for
+      rebuildable local benchmark/index workloads
   """
   @spec migrate!(backend_opts()) :: :ok
   def migrate!(opts) do
@@ -57,7 +60,7 @@ defmodule Exograph.Postgres do
     if bm25?, do: execute!(repo, "CREATE EXTENSION IF NOT EXISTS pg_search", [])
 
     with_index_build_settings(repo, opts, fn ->
-      run_migration!(repo, prefix, CreateSchema)
+      run_migration!(repo, prefix, CreateSchema, opts)
       create_trgm_indexes!(repo, prefix)
       if bm25?, do: create_bm25_indexes!(repo, prefix)
     end)
@@ -65,8 +68,12 @@ defmodule Exograph.Postgres do
     :ok
   end
 
-  defp run_migration!(repo, prefix, module) do
-    Application.put_env(:exograph, module, prefix: prefix, backend: :postgres)
+  defp run_migration!(repo, prefix, module, opts) do
+    Application.put_env(:exograph, module,
+      prefix: prefix,
+      backend: :postgres,
+      postgres_unlogged?: Keyword.get(opts, :postgres_unlogged?, false)
+    )
 
     Runner.run(repo, repo.config(), 1, module, :forward, :up, :up,
       log: false,

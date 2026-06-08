@@ -23,6 +23,7 @@ defmodule Mix.Tasks.Exograph.Index do
     * `--duckdb-threads` - DuckDB execution threads for indexing/query setup
     * `--postgres-maintenance-work-mem` - session-local maintenance_work_mem during Postgres index builds
     * `--postgres-max-parallel-maintenance-workers` - session-local max_parallel_maintenance_workers during Postgres index builds
+    * `--postgres-unlogged` - use UNLOGGED Postgres tables for rebuildable local indexes
     * `--min-mass` - minimum AST fragment mass (default: `8`)
     * `--stats` - print indexed fragment statistics
     * `--json` - print summary as JSON
@@ -49,6 +50,7 @@ defmodule Mix.Tasks.Exograph.Index do
           duckdb_threads: :integer,
           postgres_maintenance_work_mem: :string,
           postgres_max_parallel_maintenance_workers: :integer,
+          postgres_unlogged: :boolean,
           min_mass: :integer,
           stats: :boolean,
           json: :boolean

@@ -4,12 +4,12 @@ defmodule Exograph.Storage.Ecto.Migrations.CreateSchema do
   use Ecto.Migration
 
   def up do
-    create_if_not_exists table(name("schema_migrations"), primary_key: false) do
+    create_if_not_exists table(name("schema_migrations"), table_opts(primary_key: false)) do
       add(:version, :bigint, primary_key: true)
       add(:inserted_at, :naive_datetime, null: false, default: fragment("now()"))
     end
 
-    create_if_not_exists table(name("packages")) do
+    create_if_not_exists table(name("packages"), table_opts()) do
       add(:ecosystem, :text, null: false)
       add(:name, :text, null: false)
       add(:metadata, :map, null: false, default: %{})
@@ -22,7 +22,7 @@ defmodule Exograph.Storage.Ecto.Migrations.CreateSchema do
       )
     )
 
-    create_if_not_exists table(name("package_versions")) do
+    create_if_not_exists table(name("package_versions"), table_opts()) do
       add(:package_id, references(name("packages"), on_delete: :delete_all), null: false)
       add(:version, :text, null: false)
       add(:source_ref, :text)
@@ -37,7 +37,7 @@ defmodule Exograph.Storage.Ecto.Migrations.CreateSchema do
       )
     )
 
-    create_if_not_exists table(name("files")) do
+    create_if_not_exists table(name("files"), table_opts()) do
       add(:package_id, references(name("packages"), on_delete: :delete_all))
       add(:package_version_id, references(name("package_versions"), on_delete: :delete_all))
       add(:path, :text, null: false)
@@ -59,19 +59,19 @@ defmodule Exograph.Storage.Ecto.Migrations.CreateSchema do
       )
     )
 
-    create_if_not_exists table(name("terms"), primary_key: false) do
+    create_if_not_exists table(name("terms"), table_opts(primary_key: false)) do
       add(:id, :serial, primary_key: true)
       add(:term, :text, null: false)
     end
 
     create_if_not_exists(unique_index(name("terms"), [:term], name: index_name("terms", "term")))
 
-    create_if_not_exists table(name("fragment_terms"), primary_key: false) do
+    create_if_not_exists table(name("fragment_terms"), table_opts(primary_key: false)) do
       add(:term_id, :integer, null: false)
       add(:fragment_id, :integer, null: false)
     end
 
-    create_if_not_exists table(name("fragments")) do
+    create_if_not_exists table(name("fragments"), table_opts()) do
       add(:package_id, references(name("packages"), on_delete: :delete_all))
       add(:package_version_id, references(name("package_versions"), on_delete: :delete_all))
       add(:file_id, references(name("files"), on_delete: :delete_all))
@@ -136,7 +136,7 @@ defmodule Exograph.Storage.Ecto.Migrations.CreateSchema do
       )
     end
 
-    create_if_not_exists table(name("comments")) do
+    create_if_not_exists table(name("comments"), table_opts()) do
       add(:package_id, references(name("packages"), on_delete: :delete_all))
       add(:package_version_id, references(name("package_versions"), on_delete: :delete_all))
       add(:file_id, references(name("files"), on_delete: :delete_all), null: false)
@@ -155,7 +155,7 @@ defmodule Exograph.Storage.Ecto.Migrations.CreateSchema do
       index(name("comments"), [:fragment_id], name: index_name("comments", "fragment"))
     )
 
-    create_if_not_exists table(name("definitions")) do
+    create_if_not_exists table(name("definitions"), table_opts()) do
       add(:package_id, references(name("packages"), on_delete: :delete_all))
       add(:package_version_id, references(name("package_versions"), on_delete: :delete_all))
       add(:file_id, references(name("files"), on_delete: :delete_all), null: false)
@@ -182,7 +182,7 @@ defmodule Exograph.Storage.Ecto.Migrations.CreateSchema do
       index(name("definitions"), [:file_id, :line], name: index_name("definitions", "file_line"))
     )
 
-    create_if_not_exists table(name("references")) do
+    create_if_not_exists table(name("references"), table_opts()) do
       add(:package_id, references(name("packages"), on_delete: :delete_all))
       add(:package_version_id, references(name("package_versions"), on_delete: :delete_all))
       add(:file_id, references(name("files"), on_delete: :delete_all), null: false)
@@ -209,7 +209,7 @@ defmodule Exograph.Storage.Ecto.Migrations.CreateSchema do
       index(name("references"), [:file_id, :line], name: index_name("references", "file_line"))
     )
 
-    create_if_not_exists table(name("graph_nodes")) do
+    create_if_not_exists table(name("graph_nodes"), table_opts()) do
       add(:package_id, references(name("packages"), on_delete: :delete_all))
       add(:package_version_id, references(name("package_versions"), on_delete: :delete_all))
       add(:file_id, references(name("files"), on_delete: :delete_all))
@@ -235,7 +235,7 @@ defmodule Exograph.Storage.Ecto.Migrations.CreateSchema do
       index(name("graph_nodes"), [:file_id], name: index_name("graph_nodes", "file"))
     )
 
-    create_if_not_exists table(name("call_edges")) do
+    create_if_not_exists table(name("call_edges"), table_opts()) do
       add(:package_id, references(name("packages"), on_delete: :delete_all))
       add(:package_version_id, references(name("package_versions"), on_delete: :delete_all))
       add(:file_id, references(name("files"), on_delete: :delete_all))
@@ -269,7 +269,7 @@ defmodule Exograph.Storage.Ecto.Migrations.CreateSchema do
       index(name("call_edges"), [:file_id], name: index_name("call_edges", "file"))
     )
 
-    create_if_not_exists table(name("tree_nodes"), primary_key: false) do
+    create_if_not_exists table(name("tree_nodes"), table_opts(primary_key: false)) do
       add(:fragment_id, references(name("fragments"), on_delete: :delete_all),
         null: false,
         primary_key: true
@@ -308,6 +308,14 @@ defmodule Exograph.Storage.Ecto.Migrations.CreateSchema do
     drop_if_exists(table(name("package_versions")))
     drop_if_exists(table(name("packages")))
     drop_if_exists(table(name("schema_migrations")))
+  end
+
+  defp table_opts(opts \\ []) do
+    if Application.fetch_env!(:exograph, __MODULE__)[:postgres_unlogged?] do
+      Keyword.put(opts, :modifiers, "UNLOGGED")
+    else
+      opts
+    end
   end
 
   defp name(suffix), do: "#{table_prefix()}_#{suffix}"

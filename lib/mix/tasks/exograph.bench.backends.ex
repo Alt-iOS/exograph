@@ -10,13 +10,14 @@ defmodule Mix.Tasks.Exograph.Bench.Backends do
       mix exograph.bench.backends --mode top --limit 20 --iterations 10
       mix exograph.bench.backends --mode top --limit 20 --concurrency 4 --duckdb-threads 1
       mix exograph.bench.backends --mode top --limit 20 --duckdb-shards 4 --duckdb-threads 1
-      mix exograph.bench.backends --mode top --limit 100 --duckdb-shards 8 --duckdb-threads 1 --duckdb-recovery-mode no_wal_writes --postgres-maintenance-work-mem 1GB --postgres-max-parallel-maintenance-workers 4 --order random --append-metrics
+      mix exograph.bench.backends --mode top --limit 100 --duckdb-shards 8 --duckdb-threads 1 --duckdb-recovery-mode no_wal_writes --postgres-maintenance-work-mem 1GB --postgres-max-parallel-maintenance-workers 4 --postgres-unlogged --postgres-synchronous-commit off --only postgres_plain,duckdb_plain,duckdb_sharded_plain --order random --append-metrics
 
   Required services:
 
     * Postgres: `EXOGRAPH_DATABASE_URL` or `--database-url`
     * DuckDB: `QUACKDB_URI` / `QUACKDB_TEST_URI` or `--quackdb-uri`
     * Sharded DuckDB starts managed QuackDB servers and can use `--duckdb-recovery-mode no_wal_writes`
+    * `--only` can restrict variants, for example `postgres_plain,duckdb_plain,duckdb_sharded_plain`
 
   The benchmark uses fresh prefixes and reports separate plain and BM25 variants:
   `postgres_plain`, `postgres_bm25`, `duckdb_plain`, and `duckdb_bm25`.
@@ -49,8 +50,11 @@ defmodule Mix.Tasks.Exograph.Bench.Backends do
           duckdb_recovery_mode: :string,
           postgres_maintenance_work_mem: :string,
           postgres_max_parallel_maintenance_workers: :integer,
+          postgres_unlogged: :boolean,
+          postgres_synchronous_commit: :string,
           append_metrics: :boolean,
           order: :string,
+          only: :string,
           timeout: :integer
         ]
       )
@@ -73,7 +77,10 @@ defmodule Mix.Tasks.Exograph.Bench.Backends do
       postgres_maintenance_work_mem: Keyword.get(opts, :postgres_maintenance_work_mem),
       postgres_max_parallel_maintenance_workers:
         Keyword.get(opts, :postgres_max_parallel_maintenance_workers),
-      order: Keyword.get(opts, :order, "default")
+      postgres_unlogged?: Keyword.get(opts, :postgres_unlogged, false),
+      postgres_synchronous_commit: Keyword.get(opts, :postgres_synchronous_commit),
+      order: Keyword.get(opts, :order, "default"),
+      only: only_variants(Keyword.get(opts, :only))
     }
 
     metrics = maybe_start_append_metrics(Keyword.get(opts, :append_metrics, false))
@@ -92,6 +99,9 @@ defmodule Mix.Tasks.Exograph.Bench.Backends do
         ],
         config.order
       )
+      |> Enum.filter(fn {label, _backend, _bm25?, _repo, _prefix} ->
+        include_variant?(config, label)
+      end)
       |> Enum.map(fn {label, backend, bm25?, repo, prefix} ->
         benchmark_backend(label, backend, bm25?, repo, prefix, config)
       end)
@@ -99,9 +109,13 @@ defmodule Mix.Tasks.Exograph.Bench.Backends do
     sharded_results =
       if config.duckdb_shards > 1 do
         [
-          benchmark_sharded_duckdb(:duckdb_sharded_plain, false, run_id, config),
-          benchmark_sharded_duckdb(:duckdb_sharded_bm25, true, run_id, config)
+          {:duckdb_sharded_plain, false},
+          {:duckdb_sharded_bm25, true}
         ]
+        |> Enum.filter(fn {label, _bm25?} -> include_variant?(config, label) end)
+        |> Enum.map(fn {label, bm25?} ->
+          benchmark_sharded_duckdb(label, bm25?, run_id, config)
+        end)
       else
         []
       end
@@ -172,21 +186,52 @@ defmodule Mix.Tasks.Exograph.Bench.Backends do
 
   defp run_order(_variants, other), do: Mix.raise("Invalid --order #{inspect(other)}")
 
+  defp only_variants(nil), do: nil
+
+  defp only_variants(value) do
+    value
+    |> String.split(",", trim: true)
+    |> Enum.map(&String.trim/1)
+    |> Enum.map(&String.to_existing_atom/1)
+    |> MapSet.new()
+  rescue
+    ArgumentError -> Mix.raise("Invalid --only variant list #{inspect(value)}")
+  end
+
+  defp include_variant?(%{only: nil}, _label), do: true
+  defp include_variant?(%{only: only}, label), do: MapSet.member?(only, label)
+
   defp start_postgres!(opts) do
     url =
       Keyword.get(opts, :database_url) || System.get_env("EXOGRAPH_DATABASE_URL") ||
         "postgres://dannote@localhost:5432/postgres"
 
-    Application.put_env(:exograph, Exograph.Web.Repo,
+    repo_opts = [
       url: url,
       pool_size: 10,
       log: false,
       timeout: 120_000
-    )
+    ]
+
+    repo_opts =
+      case Keyword.get(opts, :postgres_synchronous_commit) do
+        nil -> repo_opts
+        value -> Keyword.put(repo_opts, :after_connect, postgres_after_connect(value))
+      end
+
+    Application.put_env(:exograph, Exograph.Web.Repo, repo_opts)
 
     {:ok, _pid} = Exograph.Web.Repo.start_link()
     Exograph.Web.Repo
   end
+
+  defp postgres_after_connect(value)
+       when value in ["on", "off", "local", "remote_apply", "remote_write"] do
+    fn conn -> Postgrex.query!(conn, "SET synchronous_commit = #{value}", []) end
+  end
+
+  defp postgres_after_connect(value),
+    do: Mix.raise("Invalid --postgres-synchronous-commit #{inspect(value)}")
 
   defp start_duckdb!(opts, pool_size, duckdb_threads) do
     Application.ensure_all_started(:quackdb)
@@ -235,7 +280,8 @@ defmodule Mix.Tasks.Exograph.Bench.Backends do
       cache_dir: config.cache_dir,
       duckdb_threads: config.duckdb_threads,
       postgres_maintenance_work_mem: config.postgres_maintenance_work_mem,
-      postgres_max_parallel_maintenance_workers: config.postgres_max_parallel_maintenance_workers
+      postgres_max_parallel_maintenance_workers: config.postgres_max_parallel_maintenance_workers,
+      postgres_unlogged?: config.postgres_unlogged?
     ]
 
     Mix.shell().info("\nIndexing #{label} prefix=#{prefix}...")
@@ -540,11 +586,13 @@ defmodule Mix.Tasks.Exograph.Bench.Backends do
     postgres_settings =
       postgres_settings_label(
         config.postgres_maintenance_work_mem,
-        config.postgres_max_parallel_maintenance_workers
+        config.postgres_max_parallel_maintenance_workers,
+        config.postgres_unlogged?,
+        config.postgres_synchronous_commit
       )
 
     Mix.shell().info(
-      "  workload: #{config.mode} limit=#{config.limit} concurrency=#{config.concurrency} index_concurrency=#{index_concurrency} duckdb_threads=#{duckdb_threads} duckdb_shards=#{config.duckdb_shards} postgres_index_settings=#{postgres_settings} order=#{config.order}"
+      "  workload: #{config.mode} limit=#{config.limit} concurrency=#{config.concurrency} index_concurrency=#{index_concurrency} duckdb_threads=#{duckdb_threads} duckdb_shards=#{config.duckdb_shards} postgres_settings=#{postgres_settings} order=#{config.order}"
     )
 
     Mix.shell().info("  queries: warmup=#{config.warmup} iterations=#{config.iterations}\n")
@@ -600,15 +648,22 @@ defmodule Mix.Tasks.Exograph.Bench.Backends do
     end)
   end
 
-  defp postgres_settings_label(nil, nil), do: "default"
+  defp postgres_settings_label(
+         maintenance_work_mem,
+         parallel_workers,
+         unlogged?,
+         synchronous_commit
+       ) do
+    settings =
+      [
+        if(maintenance_work_mem, do: "maintenance_work_mem=#{maintenance_work_mem}"),
+        if(parallel_workers, do: "max_parallel_maintenance_workers=#{parallel_workers}"),
+        if(unlogged?, do: "unlogged=true"),
+        if(synchronous_commit, do: "synchronous_commit=#{synchronous_commit}")
+      ]
+      |> Enum.reject(&is_nil/1)
 
-  defp postgres_settings_label(maintenance_work_mem, parallel_workers) do
-    [
-      if(maintenance_work_mem, do: "maintenance_work_mem=#{maintenance_work_mem}"),
-      if(parallel_workers, do: "max_parallel_maintenance_workers=#{parallel_workers}")
-    ]
-    |> Enum.reject(&is_nil/1)
-    |> Enum.join(",")
+    if settings == [], do: "default", else: Enum.join(settings, ",")
   end
 
   defp all_query_names(results) do

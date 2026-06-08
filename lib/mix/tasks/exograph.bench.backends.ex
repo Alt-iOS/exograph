@@ -20,6 +20,7 @@ defmodule Mix.Tasks.Exograph.Bench.Backends do
     * Sharded DuckDB starts managed QuackDB servers and can use `--duckdb-recovery-mode no_wal_writes`
     * `--only` can restrict variants, for example `postgres_plain,duckdb_plain,duckdb_sharded_plain`
     * Prefixes are dropped after each run by default; use `--keep-prefixes` to inspect tables manually.
+    * `--explain-dir path` writes Postgres `EXPLAIN (ANALYZE, BUFFERS)` plans before cleanup.
 
   The benchmark uses fresh prefixes and reports separate plain and BM25 variants:
   `postgres_plain`, `postgres_bm25`, `duckdb_plain`, and `duckdb_bm25`.
@@ -62,7 +63,8 @@ defmodule Mix.Tasks.Exograph.Bench.Backends do
           only: :string,
           timeout: :integer,
           output_json: :string,
-          keep_prefixes: :boolean
+          keep_prefixes: :boolean,
+          explain_dir: :string
         ]
       )
 
@@ -92,7 +94,8 @@ defmodule Mix.Tasks.Exograph.Bench.Backends do
       order: Keyword.get(opts, :order, "default"),
       only: only_variants(Keyword.get(opts, :only)),
       output_json: Keyword.get(opts, :output_json),
-      keep_prefixes?: Keyword.get(opts, :keep_prefixes, false)
+      keep_prefixes?: Keyword.get(opts, :keep_prefixes, false),
+      explain_dir: Keyword.get(opts, :explain_dir)
     }
 
     if config.runs < 1, do: Mix.raise("--runs must be at least 1")
@@ -112,6 +115,7 @@ defmodule Mix.Tasks.Exograph.Bench.Backends do
     print_results(all_results, config)
     maybe_write_json(all_results, config)
     maybe_print_append_metrics(metrics)
+    maybe_write_explains(all_results, config)
     cleanup_benchmark_artifacts(all_results, config)
   end
 
@@ -610,6 +614,82 @@ defmodule Mix.Tasks.Exograph.Bench.Backends do
       {1, mid} -> Enum.at(sorted, mid)
       {0, mid} -> (Enum.at(sorted, mid - 1) + Enum.at(sorted, mid)) / 2
     end
+  end
+
+  defp maybe_write_explains(_results, %{explain_dir: nil}), do: :ok
+
+  defp maybe_write_explains(results, %{explain_dir: dir}) do
+    File.mkdir_p!(dir)
+
+    results
+    |> Enum.filter(&(&1.backend == :postgres and not Map.has_key?(&1, :error)))
+    |> Enum.each(&write_postgres_explains(&1, dir))
+
+    Mix.shell().info("\nWrote Postgres EXPLAIN plans to #{dir}")
+  end
+
+  defp write_postgres_explains(
+         %{cleanup: {:repo_prefix, repo, prefix}, label: label, run: run},
+         dir
+       ) do
+    explain_queries(prefix)
+    |> Enum.each(fn {name, sql, params} ->
+      path = Path.join(dir, "#{label}-run#{run}-#{name}.txt")
+      explain_sql = "EXPLAIN (ANALYZE, BUFFERS) " <> sql
+
+      text =
+        case Ecto.Adapters.SQL.query(repo, explain_sql, params, timeout: :infinity) do
+          {:ok, %{rows: rows}} ->
+            rows
+            |> Enum.map(fn [line] -> line end)
+            |> Enum.join("\n")
+
+          {:error, error} ->
+            "EXPLAIN failed: #{Exception.message(error)}"
+        end
+
+      File.write!(path, text <> "\n")
+    end)
+  end
+
+  defp write_postgres_explains(_result, _dir), do: :ok
+
+  defp explain_queries(prefix) do
+    raw =
+      queries(false)
+      |> Enum.map(fn {name, table, where, params} ->
+        sql =
+          "SELECT COUNT(*) FROM #{Exograph.Storage.Ecto.SQL.table(prefix, table)} WHERE #{pg_placeholders(where)}"
+
+        {name, sql, params}
+      end)
+
+    raw ++
+      [
+        {:api_text_defmodule, explain_file_search_sql(prefix, :source), ["%defmodule%", 50]},
+        {:api_comments_todo, explain_file_search_sql(prefix, :comments_text), ["%TODO%", 50]}
+      ]
+  end
+
+  defp explain_file_search_sql(prefix, field) when field in [:source, :comments_text] do
+    files = Exograph.Storage.Ecto.SQL.table(prefix, "files")
+    fragments = Exograph.Storage.Ecto.SQL.table(prefix, "fragments")
+    field = Atom.to_string(field)
+
+    """
+    SELECT fragment.id
+    FROM #{files} AS file
+    INNER JOIN LATERAL (
+      SELECT fragment.id
+      FROM #{fragments} AS fragment
+      WHERE fragment.file_id = file.id
+      ORDER BY fragment.line
+      LIMIT 1
+    ) AS fragment ON TRUE
+    WHERE file.#{field} ILIKE $1
+    ORDER BY file.path
+    LIMIT $2
+    """
   end
 
   defp maybe_write_json(_results, %{output_json: nil}), do: :ok

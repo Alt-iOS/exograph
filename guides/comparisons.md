@@ -76,6 +76,6 @@ A previous full `mix exograph.index.hex --mode latest --concurrency 8` Postgres 
 | Query time (structural, tuned Postgres) | ~78ms |
 
 Current repeated DuckDB/Postgres backend benchmark numbers are documented in
-[Backend benchmarks](backend-benchmarks.md). The short version: tuned Postgres is
-slightly faster for `top --limit 100` indexing, while DuckDB is faster for
+[Backend benchmarks](backend-benchmarks.md). The short version: Exograph's tuned Postgres backend is
+slightly faster for `top --limit 100` indexing, while Exograph's DuckDB backend is faster for
 `top --limit 500` indexing and usually much faster on the measured query paths.

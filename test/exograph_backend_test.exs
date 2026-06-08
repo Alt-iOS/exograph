@@ -15,7 +15,7 @@ defmodule ExographBackendTest do
     {:ok, opts: opts}
   end
 
-  test "index handle uses Postgres stores", %{opts: opts} do
+  test "index handle uses backend stores", %{opts: opts} do
     path =
       fixture("tree.ex", """
       defmodule Demo.Tree do

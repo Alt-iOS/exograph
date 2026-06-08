@@ -1,6 +1,6 @@
 defmodule Exograph.Postgres do
   @moduledoc """
-  Ecto/Postgres helpers for the durable Exograph backend.
+  Postgres-specific helpers for Exograph's Ecto storage backend.
 
   Relational storage is created through Ecto migrations. Raw SQL is reserved for
   Postgres extensions and ParadeDB's BM25 index, which Ecto migrations do not

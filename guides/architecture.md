@@ -8,8 +8,8 @@ ExAST remains the semantic authority for structural matches.
 - ExAST extracts structural terms, comments, symbols, and verifies patterns
 - ExDNA provides structural fingerprints for fragments and similarity search
 - Reach optionally extracts call graph facts
-- Ecto/Postgres stores normalized files, fragments, facts, package scope, and graph facts
-- ParadeDB optionally accelerates text and code-fact retrieval
+- Ecto-backed storage persists normalized files, fragments, facts, package scope, and graph facts in DuckDB/QuackDB or Postgres
+- DuckDB FTS/BM25 or ParadeDB can optionally accelerate text retrieval
 
 ## Indexing pipeline
 
@@ -23,7 +23,7 @@ source files
   ├── Reach extractor (optional)
   │   ├── graph nodes
   │   └── call edges
-  └── Postgres stores
+  └── Ecto storage backend
       ├── files
       ├── fragments
       ├── facts
@@ -46,7 +46,7 @@ Hex registry
 
 `Exograph.Index` separates execution by concern:
 
-- Postgres inverted index: structural term candidate retrieval from fragment rows
+- backend inverted index: structural term candidate retrieval from fragment rows
 - fragment store: AST blobs, ExDNA hashes, symbols, and file joins
 - source files: source text and aggregated comment text stored once per file
 - code facts: normalized comments, definitions, references, graph nodes, and call edges
@@ -61,7 +61,7 @@ Structural queries are planned into candidate retrieval plus verification:
 ```txt
 ExAST selector
   ├── required/advisory terms
-  ├── Postgres candidate scan
+  ├── backend candidate scan
   ├── hydrate fragments/source
   └── ExAST verification
 ```
@@ -87,12 +87,12 @@ table.
 
 ## Advisory locks for concurrent term insertion
 
-When multiple workers index packages concurrently, term insertion into the
-inverted index can deadlock on duplicate-key conflicts. Exograph acquires a
+When multiple Postgres workers index packages concurrently, term insertion into
+the inverted index can deadlock on duplicate-key conflicts. Exograph acquires a
 Postgres advisory lock keyed on `hash(term_text)` before inserting or looking up
 a term record. This serializes conflicting inserts per term without locking the
 entire terms table, and retries automatically on the rare case where two workers
-hash-collide to different lock IDs.
+hash-collide to different lock IDs. DuckDB/QuackDB uses its backend append path instead.
 
 ## `(kind, name, arity)` btree index
 
@@ -109,7 +109,7 @@ Text and regex search operate file-first rather than fragment-first:
 
 ```txt
 text query
-  ├── scan files.source with pg_trgm ILIKE (or BM25 ranking)
+  ├── scan files.source with backend text search (DuckDB FTS/BM25, ParadeDB BM25, or fallback predicates)
   ├── collect matching file IDs
   └── LATERAL join: for each file, find fragments containing the match line
 ```
@@ -118,19 +118,14 @@ This avoids storing duplicated source text per fragment and keeps `files.source`
 as the single source of truth. The lateral join uses the `(file_id, line,
 end_line)` btree index to locate the containing fragment efficiently.
 
-## Why Postgres
+## Why two backends
 
-Postgres gives Exograph:
+DuckDB/QuackDB is Exograph's default local backend. It avoids operating a separate database service, works well for rebuildable local Hex.pm corpora, and supports sharded corpus indexing.
 
-- durable local/self-hosted indexes
-- Ecto schemas and migrations
-- package/version scope
-- joins across structural and semantic facts
-- optional ParadeDB BM25 indexes
-- a natural substrate for tools that already run inside Elixir applications
+Postgres remains supported for teams that already operate Postgres, want durable shared indexes, or need optional ParadeDB BM25 indexes and integration with existing relational data.
 
 ## Raw SQL boundary
 
 Exograph uses Ecto where possible. Raw SQL is limited to extension/backend
-features Ecto cannot express directly, especially ParadeDB index creation,
-tokenizer casts, BM25 operators, and scoring.
+features Ecto cannot express directly, especially backend-specific index creation,
+tokenizer casts, BM25 operators, scoring, and operational maintenance commands.

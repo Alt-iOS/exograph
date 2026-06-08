@@ -62,7 +62,7 @@ Point Exograph at Elixir source. Mix tasks start a managed QuackDB server automa
 {:ok, hits} = Exograph.search(index, "Repo.get!(_, _)")
 ```
 
-DuckDB/Postgres retrieves candidates by term index; ExAST verifies the structural match.
+The configured backend retrieves candidates by term index; ExAST verifies the structural match.
 
 ## Index Hex.pm
 

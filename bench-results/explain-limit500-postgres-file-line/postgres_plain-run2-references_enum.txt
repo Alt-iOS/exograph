@@ -1,0 +1,16 @@
+Finalize Aggregate  (cost=17198.68..17198.69 rows=1 width=8) (actual time=48.529..49.232 rows=1.00 loops=1)
+  Buffers: shared hit=15518 read=1720
+  ->  Gather  (cost=17198.36..17198.67 rows=3 width=8) (actual time=48.526..49.230 rows=4.00 loops=1)
+        Workers Planned: 3
+        Workers Launched: 3
+        Buffers: shared hit=15518 read=1720
+        ->  Partial Aggregate  (cost=16198.36..16198.37 rows=1 width=8) (actual time=46.650..46.650 rows=1.00 loops=4)
+              Buffers: shared hit=15518 read=1720
+              ->  Parallel Index Only Scan using bench_pg_plain_3844_r2_references_qualified_idx on bench_pg_plain_3844_r2_references  (cost=0.42..16174.03 rows=9732 width=0) (actual time=9.397..46.500 rows=7108.25 loops=4)
+                    Filter: (qualified_name ~~* '%Enum%'::text)
+                    Rows Removed by Filter: 249384
+                    Heap Fetches: 29790
+                    Index Searches: 1
+                    Buffers: shared hit=15518 read=1720
+Planning Time: 0.076 ms
+Execution Time: 49.241 ms

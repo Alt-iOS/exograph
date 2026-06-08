@@ -1,0 +1,14 @@
+Finalize Aggregate  (cost=6085.17..6085.18 rows=1 width=8) (actual time=18.393..19.035 rows=1.00 loops=1)
+  Buffers: shared read=4082
+  ->  Gather  (cost=6084.96..6085.17 rows=2 width=8) (actual time=18.247..19.032 rows=3.00 loops=1)
+        Workers Planned: 2
+        Workers Launched: 2
+        Buffers: shared read=4082
+        ->  Partial Aggregate  (cost=5084.96..5084.97 rows=1 width=8) (actual time=16.585..16.585 rows=1.00 loops=3)
+              Buffers: shared read=4082
+              ->  Parallel Seq Scan on bench_pg_plain_3844_r3_definitions  (cost=0.00..5083.13 rows=731 width=0) (actual time=0.294..16.565 rows=744.00 loops=3)
+                    Filter: (qualified_name ~~* '%decode%'::text)
+                    Rows Removed by Filter: 63328
+                    Buffers: shared read=4082
+Planning Time: 0.083 ms
+Execution Time: 19.044 ms

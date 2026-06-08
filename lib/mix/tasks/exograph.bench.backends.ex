@@ -10,7 +10,7 @@ defmodule Mix.Tasks.Exograph.Bench.Backends do
       mix exograph.bench.backends --mode top --limit 20 --iterations 10
       mix exograph.bench.backends --mode top --limit 20 --concurrency 4 --duckdb-threads 1
       mix exograph.bench.backends --mode top --limit 20 --duckdb-shards 4 --duckdb-threads 1
-      mix exograph.bench.backends --mode top --limit 100 --duckdb-shards 8 --duckdb-threads 1 --duckdb-recovery-mode no_wal_writes --postgres-maintenance-work-mem 1GB --postgres-max-parallel-maintenance-workers 4 --postgres-copy --postgres-unlogged --postgres-defer-indexes --postgres-synchronous-commit off --only postgres_plain,duckdb_plain,duckdb_sharded_plain --order random --append-metrics
+      mix exograph.bench.backends --mode top --limit 100 --duckdb-shards 8 --duckdb-threads 1 --duckdb-recovery-mode no_wal_writes --postgres-maintenance-work-mem 1GB --postgres-max-parallel-maintenance-workers 4 --postgres-copy --postgres-unlogged --postgres-defer-indexes --postgres-synchronous-commit off --only postgres_plain,duckdb_plain,duckdb_sharded_plain --order random --append-metrics --output-json bench.json
 
   Required services:
 
@@ -57,7 +57,8 @@ defmodule Mix.Tasks.Exograph.Bench.Backends do
           append_metrics: :boolean,
           order: :string,
           only: :string,
-          timeout: :integer
+          timeout: :integer,
+          output_json: :string
         ]
       )
 
@@ -84,7 +85,8 @@ defmodule Mix.Tasks.Exograph.Bench.Backends do
       postgres_copy?: Keyword.get(opts, :postgres_copy, false),
       postgres_synchronous_commit: Keyword.get(opts, :postgres_synchronous_commit),
       order: Keyword.get(opts, :order, "default"),
-      only: only_variants(Keyword.get(opts, :only))
+      only: only_variants(Keyword.get(opts, :only)),
+      output_json: Keyword.get(opts, :output_json)
     }
 
     metrics = maybe_start_append_metrics(Keyword.get(opts, :append_metrics, false))
@@ -124,7 +126,10 @@ defmodule Mix.Tasks.Exograph.Bench.Backends do
         []
       end
 
-    print_results(results ++ sharded_results, config)
+    all_results = results ++ sharded_results
+
+    print_results(all_results, config)
+    maybe_write_json(all_results, config)
     maybe_print_append_metrics(metrics)
   end
 
@@ -580,6 +585,103 @@ defmodule Mix.Tasks.Exograph.Bench.Backends do
     case {rem(count, 2), div(count, 2)} do
       {1, mid} -> Enum.at(sorted, mid)
       {0, mid} -> (Enum.at(sorted, mid - 1) + Enum.at(sorted, mid)) / 2
+    end
+  end
+
+  defp maybe_write_json(_results, %{output_json: nil}), do: :ok
+
+  defp maybe_write_json(results, %{output_json: path} = config) do
+    document = benchmark_json_document(results, config)
+    File.write!(path, Jason.encode_to_iodata!(document, pretty: true))
+    Mix.shell().info("\nWrote JSON benchmark results to #{path}")
+  end
+
+  defp benchmark_json_document(results, config) do
+    %{
+      generated_at: DateTime.utc_now() |> DateTime.to_iso8601(),
+      git: %{sha: git_sha(), branch: git_branch()},
+      system: system_info(),
+      versions: dependency_versions(),
+      config: json_config(config),
+      results: Enum.map(results, &json_result/1)
+    }
+    |> normalize_json_data()
+  end
+
+  defp json_config(config) do
+    config
+    |> Map.update!(:mode, &to_string/1)
+    |> Map.update!(:duckdb_recovery_mode, &json_recovery_mode/1)
+    |> Map.update!(:only, fn
+      nil -> nil
+      only -> only |> MapSet.to_list() |> Enum.map(&to_string/1) |> Enum.sort()
+    end)
+  end
+
+  defp json_recovery_mode(nil), do: nil
+  defp json_recovery_mode(value) when is_atom(value), do: to_string(value)
+  defp json_recovery_mode(value), do: value
+
+  defp json_result(result) do
+    result
+    |> Map.update!(:label, &to_string/1)
+    |> Map.update!(:backend, &to_string/1)
+    |> Map.update!(:queries, fn queries ->
+      Map.new(queries, fn {name, stats} -> {to_string(name), stats} end)
+    end)
+  end
+
+  defp normalize_json_data(%{} = map) do
+    Map.new(map, fn {key, value} -> {json_key(key), normalize_json_data(value)} end)
+  end
+
+  defp normalize_json_data(list) when is_list(list), do: Enum.map(list, &normalize_json_data/1)
+  defp normalize_json_data(value), do: value
+
+  defp json_key(key) when is_atom(key) do
+    key
+    |> Atom.to_string()
+    |> String.trim_trailing("?")
+  end
+
+  defp json_key(key), do: key
+
+  defp git_sha do
+    git_output(["rev-parse", "HEAD"])
+  end
+
+  defp git_branch do
+    git_output(["rev-parse", "--abbrev-ref", "HEAD"])
+  end
+
+  defp git_output(args) do
+    case System.cmd("git", args, stderr_to_stdout: true) do
+      {output, 0} -> String.trim(output)
+      _other -> nil
+    end
+  rescue
+    _ -> nil
+  end
+
+  defp system_info do
+    %{
+      otp_release: System.otp_release(),
+      elixir: System.version(),
+      schedulers_online: System.schedulers_online(),
+      os: :os.type() |> Tuple.to_list() |> Enum.map(&to_string/1),
+      arch: :erlang.system_info(:system_architecture) |> to_string()
+    }
+  end
+
+  defp dependency_versions do
+    [:ecto, :ecto_sql, :postgrex, :quackdb]
+    |> Map.new(fn app -> {app, app_version(app)} end)
+  end
+
+  defp app_version(app) do
+    case Application.spec(app, :vsn) do
+      nil -> nil
+      version -> to_string(version)
     end
   end
 

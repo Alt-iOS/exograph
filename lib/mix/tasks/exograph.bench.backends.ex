@@ -19,6 +19,7 @@ defmodule Mix.Tasks.Exograph.Bench.Backends do
     * DuckDB: `QUACKDB_URI` / `QUACKDB_TEST_URI` or `--quackdb-uri`
     * Sharded DuckDB starts managed QuackDB servers and can use `--duckdb-recovery-mode no_wal_writes`
     * `--only` can restrict variants, for example `postgres_plain,duckdb_plain,duckdb_sharded_plain`
+    * Prefixes are dropped after each run by default; use `--keep-prefixes` to inspect tables manually.
 
   The benchmark uses fresh prefixes and reports separate plain and BM25 variants:
   `postgres_plain`, `postgres_bm25`, `duckdb_plain`, and `duckdb_bm25`.
@@ -60,7 +61,8 @@ defmodule Mix.Tasks.Exograph.Bench.Backends do
           order: :string,
           only: :string,
           timeout: :integer,
-          output_json: :string
+          output_json: :string,
+          keep_prefixes: :boolean
         ]
       )
 
@@ -89,7 +91,8 @@ defmodule Mix.Tasks.Exograph.Bench.Backends do
       postgres_synchronous_commit: Keyword.get(opts, :postgres_synchronous_commit),
       order: Keyword.get(opts, :order, "default"),
       only: only_variants(Keyword.get(opts, :only)),
-      output_json: Keyword.get(opts, :output_json)
+      output_json: Keyword.get(opts, :output_json),
+      keep_prefixes?: Keyword.get(opts, :keep_prefixes, false)
     }
 
     if config.runs < 1, do: Mix.raise("--runs must be at least 1")
@@ -109,6 +112,7 @@ defmodule Mix.Tasks.Exograph.Bench.Backends do
     print_results(all_results, config)
     maybe_write_json(all_results, config)
     maybe_print_append_metrics(metrics)
+    cleanup_benchmark_artifacts(all_results, config)
   end
 
   def handle_quackdb_telemetry([:quackdb, :append, :start], _measurements, metadata, agent) do
@@ -335,7 +339,8 @@ defmodule Mix.Tasks.Exograph.Bench.Backends do
       corpus: corpus_result,
       fragments: count_rows(repo, prefix, "fragments"),
       files: count_rows(repo, prefix, "files"),
-      queries: benchmark_queries(backend, bm25?, repo, prefix, index, config)
+      queries: benchmark_queries(backend, bm25?, repo, prefix, index, config),
+      cleanup: {:repo_prefix, repo, prefix}
     }
   rescue
     error ->
@@ -349,7 +354,8 @@ defmodule Mix.Tasks.Exograph.Bench.Backends do
         corpus: %{ok: 0, skipped: 0, error: 1},
         fragments: 0,
         files: 0,
-        queries: []
+        queries: [],
+        cleanup: {:repo_prefix, repo, prefix}
       }
   end
 
@@ -389,7 +395,8 @@ defmodule Mix.Tasks.Exograph.Bench.Backends do
       corpus: corpus_result,
       fragments: Enum.sum(Enum.map(shards, &shard_count_rows(&1, "fragments"))),
       files: Enum.sum(Enum.map(shards, &shard_count_rows(&1, "files"))),
-      queries: benchmark_sharded_queries(bm25?, sharded_index, config)
+      queries: benchmark_sharded_queries(bm25?, sharded_index, config),
+      cleanup: {:shards, shards}
     }
   rescue
     error ->
@@ -641,6 +648,7 @@ defmodule Mix.Tasks.Exograph.Bench.Backends do
 
   defp json_result(result) do
     result
+    |> Map.drop([:cleanup])
     |> Map.update!(:label, &to_string/1)
     |> Map.update!(:backend, &to_string/1)
     |> Map.update!(:corpus, &Map.drop(&1, [:index, :manifest]))
@@ -950,6 +958,30 @@ defmodule Mix.Tasks.Exograph.Bench.Backends do
 
   defp native_seconds(value),
     do: System.convert_time_unit(value, :native, :microsecond) / 1_000_000
+
+  defp cleanup_benchmark_artifacts(_results, %{keep_prefixes?: true}) do
+    Mix.shell().info("\nKeeping benchmark prefixes (--keep-prefixes)")
+    :ok
+  end
+
+  defp cleanup_benchmark_artifacts(results, _config) do
+    Mix.shell().info("\nCleaning benchmark prefixes")
+
+    Enum.each(results, fn result ->
+      case Map.get(result, :cleanup) do
+        {:repo_prefix, repo, prefix} ->
+          drop_prefix(repo, prefix)
+
+        {:shards, shards} ->
+          Enum.each(shards, fn shard ->
+            Exograph.DuckDBShards.with_repo(shard, fn -> drop_prefix(shard.repo, shard.prefix) end)
+          end)
+
+        _other ->
+          :ok
+      end
+    end)
+  end
 
   defp drop_prefix(repo, prefix) do
     Enum.each(@tables, fn table ->

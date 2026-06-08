@@ -47,7 +47,7 @@ defmodule Exograph.Storage.Ecto.Migrations.CreateSchema do
       timestamps(type: :utc_datetime_usec)
     end
 
-    create_if_not_exists(
+    create_index_if_not_deferred(
       index(name("files"), [:package_version_id, :path],
         name: index_name("files", "package_path")
       )
@@ -97,7 +97,7 @@ defmodule Exograph.Storage.Ecto.Migrations.CreateSchema do
     )
 
     if postgres?() do
-      create_if_not_exists(
+      create_index_if_not_deferred(
         index(name("fragments"), [:terms],
           using: :gin,
           name: index_name("fragments", "terms_gin")
@@ -105,30 +105,30 @@ defmodule Exograph.Storage.Ecto.Migrations.CreateSchema do
       )
     end
 
-    create_if_not_exists(
+    create_index_if_not_deferred(
       index(name("fragments"), [:package_id, :package_version_id],
         name: index_name("fragments", "package")
       )
     )
 
-    create_if_not_exists(
+    create_index_if_not_deferred(
       index(name("fragments"), [:file_id], name: index_name("fragments", "file"))
     )
 
-    create_if_not_exists(
+    create_index_if_not_deferred(
       index(name("fragments"), [:file_id, :kind, :line],
         name: index_name("fragments", "file_kind_line")
       )
     )
 
-    create_if_not_exists(
+    create_index_if_not_deferred(
       index(name("fragments"), [:kind, :name, :arity],
         name: index_name("fragments", "kind_name_arity")
       )
     )
 
     if postgres?() do
-      create_if_not_exists(
+      create_index_if_not_deferred(
         index(name("fragments"), [:file_id, :line, :end_line],
           where: "kind IN ('def','defp','defmacro','defmacrop')",
           name: index_name("fragments", "containment")
@@ -147,11 +147,11 @@ defmodule Exograph.Storage.Ecto.Migrations.CreateSchema do
       timestamps(type: :utc_datetime_usec)
     end
 
-    create_if_not_exists(
+    create_index_if_not_deferred(
       index(name("comments"), [:file_id], name: index_name("comments", "file"))
     )
 
-    create_if_not_exists(
+    create_index_if_not_deferred(
       index(name("comments"), [:fragment_id], name: index_name("comments", "fragment"))
     )
 
@@ -170,15 +170,15 @@ defmodule Exograph.Storage.Ecto.Migrations.CreateSchema do
       timestamps(type: :utc_datetime_usec)
     end
 
-    create_if_not_exists(
+    create_index_if_not_deferred(
       index(name("definitions"), [:qualified_name], name: index_name("definitions", "qualified"))
     )
 
-    create_if_not_exists(
+    create_index_if_not_deferred(
       index(name("definitions"), [:fragment_id], name: index_name("definitions", "fragment"))
     )
 
-    create_if_not_exists(
+    create_index_if_not_deferred(
       index(name("definitions"), [:file_id, :line], name: index_name("definitions", "file_line"))
     )
 
@@ -197,15 +197,15 @@ defmodule Exograph.Storage.Ecto.Migrations.CreateSchema do
       timestamps(type: :utc_datetime_usec)
     end
 
-    create_if_not_exists(
+    create_index_if_not_deferred(
       index(name("references"), [:qualified_name], name: index_name("references", "qualified"))
     )
 
-    create_if_not_exists(
+    create_index_if_not_deferred(
       index(name("references"), [:fragment_id], name: index_name("references", "fragment"))
     )
 
-    create_if_not_exists(
+    create_index_if_not_deferred(
       index(name("references"), [:file_id, :line], name: index_name("references", "file_line"))
     )
 
@@ -227,11 +227,11 @@ defmodule Exograph.Storage.Ecto.Migrations.CreateSchema do
       timestamps(type: :utc_datetime_usec)
     end
 
-    create_if_not_exists(
+    create_index_if_not_deferred(
       index(name("graph_nodes"), [:qualified_name], name: index_name("graph_nodes", "qualified"))
     )
 
-    create_if_not_exists(
+    create_index_if_not_deferred(
       index(name("graph_nodes"), [:file_id], name: index_name("graph_nodes", "file"))
     )
 
@@ -253,19 +253,19 @@ defmodule Exograph.Storage.Ecto.Migrations.CreateSchema do
       timestamps(type: :utc_datetime_usec)
     end
 
-    create_if_not_exists(
+    create_index_if_not_deferred(
       index(name("call_edges"), [:caller_qualified_name],
         name: index_name("call_edges", "caller")
       )
     )
 
-    create_if_not_exists(
+    create_index_if_not_deferred(
       index(name("call_edges"), [:callee_qualified_name],
         name: index_name("call_edges", "callee")
       )
     )
 
-    create_if_not_exists(
+    create_index_if_not_deferred(
       index(name("call_edges"), [:file_id], name: index_name("call_edges", "file"))
     )
 
@@ -287,7 +287,7 @@ defmodule Exograph.Storage.Ecto.Migrations.CreateSchema do
       add(:depth, :integer, null: false)
     end
 
-    create_if_not_exists(
+    create_index_if_not_deferred(
       index(name("tree_nodes"), [:fragment_id], name: index_name("tree_nodes", "fragment"))
     )
 
@@ -308,6 +308,15 @@ defmodule Exograph.Storage.Ecto.Migrations.CreateSchema do
     drop_if_exists(table(name("package_versions")))
     drop_if_exists(table(name("packages")))
     drop_if_exists(table(name("schema_migrations")))
+  end
+
+  defp create_index_if_not_deferred(index) do
+    unless deferred_indexes?(), do: create_if_not_exists(index)
+  end
+
+  defp deferred_indexes? do
+    Application.fetch_env!(:exograph, __MODULE__)[:postgres_defer_indexes?] == true and
+      postgres?()
   end
 
   defp table_opts(opts \\ []) do

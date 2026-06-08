@@ -24,6 +24,7 @@ defmodule Mix.Tasks.Exograph.Index do
     * `--postgres-maintenance-work-mem` - session-local maintenance_work_mem during Postgres index builds
     * `--postgres-max-parallel-maintenance-workers` - session-local max_parallel_maintenance_workers during Postgres index builds
     * `--postgres-unlogged` - use UNLOGGED Postgres tables for rebuildable local indexes
+    * `--postgres-defer-indexes` - build non-unique Postgres query indexes after indexing
     * `--min-mass` - minimum AST fragment mass (default: `8`)
     * `--stats` - print indexed fragment statistics
     * `--json` - print summary as JSON
@@ -51,6 +52,7 @@ defmodule Mix.Tasks.Exograph.Index do
           postgres_maintenance_work_mem: :string,
           postgres_max_parallel_maintenance_workers: :integer,
           postgres_unlogged: :boolean,
+          postgres_defer_indexes: :boolean,
           min_mass: :integer,
           stats: :boolean,
           json: :boolean

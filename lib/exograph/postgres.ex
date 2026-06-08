@@ -28,7 +28,8 @@ defmodule Exograph.Postgres do
           bm25?: boolean(),
           postgres_maintenance_work_mem: String.t() | nil,
           postgres_max_parallel_maintenance_workers: non_neg_integer() | nil,
-          postgres_unlogged?: boolean()
+          postgres_unlogged?: boolean(),
+          postgres_defer_indexes?: boolean()
         ]
 
   @tables ~w(files fragments terms fragment_terms comments definitions references graph_nodes call_edges tree_nodes packages package_versions)
@@ -48,6 +49,8 @@ defmodule Exograph.Postgres do
       `max_parallel_maintenance_workers` while creating indexes
     * `:postgres_unlogged?` - create Exograph tables as `UNLOGGED` for
       rebuildable local benchmark/index workloads
+    * `:postgres_defer_indexes?` - defer non-unique query index creation until
+      `finalize!/1`, preserving uniqueness constraints needed for upserts
   """
   @spec migrate!(backend_opts()) :: :ok
   def migrate!(opts) do
@@ -61,8 +64,11 @@ defmodule Exograph.Postgres do
 
     with_index_build_settings(repo, opts, fn ->
       run_migration!(repo, prefix, CreateSchema, opts)
-      create_trgm_indexes!(repo, prefix)
-      if bm25?, do: create_bm25_indexes!(repo, prefix)
+
+      unless Keyword.get(opts, :postgres_defer_indexes?, false) do
+        create_trgm_indexes!(repo, prefix)
+        if bm25?, do: create_bm25_indexes!(repo, prefix)
+      end
     end)
 
     :ok
@@ -72,7 +78,8 @@ defmodule Exograph.Postgres do
     Application.put_env(:exograph, module,
       prefix: prefix,
       backend: :postgres,
-      postgres_unlogged?: Keyword.get(opts, :postgres_unlogged?, false)
+      postgres_unlogged?: Keyword.get(opts, :postgres_unlogged?, false),
+      postgres_defer_indexes?: Keyword.get(opts, :postgres_defer_indexes?, false)
     )
 
     Runner.run(repo, repo.config(), 1, module, :forward, :up, :up,
@@ -94,6 +101,7 @@ defmodule Exograph.Postgres do
     prefix = Keyword.get(opts, :prefix, "exograph")
 
     with_index_build_settings(repo, opts, fn ->
+      create_standard_indexes!(repo, prefix)
       create_trgm_indexes!(repo, prefix)
       if Keyword.get(opts, :bm25?, true), do: create_bm25_indexes!(repo, prefix)
     end)
@@ -108,6 +116,39 @@ defmodule Exograph.Postgres do
     end)
 
     :ok
+  end
+
+  defp create_standard_indexes!(repo, prefix) do
+    standard_indexes(prefix)
+    |> Enum.each(fn sql -> execute!(repo, sql, []) end)
+  end
+
+  defp standard_indexes(prefix) do
+    table = &Exograph.Storage.Ecto.SQL.table(prefix, &1)
+
+    [
+      "CREATE INDEX IF NOT EXISTS #{prefix}_files_package_path_idx ON #{table.("files")} (package_version_id, path)",
+      "CREATE INDEX IF NOT EXISTS #{prefix}_fragments_terms_gin_idx ON #{table.("fragments")} USING gin (terms)",
+      "CREATE INDEX IF NOT EXISTS #{prefix}_fragments_package_idx ON #{table.("fragments")} (package_id, package_version_id)",
+      "CREATE INDEX IF NOT EXISTS #{prefix}_fragments_file_idx ON #{table.("fragments")} (file_id)",
+      "CREATE INDEX IF NOT EXISTS #{prefix}_fragments_file_kind_line_idx ON #{table.("fragments")} (file_id, kind, line)",
+      "CREATE INDEX IF NOT EXISTS #{prefix}_fragments_kind_name_arity_idx ON #{table.("fragments")} (kind, name, arity)",
+      "CREATE INDEX IF NOT EXISTS #{prefix}_fragments_containment_idx ON #{table.("fragments")} (file_id, line, end_line) WHERE kind IN ('def','defp','defmacro','defmacrop')",
+      "CREATE INDEX IF NOT EXISTS #{prefix}_comments_file_idx ON #{table.("comments")} (file_id)",
+      "CREATE INDEX IF NOT EXISTS #{prefix}_comments_fragment_idx ON #{table.("comments")} (fragment_id)",
+      "CREATE INDEX IF NOT EXISTS #{prefix}_definitions_qualified_idx ON #{table.("definitions")} (qualified_name)",
+      "CREATE INDEX IF NOT EXISTS #{prefix}_definitions_fragment_idx ON #{table.("definitions")} (fragment_id)",
+      "CREATE INDEX IF NOT EXISTS #{prefix}_definitions_file_line_idx ON #{table.("definitions")} (file_id, line)",
+      "CREATE INDEX IF NOT EXISTS #{prefix}_references_qualified_idx ON #{table.("references")} (qualified_name)",
+      "CREATE INDEX IF NOT EXISTS #{prefix}_references_fragment_idx ON #{table.("references")} (fragment_id)",
+      "CREATE INDEX IF NOT EXISTS #{prefix}_references_file_line_idx ON #{table.("references")} (file_id, line)",
+      "CREATE INDEX IF NOT EXISTS #{prefix}_graph_nodes_qualified_idx ON #{table.("graph_nodes")} (qualified_name)",
+      "CREATE INDEX IF NOT EXISTS #{prefix}_graph_nodes_file_idx ON #{table.("graph_nodes")} (file_id)",
+      "CREATE INDEX IF NOT EXISTS #{prefix}_call_edges_caller_idx ON #{table.("call_edges")} (caller_qualified_name)",
+      "CREATE INDEX IF NOT EXISTS #{prefix}_call_edges_callee_idx ON #{table.("call_edges")} (callee_qualified_name)",
+      "CREATE INDEX IF NOT EXISTS #{prefix}_call_edges_file_idx ON #{table.("call_edges")} (file_id)",
+      "CREATE INDEX IF NOT EXISTS #{prefix}_tree_nodes_fragment_idx ON #{table.("tree_nodes")} (fragment_id)"
+    ]
   end
 
   defp create_trgm_indexes!(repo, prefix) do

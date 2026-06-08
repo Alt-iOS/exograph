@@ -10,7 +10,7 @@ defmodule Mix.Tasks.Exograph.Bench.Backends do
       mix exograph.bench.backends --mode top --limit 20 --iterations 10
       mix exograph.bench.backends --mode top --limit 20 --concurrency 4 --duckdb-threads 1
       mix exograph.bench.backends --mode top --limit 20 --duckdb-shards 4 --duckdb-threads 1
-      mix exograph.bench.backends --mode top --limit 100 --duckdb-shards 8 --duckdb-threads 1 --duckdb-recovery-mode no_wal_writes --postgres-maintenance-work-mem 1GB --postgres-max-parallel-maintenance-workers 4 --postgres-unlogged --postgres-synchronous-commit off --only postgres_plain,duckdb_plain,duckdb_sharded_plain --order random --append-metrics
+      mix exograph.bench.backends --mode top --limit 100 --duckdb-shards 8 --duckdb-threads 1 --duckdb-recovery-mode no_wal_writes --postgres-maintenance-work-mem 1GB --postgres-max-parallel-maintenance-workers 4 --postgres-unlogged --postgres-defer-indexes --postgres-synchronous-commit off --only postgres_plain,duckdb_plain,duckdb_sharded_plain --order random --append-metrics
 
   Required services:
 
@@ -51,6 +51,7 @@ defmodule Mix.Tasks.Exograph.Bench.Backends do
           postgres_maintenance_work_mem: :string,
           postgres_max_parallel_maintenance_workers: :integer,
           postgres_unlogged: :boolean,
+          postgres_defer_indexes: :boolean,
           postgres_synchronous_commit: :string,
           append_metrics: :boolean,
           order: :string,
@@ -78,6 +79,7 @@ defmodule Mix.Tasks.Exograph.Bench.Backends do
       postgres_max_parallel_maintenance_workers:
         Keyword.get(opts, :postgres_max_parallel_maintenance_workers),
       postgres_unlogged?: Keyword.get(opts, :postgres_unlogged, false),
+      postgres_defer_indexes?: Keyword.get(opts, :postgres_defer_indexes, false),
       postgres_synchronous_commit: Keyword.get(opts, :postgres_synchronous_commit),
       order: Keyword.get(opts, :order, "default"),
       only: only_variants(Keyword.get(opts, :only))
@@ -281,7 +283,8 @@ defmodule Mix.Tasks.Exograph.Bench.Backends do
       duckdb_threads: config.duckdb_threads,
       postgres_maintenance_work_mem: config.postgres_maintenance_work_mem,
       postgres_max_parallel_maintenance_workers: config.postgres_max_parallel_maintenance_workers,
-      postgres_unlogged?: config.postgres_unlogged?
+      postgres_unlogged?: config.postgres_unlogged?,
+      postgres_defer_indexes?: config.postgres_defer_indexes?
     ]
 
     Mix.shell().info("\nIndexing #{label} prefix=#{prefix}...")
@@ -588,6 +591,7 @@ defmodule Mix.Tasks.Exograph.Bench.Backends do
         config.postgres_maintenance_work_mem,
         config.postgres_max_parallel_maintenance_workers,
         config.postgres_unlogged?,
+        config.postgres_defer_indexes?,
         config.postgres_synchronous_commit
       )
 
@@ -652,6 +656,7 @@ defmodule Mix.Tasks.Exograph.Bench.Backends do
          maintenance_work_mem,
          parallel_workers,
          unlogged?,
+         defer_indexes?,
          synchronous_commit
        ) do
     settings =
@@ -659,6 +664,7 @@ defmodule Mix.Tasks.Exograph.Bench.Backends do
         if(maintenance_work_mem, do: "maintenance_work_mem=#{maintenance_work_mem}"),
         if(parallel_workers, do: "max_parallel_maintenance_workers=#{parallel_workers}"),
         if(unlogged?, do: "unlogged=true"),
+        if(defer_indexes?, do: "defer_indexes=true"),
         if(synchronous_commit, do: "synchronous_commit=#{synchronous_commit}")
       ]
       |> Enum.reject(&is_nil/1)

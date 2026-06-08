@@ -253,7 +253,8 @@ defmodule Exograph.Hex.Corpus do
       postgres_maintenance_work_mem: Keyword.get(opts, :postgres_maintenance_work_mem),
       postgres_max_parallel_maintenance_workers:
         Keyword.get(opts, :postgres_max_parallel_maintenance_workers),
-      postgres_unlogged?: Keyword.get(opts, :postgres_unlogged?, false)
+      postgres_unlogged?: Keyword.get(opts, :postgres_unlogged?, false),
+      postgres_defer_indexes?: Keyword.get(opts, :postgres_defer_indexes?, false)
     )
   end
 
@@ -265,7 +266,16 @@ defmodule Exograph.Hex.Corpus do
     end
   end
 
-  defp finalize_backend!(_backend, _repo, _prefix, _opts), do: :ok
+  defp finalize_backend!(_backend, repo, prefix, opts) do
+    Exograph.Postgres.finalize!(
+      repo: repo,
+      prefix: prefix,
+      bm25?: Keyword.get(opts, :bm25?, true),
+      postgres_maintenance_work_mem: Keyword.get(opts, :postgres_maintenance_work_mem),
+      postgres_max_parallel_maintenance_workers:
+        Keyword.get(opts, :postgres_max_parallel_maintenance_workers)
+    )
+  end
 
   defp existing_versions(repo, prefix) do
     import Ecto.Query

@@ -105,3 +105,4 @@ See [Package Indexing](package-indexing.md) for scale numbers and full options.
 - [Mix Tasks](mix-tasks.md) — all CLI options
 - [DuckDB and QuackDB](duckdb.md) — recommended backend, sharding, manifests, tuning
 - [Postgres and ParadeDB](postgres-paradedb.md) — Postgres backend tuning
+- [Backend benchmarks](backend-benchmarks.md) — current DuckDB/Postgres benchmark methodology and results

@@ -14,11 +14,14 @@ defmodule Mix.Tasks.Exograph.Search do
 
   ## Options
 
-    * `--backend` - only `postgres` is supported (default: `postgres`)
-    * `--repo` - Ecto repo module for the Postgres backend
-    * `--prefix` - Exograph table prefix for the Postgres backend (default: `exograph`)
-    * `--migrate` - create/upgrade Postgres tables and ParadeDB BM25 index
-    * `--no-bm25` - skip ParadeDB `pg_search` extension/index creation during migration
+    * `--backend` - `postgres` (default) or `duckdb`
+    * `--repo` - Ecto repo module for the selected backend
+    * `--prefix` - Exograph table prefix (default: `exograph`)
+    * `--migrate` - create/upgrade backend tables and text indexes
+    * `--no-bm25` - skip BM25/full-text index creation during migration/finalization
+    * `--quackdb-uri` - QuackDB URI for the DuckDB backend when `--repo` is omitted
+    * `--quackdb-token` - QuackDB token for the DuckDB backend
+    * `--duckdb-threads` - DuckDB execution threads for indexing/query setup
     * `--min-mass` - minimum AST fragment mass (default: `8`)
     * `--limit` - maximum results (default: `20`)
     * `--contains` - require descendant pattern, can be repeated
@@ -41,6 +44,9 @@ defmodule Mix.Tasks.Exograph.Search do
           prefix: :string,
           migrate: :boolean,
           no_bm25: :boolean,
+          quackdb_uri: :string,
+          quackdb_token: :string,
+          duckdb_threads: :integer,
           min_mass: :integer,
           limit: :integer,
           contains: :keep,
@@ -127,7 +133,7 @@ defmodule Mix.Tasks.Exograph.Search do
     end
   end
 
-  defp backend_opts(backend, opts), do: Mix.Exograph.PostgresOptions.backend_opts(backend, opts)
+  defp backend_opts(backend, opts), do: Mix.Exograph.BackendOptions.backend_opts(backend, opts)
 
   defp print_results(results, opts) do
     if Keyword.get(opts, :json, false) do

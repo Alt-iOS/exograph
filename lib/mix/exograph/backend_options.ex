@@ -13,7 +13,8 @@ defmodule Mix.Exograph.BackendOptions do
       postgres_max_parallel_maintenance_workers:
         Keyword.get(opts, :postgres_max_parallel_maintenance_workers),
       postgres_unlogged?: Keyword.get(opts, :postgres_unlogged, false),
-      postgres_defer_indexes?: Keyword.get(opts, :postgres_defer_indexes, false)
+      postgres_defer_indexes?: Keyword.get(opts, :postgres_defer_indexes, false),
+      postgres_copy?: Keyword.get(opts, :postgres_copy, false)
     ]
   end
 

@@ -325,6 +325,7 @@ defmodule Exograph.Hex.Corpus do
         index_concurrency: Keyword.get(opts, :index_concurrency) || System.schedulers_online(),
         migrate?: false,
         extractors: extractors,
+        postgres_copy?: Keyword.get(opts, :postgres_copy?, false),
         package_version: [
           ecosystem: :hex,
           name: entry.name,

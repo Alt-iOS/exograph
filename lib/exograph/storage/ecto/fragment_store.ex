@@ -39,14 +39,16 @@ defmodule Exograph.Storage.Ecto.FragmentStore do
             prefix: "exograph",
             package: nil,
             package_version: nil,
-            extractors: [:ex_ast, :reach]
+            extractors: [:ex_ast, :reach],
+            postgres_copy?: false
 
   @type t :: %__MODULE__{
           repo: module(),
           prefix: String.t(),
           package: Package.t() | nil,
           package_version: PackageVersion.t() | nil,
-          extractors: keyword() | [atom()]
+          extractors: keyword() | [atom()],
+          postgres_copy?: boolean()
         }
 
   def new(opts \\ []), do: {:ok, Options.store(__MODULE__, opts)}
@@ -454,11 +456,19 @@ defmodule Exograph.Storage.Ecto.FragmentStore do
       from(term in source, where: term.fragment_id in ^fragment_ids)
       |> store.repo.delete_all(timeout: :infinity)
 
-      bulk_insert_fragment_terms(store.repo, source, entries)
+      bulk_insert_fragment_terms(store, source, entries)
     end
   end
 
-  defp bulk_insert_fragment_terms(repo, source, entries) do
+  defp bulk_insert_fragment_terms(%{repo: repo, postgres_copy?: true}, source, entries) do
+    if Exograph.Backend.postgres_repo?(repo) do
+      SQL.copy_integer_rows(repo, source, [:term_id, :fragment_id], entries)
+    else
+      bulk_insert_duckdb_or_postgres(repo, source, entries, chunk_size: 10_000)
+    end
+  end
+
+  defp bulk_insert_fragment_terms(%{repo: repo}, source, entries) do
     bulk_insert_duckdb_or_postgres(repo, source, entries, chunk_size: 10_000)
   end
 

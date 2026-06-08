@@ -41,6 +41,7 @@ defmodule Mix.Tasks.Exograph.Index.Hex do
     * `--postgres-max-parallel-maintenance-workers` - session-local max_parallel_maintenance_workers during Postgres index builds
     * `--postgres-unlogged` - use UNLOGGED Postgres tables for rebuildable local indexes
     * `--postgres-defer-indexes` - build non-unique Postgres query indexes after corpus loading
+    * `--postgres-copy` - use Postgres COPY for supported high-volume append tables
     * `--quackdb-uri` - QuackDB URI for DuckDB backend (or set `QUACKDB_URI` / `QUACKDB_TEST_URI`)
     * `--quackdb-token` - QuackDB token for DuckDB backend (or set `QUACKDB_TOKEN` / `QUACKDB_TEST_TOKEN`)
     * `--duckdb-database` - managed DuckDB database path when `--quackdb-uri` is omitted
@@ -80,6 +81,7 @@ defmodule Mix.Tasks.Exograph.Index.Hex do
           postgres_max_parallel_maintenance_workers: :integer,
           postgres_unlogged: :boolean,
           postgres_defer_indexes: :boolean,
+          postgres_copy: :boolean,
           quackdb_uri: :string,
           quackdb_token: :string,
           duckdb_database: :string,
@@ -133,7 +135,8 @@ defmodule Mix.Tasks.Exograph.Index.Hex do
       postgres_max_parallel_maintenance_workers:
         Keyword.get(opts, :postgres_max_parallel_maintenance_workers),
       postgres_unlogged?: Keyword.get(opts, :postgres_unlogged, false),
-      postgres_defer_indexes?: Keyword.get(opts, :postgres_defer_indexes, false)
+      postgres_defer_indexes?: Keyword.get(opts, :postgres_defer_indexes, false),
+      postgres_copy?: Keyword.get(opts, :postgres_copy, false)
     ]
 
     Exograph.Hex.Corpus.index(corpus_opts)

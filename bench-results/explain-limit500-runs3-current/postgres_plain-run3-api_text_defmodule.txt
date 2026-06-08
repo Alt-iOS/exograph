@@ -1,0 +1,22 @@
+Limit  (cost=15703.59..15703.72 rows=50 width=39) (actual time=556.317..556.320 rows=50.00 loops=1)
+  Buffers: shared hit=28179 read=6950
+  ->  Sort  (cost=15703.59..15719.17 rows=6231 width=39) (actual time=556.317..556.318 rows=50.00 loops=1)
+        Sort Key: file.path
+        Sort Method: top-N heapsort  Memory: 32kB
+        Buffers: shared hit=28179 read=6950
+        ->  Nested Loop  (cost=0.42..15496.60 rows=6231 width=39) (actual time=0.377..552.573 rows=6816.00 loops=1)
+              Buffers: shared hit=28179 read=6950
+              ->  Seq Scan on bench_pg_plain_35_r3_files file  (cost=0.00..967.69 rows=6231 width=39) (actual time=0.006..109.014 rows=6816.00 loops=1)
+                    Filter: (source ~~* '%defmodule%'::text)
+                    Rows Removed by Filter: 359
+                    Buffers: shared hit=7865
+              ->  Limit  (cost=0.42..2.31 rows=1 width=12) (actual time=0.065..0.065 rows=1.00 loops=6816)
+                    Buffers: shared hit=20314 read=6950
+                    ->  Index Scan using bench_pg_plain_35_r3_fragments_file_line_idx on bench_pg_plain_35_r3_fragments fragment  (cost=0.42..178.01 rows=94 width=12) (actual time=0.065..0.065 rows=1.00 loops=6816)
+                          Index Cond: (file_id = file.id)
+                          Index Searches: 6816
+                          Buffers: shared hit=20314 read=6950
+Planning:
+  Buffers: shared hit=1
+Planning Time: 0.363 ms
+Execution Time: 556.335 ms

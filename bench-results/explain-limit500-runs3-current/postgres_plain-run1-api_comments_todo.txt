@@ -1,0 +1,26 @@
+Limit  (cost=935.75..935.88 rows=50 width=39) (actual time=2.578..2.582 rows=50.00 loops=1)
+  Buffers: shared hit=962 read=93
+  ->  Sort  (cost=935.75..936.23 rows=190 width=39) (actual time=2.578..2.578 rows=50.00 loops=1)
+        Sort Key: file.path
+        Sort Method: top-N heapsort  Memory: 31kB
+        Buffers: shared hit=962 read=93
+        ->  Nested Loop  (cost=22.93..929.44 rows=190 width=39) (actual time=0.262..2.275 rows=217.00 loops=1)
+              Buffers: shared hit=962 read=93
+              ->  Bitmap Heap Scan on bench_pg_plain_35_r1_files file  (cost=22.51..484.89 rows=190 width=39) (actual time=0.239..1.194 rows=217.00 loops=1)
+                    Recheck Cond: (comments_text ~~* '%TODO%'::text)
+                    Heap Blocks: exact=161
+                    Buffers: shared hit=95 read=92
+                    ->  Bitmap Index Scan on bench_pg_plain_35_r1_files_comments_trgm_idx  (cost=0.00..22.46 rows=190 width=0) (actual time=0.188..0.188 rows=217.00 loops=1)
+                          Index Cond: (comments_text ~~* '%TODO%'::text)
+                          Index Searches: 1
+                          Buffers: shared hit=2 read=3
+              ->  Limit  (cost=0.42..2.32 rows=1 width=12) (actual time=0.005..0.005 rows=1.00 loops=217)
+                    Buffers: shared hit=867 read=1
+                    ->  Index Scan using bench_pg_plain_35_r1_fragments_file_line_idx on bench_pg_plain_35_r1_fragments fragment  (cost=0.42..180.66 rows=95 width=12) (actual time=0.005..0.005 rows=1.00 loops=217)
+                          Index Cond: (file_id = file.id)
+                          Index Searches: 217
+                          Buffers: shared hit=867 read=1
+Planning:
+  Buffers: shared read=1
+Planning Time: 0.991 ms
+Execution Time: 2.615 ms

@@ -33,7 +33,7 @@ Postgres settings are a rebuildable/local-index challenge mode: deferred non-uni
 | Workload | Postgres plain | DuckDB plain | DuckDB sharded plain | Result |
 |----------|----------------|--------------|----------------------|--------|
 | `top --limit 100` | 38.42s | 39.22s | 41.17s | tuned Postgres slightly faster |
-| `top --limit 500` | 161.42s | 107.36s | 85.55s | DuckDB 1.50× faster; sharded DuckDB 1.89× faster |
+| `top --limit 500` | 181.22s | 109.27s | 91.05s | DuckDB 1.66× faster; sharded DuckDB 1.99× faster |
 
 For `limit 100`, the systems are close and tuned Postgres wins indexing. For `limit 500`, DuckDB wins indexing, and sharding improves throughput further.
 
@@ -52,10 +52,10 @@ For `limit 100`, the systems are close and tuned Postgres wins indexing. For `li
 
 | Query | Postgres plain | DuckDB plain | DuckDB sharded plain |
 |-------|----------------|--------------|----------------------|
-| `api_text_defmodule` | 133.4ms | 47.1ms | 38.6ms |
-| `references_enum` | 54.7ms | 7.7ms | 9.9ms |
-| `files_defmodule` | 98.1ms | 23.4ms | 7.2ms |
-| `api_comments_todo` | 140.2ms | 145.4ms | 192.3ms |
+| `api_text_defmodule` | 134.2ms | 49.0ms | 37.0ms |
+| `references_enum` | 56.7ms | 8.9ms | 9.9ms |
+| `files_defmodule` | 98.3ms | 23.6ms | 7.1ms |
+| `api_comments_todo` | 143.3ms | 159.1ms | 199.9ms |
 
 Search/query paths usually favor DuckDB materially, especially on the larger workload.
 
@@ -64,14 +64,15 @@ Search/query paths usually favor DuckDB materially, especially on the larger wor
 Machine-readable benchmark artifacts live under `bench-results/`:
 
 - `backend-limit100-runs3-stable.json`
+- `backend-limit500-runs3-current.json`
+- `explain-limit500-runs3-current/`
 - `backend-limit500-runs3-postgres-file-line.json`
 - `backend-limit500-runs3-defer.json`
-- `explain-limit500-postgres-file-line/`
 
-The `limit 500` Postgres artifact is from a clean Postgres-only rerun after adding the `(file_id, line)` fragment index used by first-fragment-per-file API queries. DuckDB medians use the existing repeated DuckDB runs from `backend-limit500-runs3-defer.json`.
+The current `limit 500` artifact reruns Postgres plain, DuckDB plain, and sharded DuckDB together on the same code revision after adding the `(file_id, line)` fragment index used by first-fragment-per-file API queries. Older artifacts are retained for comparison/history.
 
 ## Current fair wording
 
 A defensible summary is:
 
-> On Exograph's Hex.pm top-package workload, tuned Postgres is slightly faster at indexing 100 packages. At 500 packages, DuckDB indexes about 1.50× faster single-node and about 1.89× faster with 4 shards, while several important query paths are roughly 3×–13× faster on DuckDB. These numbers describe Exograph's current backends and local benchmark setup, not PostgreSQL or DuckDB universally.
+> On Exograph's Hex.pm top-package workload, tuned Postgres is slightly faster at indexing 100 packages. At 500 packages, DuckDB indexes about 1.66× faster single-node and about 1.99× faster with 4 shards, while several important query paths are roughly 3×–14× faster on DuckDB. These numbers describe Exograph's current backends and local benchmark setup, not PostgreSQL or DuckDB universally.

@@ -1,0 +1,10 @@
+Aggregate  (cost=986.26..986.27 rows=1 width=8) (actual time=151.456..151.457 rows=1.00 loops=1)
+  Buffers: shared hit=5694 read=2185 written=5
+  ->  Seq Scan on bench_pg_plain_35_r1_files  (cost=0.00..970.69 rows=6231 width=0) (actual time=0.245..151.234 rows=6816.00 loops=1)
+        Filter: (source ~~* '%defmodule%'::text)
+        Rows Removed by Filter: 359
+        Buffers: shared hit=5694 read=2185 written=5
+Planning:
+  Buffers: shared read=1
+Planning Time: 0.447 ms
+Execution Time: 151.489 ms

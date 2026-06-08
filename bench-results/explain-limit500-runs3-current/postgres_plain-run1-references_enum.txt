@@ -1,0 +1,14 @@
+Finalize Aggregate  (cost=23047.60..23047.61 rows=1 width=8) (actual time=160.970..161.484 rows=1.00 loops=1)
+  Buffers: shared read=17865 written=2
+  ->  Gather  (cost=23047.28..23047.59 rows=3 width=8) (actual time=160.828..161.480 rows=4.00 loops=1)
+        Workers Planned: 3
+        Workers Launched: 3
+        Buffers: shared read=17865 written=2
+        ->  Partial Aggregate  (cost=22047.28..22047.29 rows=1 width=8) (actual time=158.529..158.529 rows=1.00 loops=4)
+              Buffers: shared read=17865 written=2
+              ->  Parallel Seq Scan on bench_pg_plain_35_r1_references  (cost=0.00..22021.46 rows=10328 width=0) (actual time=0.785..158.272 rows=7150.25 loops=4)
+                    Filter: (qualified_name ~~* '%Enum%'::text)
+                    Rows Removed by Filter: 250550
+                    Buffers: shared read=17865 written=2
+Planning Time: 0.105 ms
+Execution Time: 161.525 ms

@@ -1,7 +1,0 @@
-Aggregate  (cost=0.00..0.01 rows=1 width=8) (actual time=0.007..0.007 rows=1.00 loops=1)
-  ->  Seq Scan on bench_pg_plain_35_r2_call_edges  (cost=0.00..0.00 rows=1 width=0) (actual time=0.006..0.006 rows=0.00 loops=1)
-        Filter: (callee_qualified_name ~~* '%decode%'::text)
-Planning:
-  Buffers: shared read=4
-Planning Time: 0.570 ms
-Execution Time: 0.030 ms

@@ -61,15 +61,17 @@ Search/query paths usually favor DuckDB materially, especially on the larger wor
 
 ## Artifacts
 
-Machine-readable benchmark artifacts live under `bench-results/`:
+Machine-readable benchmark artifacts are generated locally and intentionally not committed to git. Use `--output-json` for the JSON report and `--explain-dir` for Postgres plans, for example:
 
-- `backend-limit100-runs3-stable.json`
-- `backend-limit500-runs3-current.json`
-- `explain-limit500-runs3-current/`
-- `backend-limit500-runs3-postgres-file-line.json`
-- `backend-limit500-runs3-defer.json`
+```bash
+mix exograph.bench.backends \
+  --mode top --limit 500 --runs 3 \
+  --only postgres_plain,duckdb_plain,duckdb_sharded_plain \
+  --output-json bench-results/backend-limit500-runs3-current.json \
+  --explain-dir bench-results/explain-limit500-runs3-current
+```
 
-The current `limit 500` artifact reruns Postgres plain, DuckDB plain, and sharded DuckDB together on the same code revision after adding the `(file_id, line)` fragment index used by first-fragment-per-file API queries. Older artifacts are retained for comparison/history.
+`bench-results/` is gitignored to avoid polluting the repository with local benchmark outputs. The tables above record the latest checked benchmark summary; regenerate artifacts locally when you need machine-readable evidence or plans.
 
 ## Current fair wording
 

@@ -1,9 +1,0 @@
-Aggregate  (cost=9899.19..9899.20 rows=1 width=8) (actual time=126.165..126.165 rows=1.00 loops=1)
-  Buffers: shared hit=6777 read=2382 written=56
-  ->  Index Only Scan using bench_pg_plain_35_r1_fragments_kind_name_arity_idx on bench_pg_plain_35_r1_fragments  (cost=0.42..9808.10 rows=36434 width=0) (actual time=0.525..125.364 rows=37116.00 loops=1)
-        Index Cond: (kind = 'def'::text)
-        Heap Fetches: 4560
-        Index Searches: 1
-        Buffers: shared hit=6777 read=2382 written=56
-Planning Time: 0.312 ms
-Execution Time: 126.182 ms

@@ -9,7 +9,8 @@ defmodule Exograph.MixProject do
       app: :exograph,
       version: @version,
       elixir: "~> 1.19",
-      description: "Local CodeQL-style code search for Elixir, backed by Postgres and ExAST.",
+      description:
+        "Local CodeQL-style code search for Elixir, backed by DuckDB/QuackDB or Postgres and ExAST.",
       compilers: Mix.compilers() ++ [:phoenix_iconify],
       start_permanent: Mix.env() == :prod,
       deps: deps(),
@@ -44,7 +45,7 @@ defmodule Exograph.MixProject do
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
       {:ecto_sql, "~> 3.13"},
       {:postgrex, "~> 0.22"},
-      {:quackdb, path: "../quackdb"},
+      {:quackdb, "~> 0.5.3"},
       {:ex_doc, "~> 0.38", only: :dev, runtime: false},
       {:phoenix, "~> 1.8", optional: true},
       {:phoenix_html, "~> 4.1", optional: true},

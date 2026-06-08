@@ -46,12 +46,12 @@ defmodule Exograph.DuckDBShards do
 
         {:ok, server} =
           QuackDB.Server.start_link(
-            duckdb: Keyword.get(opts, :duckdb, :managed),
-            database: database,
-            endpoint: endpoint,
-            token: token,
-            recovery_mode: Keyword.get(opts, :recovery_mode),
-            settings: duckdb_settings(duckdb_threads)
+            server_opts(opts,
+              database: database,
+              endpoint: endpoint,
+              token: token,
+              settings: duckdb_settings(duckdb_threads)
+            )
           )
 
         name = unique_repo_name()
@@ -94,12 +94,12 @@ defmodule Exograph.DuckDBShards do
 
         {:ok, server} =
           QuackDB.Server.start_link(
-            duckdb: Keyword.get(opts, :duckdb, :managed),
-            database: shard.database,
-            endpoint: endpoint,
-            token: token,
-            recovery_mode: Keyword.get(opts, :recovery_mode),
-            settings: duckdb_settings(duckdb_threads)
+            server_opts(opts,
+              database: shard.database,
+              endpoint: endpoint,
+              token: token,
+              settings: duckdb_settings(duckdb_threads)
+            )
           )
 
         name = unique_repo_name()
@@ -149,6 +149,15 @@ defmodule Exograph.DuckDBShards do
         end)
     }
   end
+
+  defp server_opts(opts, base) do
+    base
+    |> Keyword.put(:duckdb, Keyword.get(opts, :duckdb, :managed))
+    |> put_optional(:recovery_mode, Keyword.get(opts, :recovery_mode))
+  end
+
+  defp put_optional(opts, _key, nil), do: opts
+  defp put_optional(opts, key, value), do: Keyword.put(opts, key, value)
 
   defp database_path(nil, directory, prefix, index) do
     Path.join(directory, "#{prefix}_#{index}.duckdb")

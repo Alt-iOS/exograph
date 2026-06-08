@@ -12,7 +12,6 @@ defmodule Exograph.Storage.Ecto.FragmentStore do
     FragmentLocator,
     Package,
     PackageVersion,
-    Postgres,
     Reference
   }
 
@@ -28,7 +27,8 @@ defmodule Exograph.Storage.Ecto.FragmentStore do
     Options,
     PackageRecord,
     PackageVersionRecord,
-    ReferenceRecord
+    ReferenceRecord,
+    SQL
   }
 
   @noise_references MapSet.new(
@@ -158,7 +158,7 @@ defmodule Exograph.Storage.Ecto.FragmentStore do
 
       # unnest + GROUP BY has no Ecto DSL equivalent
       {:ok, %{rows: rows}} =
-        Postgres.query(
+        SQL.query(
           store.repo,
           """
           SELECT term_id, count(*)::bigint
@@ -271,7 +271,7 @@ defmodule Exograph.Storage.Ecto.FragmentStore do
           |> Map.merge(%{inserted_at: now, updated_at: now})
         end)
 
-      Postgres.bulk_insert_all(
+      SQL.bulk_insert_all(
         store.repo,
         files_source(store),
         entries,
@@ -339,7 +339,7 @@ defmodule Exograph.Storage.Ecto.FragmentStore do
           |> Map.merge(%{inserted_at: now, updated_at: now})
         end)
 
-      Postgres.bulk_insert_all(
+      SQL.bulk_insert_all(
         store.repo,
         {source(store), FragmentRecord},
         entries,
@@ -474,7 +474,7 @@ defmodule Exograph.Storage.Ecto.FragmentStore do
         timeout: :infinity
       )
     else
-      Postgres.bulk_insert_all(
+      SQL.bulk_insert_all(
         repo,
         source,
         entries,
@@ -643,7 +643,7 @@ defmodule Exograph.Storage.Ecto.FragmentStore do
 
       gn_source = graph_nodes_source(store)
 
-      Postgres.bulk_insert_all(
+      SQL.bulk_insert_all(
         store.repo,
         gn_source,
         entries,

@@ -26,7 +26,7 @@ defmodule Exograph.DuckDB.TextSearch do
         source,
         path,
         "#{schema}".match_bm25(id, ?, fields := '#{field_name}') AS score
-      FROM #{Exograph.Postgres.table(index.prefix, "files")}
+      FROM #{Exograph.Storage.Ecto.SQL.table(index.prefix, "files")}
       WHERE "#{schema}".match_bm25(id, ?, fields := '#{field_name}') > 0
       ORDER BY score DESC, path ASC
       LIMIT ?
@@ -48,7 +48,7 @@ defmodule Exograph.DuckDB.TextSearch do
     statement = """
     WITH matched_files AS (
       SELECT id, source, path
-      FROM #{Exograph.Postgres.table(index.prefix, "files")}
+      FROM #{Exograph.Storage.Ecto.SQL.table(index.prefix, "files")}
       WHERE "#{column}" ILIKE ?
       ORDER BY path ASC
       LIMIT ?
@@ -73,7 +73,7 @@ defmodule Exograph.DuckDB.TextSearch do
         id, package_id, package_version_id, file_id, content_hash, ast,
         kind, module, name, arity, line, end_line, mass,
         exact_hash, terms, sub_hashes, inserted_at, updated_at
-      FROM #{Exograph.Postgres.table(prefix, "fragments")}
+      FROM #{Exograph.Storage.Ecto.SQL.table(prefix, "fragments")}
       WHERE file_id = matched_files.id
       ORDER BY line ASC
       LIMIT 1

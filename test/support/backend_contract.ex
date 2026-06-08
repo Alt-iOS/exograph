@@ -107,7 +107,7 @@ defmodule Exograph.BackendContract do
     %{rows: [[count]]} =
       Ecto.Adapters.SQL.query!(
         repo,
-        "SELECT count(*)::bigint FROM #{Exograph.Postgres.table(prefix, table)} WHERE #{where}",
+        "SELECT count(*)::bigint FROM #{Exograph.Storage.Ecto.SQL.table(prefix, table)} WHERE #{where}",
         []
       )
 
@@ -135,7 +135,7 @@ defmodule Exograph.BackendContract do
         ] do
       Ecto.Adapters.SQL.query!(
         repo,
-        "DROP TABLE IF EXISTS #{Exograph.Postgres.table(prefix, table)} CASCADE",
+        "DROP TABLE IF EXISTS #{Exograph.Storage.Ecto.SQL.table(prefix, table)} CASCADE",
         []
       )
     end

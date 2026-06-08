@@ -198,19 +198,24 @@ defmodule Mix.Tasks.Exograph.Index.Hex do
     token = duckdb_token(opts)
     endpoint = "quack:localhost:#{free_tcp_port!()}"
 
-    {:ok, server} =
-      QuackDB.Server.start_link(
+    server_opts =
+      [
         duckdb: :managed,
         database:
           Keyword.get(opts, :duckdb_database, "#{Keyword.get(opts, :prefix, "hex")}.duckdb"),
         endpoint: endpoint,
         token: token,
-        recovery_mode: recovery_mode(Keyword.get(opts, :duckdb_recovery_mode)),
         settings: duckdb_settings(Keyword.get(opts, :duckdb_threads))
-      )
+      ]
+      |> put_optional(:recovery_mode, recovery_mode(Keyword.get(opts, :duckdb_recovery_mode)))
+
+    {:ok, server} = QuackDB.Server.start_link(server_opts)
 
     QuackDB.Server.uri(server)
   end
+
+  defp put_optional(opts, _key, nil), do: opts
+  defp put_optional(opts, key, value), do: Keyword.put(opts, key, value)
 
   defp duckdb_token(opts) do
     Keyword.get(opts, :quackdb_token) || System.get_env("QUACKDB_TOKEN") ||

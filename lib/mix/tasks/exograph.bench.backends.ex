@@ -439,7 +439,7 @@ defmodule Mix.Tasks.Exograph.Bench.Backends do
   defp count_rows(repo, prefix, table) do
     %{rows: [[count]]} =
       repo.query!(
-        "SELECT COUNT(*) FROM #{Exograph.Postgres.table(prefix, table)}",
+        "SELECT COUNT(*) FROM #{Exograph.Storage.Ecto.SQL.table(prefix, table)}",
         []
       )
 
@@ -448,7 +448,7 @@ defmodule Mix.Tasks.Exograph.Bench.Backends do
 
   defp run_count_query(:postgres, repo, prefix, table, where, params) do
     sql =
-      "SELECT COUNT(*) FROM #{Exograph.Postgres.table(prefix, table)} WHERE #{pg_placeholders(where)}"
+      "SELECT COUNT(*) FROM #{Exograph.Storage.Ecto.SQL.table(prefix, table)} WHERE #{pg_placeholders(where)}"
 
     %{rows: [[count]]} = repo.query!(sql, params)
     count
@@ -456,7 +456,7 @@ defmodule Mix.Tasks.Exograph.Bench.Backends do
 
   defp run_count_query(:duckdb, repo, prefix, table, where, params) do
     where = duckdb_where(prefix, table, where)
-    sql = "SELECT COUNT(*) FROM #{Exograph.Postgres.table(prefix, table)} WHERE #{where}"
+    sql = "SELECT COUNT(*) FROM #{Exograph.Storage.Ecto.SQL.table(prefix, table)} WHERE #{where}"
     %{rows: [[count]]} = repo.query!(sql, params)
     count
   end
@@ -705,7 +705,7 @@ defmodule Mix.Tasks.Exograph.Bench.Backends do
 
   defp drop_prefix(repo, prefix) do
     Enum.each(@tables, fn table ->
-      query(repo, "DROP TABLE IF EXISTS #{Exograph.Postgres.table(prefix, table)}")
+      query(repo, "DROP TABLE IF EXISTS #{Exograph.Storage.Ecto.SQL.table(prefix, table)}")
     end)
 
     Enum.each(@tables, fn table ->

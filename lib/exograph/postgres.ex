@@ -131,6 +131,7 @@ defmodule Exograph.Postgres do
       "CREATE INDEX IF NOT EXISTS #{prefix}_fragments_terms_gin_idx ON #{table.("fragments")} USING gin (terms)",
       "CREATE INDEX IF NOT EXISTS #{prefix}_fragments_package_idx ON #{table.("fragments")} (package_id, package_version_id)",
       "CREATE INDEX IF NOT EXISTS #{prefix}_fragments_file_idx ON #{table.("fragments")} (file_id)",
+      "CREATE INDEX IF NOT EXISTS #{prefix}_fragments_file_line_idx ON #{table.("fragments")} (file_id, line)",
       "CREATE INDEX IF NOT EXISTS #{prefix}_fragments_file_kind_line_idx ON #{table.("fragments")} (file_id, kind, line)",
       "CREATE INDEX IF NOT EXISTS #{prefix}_fragments_kind_name_arity_idx ON #{table.("fragments")} (kind, name, arity)",
       "CREATE INDEX IF NOT EXISTS #{prefix}_fragments_containment_idx ON #{table.("fragments")} (file_id, line, end_line) WHERE kind IN ('def','defp','defmacro','defmacrop')",

@@ -116,6 +116,10 @@ defmodule Exograph.Storage.Ecto.Migrations.CreateSchema do
     )
 
     create_index_if_not_deferred(
+      index(name("fragments"), [:file_id, :line], name: index_name("fragments", "file_line"))
+    )
+
+    create_index_if_not_deferred(
       index(name("fragments"), [:file_id, :kind, :line],
         name: index_name("fragments", "file_kind_line")
       )

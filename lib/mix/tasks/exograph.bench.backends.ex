@@ -10,7 +10,7 @@ defmodule Mix.Tasks.Exograph.Bench.Backends do
       mix exograph.bench.backends --mode top --limit 20 --iterations 10
       mix exograph.bench.backends --mode top --limit 20 --concurrency 4 --duckdb-threads 1
       mix exograph.bench.backends --mode top --limit 20 --duckdb-shards 4 --duckdb-threads 1
-      mix exograph.bench.backends --mode top --limit 100 --duckdb-shards 8 --duckdb-threads 1 --duckdb-recovery-mode no_wal_writes --append-metrics
+      mix exograph.bench.backends --mode top --limit 100 --duckdb-shards 8 --duckdb-threads 1 --duckdb-recovery-mode no_wal_writes --postgres-maintenance-work-mem 1GB --postgres-max-parallel-maintenance-workers 4 --order random --append-metrics
 
   Required services:
 
@@ -47,7 +47,10 @@ defmodule Mix.Tasks.Exograph.Bench.Backends do
           duckdb_threads: :integer,
           duckdb_shards: :integer,
           duckdb_recovery_mode: :string,
+          postgres_maintenance_work_mem: :string,
+          postgres_max_parallel_maintenance_workers: :integer,
           append_metrics: :boolean,
+          order: :string,
           timeout: :integer
         ]
       )
@@ -66,7 +69,11 @@ defmodule Mix.Tasks.Exograph.Bench.Backends do
       cache_dir: Keyword.get(opts, :cache_tarballs),
       duckdb_threads: Keyword.get(opts, :duckdb_threads),
       duckdb_shards: Keyword.get(opts, :duckdb_shards, 0),
-      duckdb_recovery_mode: recovery_mode(Keyword.get(opts, :duckdb_recovery_mode))
+      duckdb_recovery_mode: recovery_mode(Keyword.get(opts, :duckdb_recovery_mode)),
+      postgres_maintenance_work_mem: Keyword.get(opts, :postgres_maintenance_work_mem),
+      postgres_max_parallel_maintenance_workers:
+        Keyword.get(opts, :postgres_max_parallel_maintenance_workers),
+      order: Keyword.get(opts, :order, "default")
     }
 
     metrics = maybe_start_append_metrics(Keyword.get(opts, :append_metrics, false))
@@ -76,12 +83,15 @@ defmodule Mix.Tasks.Exograph.Bench.Backends do
     run_id = System.unique_integer([:positive])
 
     results =
-      [
-        {:postgres_plain, :postgres, false, postgres_repo, "bench_pg_plain_#{run_id}"},
-        {:postgres_bm25, :postgres, true, postgres_repo, "bench_pg_bm25_#{run_id}"},
-        {:duckdb_plain, :duckdb, false, duckdb_repo, "bench_duck_plain_#{run_id}"},
-        {:duckdb_bm25, :duckdb, true, duckdb_repo, "bench_duck_bm25_#{run_id}"}
-      ]
+      run_order(
+        [
+          {:postgres_plain, :postgres, false, postgres_repo, "bench_pg_plain_#{run_id}"},
+          {:postgres_bm25, :postgres, true, postgres_repo, "bench_pg_bm25_#{run_id}"},
+          {:duckdb_plain, :duckdb, false, duckdb_repo, "bench_duck_plain_#{run_id}"},
+          {:duckdb_bm25, :duckdb, true, duckdb_repo, "bench_duck_bm25_#{run_id}"}
+        ],
+        config.order
+      )
       |> Enum.map(fn {label, backend, bm25?, repo, prefix} ->
         benchmark_backend(label, backend, bm25?, repo, prefix, config)
       end)
@@ -153,6 +163,15 @@ defmodule Mix.Tasks.Exograph.Bench.Backends do
 
   def handle_quackdb_telemetry(_event, _measurements, _metadata, _agent), do: :ok
 
+  defp run_order(variants, "default"), do: variants
+  defp run_order(variants, "reverse"), do: Enum.reverse(variants)
+
+  defp run_order(variants, "random") do
+    Enum.shuffle(variants)
+  end
+
+  defp run_order(_variants, other), do: Mix.raise("Invalid --order #{inspect(other)}")
+
   defp start_postgres!(opts) do
     url =
       Keyword.get(opts, :database_url) || System.get_env("EXOGRAPH_DATABASE_URL") ||
@@ -214,7 +233,9 @@ defmodule Mix.Tasks.Exograph.Bench.Backends do
       bm25?: bm25?,
       timeout: config.timeout,
       cache_dir: config.cache_dir,
-      duckdb_threads: config.duckdb_threads
+      duckdb_threads: config.duckdb_threads,
+      postgres_maintenance_work_mem: config.postgres_maintenance_work_mem,
+      postgres_max_parallel_maintenance_workers: config.postgres_max_parallel_maintenance_workers
     ]
 
     Mix.shell().info("\nIndexing #{label} prefix=#{prefix}...")
@@ -516,8 +537,14 @@ defmodule Mix.Tasks.Exograph.Bench.Backends do
     duckdb_threads = config.duckdb_threads || "default"
     index_concurrency = config.index_concurrency || "corpus-default"
 
+    postgres_settings =
+      postgres_settings_label(
+        config.postgres_maintenance_work_mem,
+        config.postgres_max_parallel_maintenance_workers
+      )
+
     Mix.shell().info(
-      "  workload: #{config.mode} limit=#{config.limit} concurrency=#{config.concurrency} index_concurrency=#{index_concurrency} duckdb_threads=#{duckdb_threads} duckdb_shards=#{config.duckdb_shards}"
+      "  workload: #{config.mode} limit=#{config.limit} concurrency=#{config.concurrency} index_concurrency=#{index_concurrency} duckdb_threads=#{duckdb_threads} duckdb_shards=#{config.duckdb_shards} postgres_index_settings=#{postgres_settings} order=#{config.order}"
     )
 
     Mix.shell().info("  queries: warmup=#{config.warmup} iterations=#{config.iterations}\n")
@@ -571,6 +598,17 @@ defmodule Mix.Tasks.Exograph.Bench.Backends do
 
       Mix.shell().info("  #{name}: #{line}")
     end)
+  end
+
+  defp postgres_settings_label(nil, nil), do: "default"
+
+  defp postgres_settings_label(maintenance_work_mem, parallel_workers) do
+    [
+      if(maintenance_work_mem, do: "maintenance_work_mem=#{maintenance_work_mem}"),
+      if(parallel_workers, do: "max_parallel_maintenance_workers=#{parallel_workers}")
+    ]
+    |> Enum.reject(&is_nil/1)
+    |> Enum.join(",")
   end
 
   defp all_query_names(results) do

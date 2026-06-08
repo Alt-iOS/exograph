@@ -22,7 +22,15 @@ defmodule Exograph.Postgres do
   end
 
   @type repo :: module()
-  @type backend_opts :: [repo: repo(), prefix: String.t(), bm25?: boolean()]
+  @type backend_opts :: [
+          repo: repo(),
+          prefix: String.t(),
+          bm25?: boolean(),
+          postgres_maintenance_work_mem: String.t() | nil,
+          postgres_max_parallel_maintenance_workers: non_neg_integer() | nil
+        ]
+
+  @tables ~w(files fragments terms fragment_terms comments definitions references graph_nodes call_edges tree_nodes packages package_versions)
 
   @doc """
   Creates or upgrades the Exograph Postgres schema.
@@ -33,6 +41,10 @@ defmodule Exograph.Postgres do
     * `:prefix` - table-name prefix, defaults to `"exograph"`
     * `:bm25?` - create a ParadeDB BM25 index when `pg_search` is available,
       defaults to `true`
+    * `:postgres_maintenance_work_mem` - session-local `maintenance_work_mem`
+      while creating indexes
+    * `:postgres_max_parallel_maintenance_workers` - session-local
+      `max_parallel_maintenance_workers` while creating indexes
   """
   @spec migrate!(backend_opts()) :: :ok
   def migrate!(opts) do
@@ -44,10 +56,11 @@ defmodule Exograph.Postgres do
     execute!(repo, "CREATE EXTENSION IF NOT EXISTS pg_trgm", [])
     if bm25?, do: execute!(repo, "CREATE EXTENSION IF NOT EXISTS pg_search", [])
 
-    run_migration!(repo, prefix, CreateSchema)
-
-    create_trgm_indexes!(repo, prefix)
-    if bm25?, do: create_bm25_indexes!(repo, prefix)
+    with_index_build_settings(repo, opts, fn ->
+      run_migration!(repo, prefix, CreateSchema)
+      create_trgm_indexes!(repo, prefix)
+      if bm25?, do: create_bm25_indexes!(repo, prefix)
+    end)
 
     :ok
   end
@@ -66,6 +79,28 @@ defmodule Exograph.Postgres do
       conflict_target: [:version],
       on_conflict: :nothing
     )
+  end
+
+  @doc false
+  def finalize!(opts) do
+    repo = fetch_repo!(opts)
+    prefix = Keyword.get(opts, :prefix, "exograph")
+
+    with_index_build_settings(repo, opts, fn ->
+      create_trgm_indexes!(repo, prefix)
+      if Keyword.get(opts, :bm25?, true), do: create_bm25_indexes!(repo, prefix)
+    end)
+
+    analyze!(repo, prefix)
+  end
+
+  @doc false
+  def analyze!(repo, prefix) do
+    Enum.each(@tables, fn table ->
+      execute!(repo, "ANALYZE #{Exograph.Storage.Ecto.SQL.table(prefix, table)}", [])
+    end)
+
+    :ok
   end
 
   defp create_trgm_indexes!(repo, prefix) do
@@ -169,6 +204,36 @@ defmodule Exograph.Postgres do
       """,
       []
     )
+  end
+
+  defp with_index_build_settings(repo, opts, fun) do
+    maintenance_work_mem = Keyword.get(opts, :postgres_maintenance_work_mem)
+    parallel_workers = Keyword.get(opts, :postgres_max_parallel_maintenance_workers)
+
+    if maintenance_work_mem || parallel_workers do
+      repo.transaction(
+        fn ->
+          if maintenance_work_mem do
+            repo.query!("SELECT set_config('maintenance_work_mem', $1, true)", [
+              maintenance_work_mem
+            ])
+          end
+
+          if parallel_workers do
+            repo.query!("SELECT set_config('max_parallel_maintenance_workers', $1, true)", [
+              to_string(parallel_workers)
+            ])
+          end
+
+          fun.()
+        end,
+        timeout: :infinity
+      )
+    else
+      fun.()
+    end
+
+    :ok
   end
 
   @doc false

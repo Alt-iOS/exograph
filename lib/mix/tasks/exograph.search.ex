@@ -23,6 +23,8 @@ defmodule Mix.Tasks.Exograph.Search do
     * `--quackdb-token` - QuackDB token for the DuckDB backend
     * `--duckdb-database` - managed DuckDB database path when `--quackdb-uri` is omitted
     * `--duckdb-threads` - DuckDB execution threads for indexing/query setup
+    * `--postgres-maintenance-work-mem` - session-local maintenance_work_mem during Postgres index builds
+    * `--postgres-max-parallel-maintenance-workers` - session-local max_parallel_maintenance_workers during Postgres index builds
     * `--min-mass` - minimum AST fragment mass (default: `8`)
     * `--limit` - maximum results (default: `20`)
     * `--contains` - require descendant pattern, can be repeated
@@ -49,6 +51,8 @@ defmodule Mix.Tasks.Exograph.Search do
           quackdb_token: :string,
           duckdb_database: :string,
           duckdb_threads: :integer,
+          postgres_maintenance_work_mem: :string,
+          postgres_max_parallel_maintenance_workers: :integer,
           min_mass: :integer,
           limit: :integer,
           contains: :keep,

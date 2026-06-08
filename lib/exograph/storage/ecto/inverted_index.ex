@@ -2,8 +2,9 @@ defmodule Exograph.Storage.Ecto.InvertedIndex do
   @moduledoc """
   Ecto candidate retrieval backend with backend-specific text-search paths.
 
-  Structural lookups use the `terms integer[]` GIN index. Term strings are
-  normalized to integer IDs in the terms table before querying.
+  Structural lookups use the `terms integer[]` GIN index on Postgres and a
+  normalized candidate table on DuckDB. Term strings are normalized to integer
+  IDs in the terms table before querying.
   """
 
   import Ecto.Query
@@ -192,7 +193,7 @@ defmodule Exograph.Storage.Ecto.InvertedIndex do
 
   defp where_term_ids(queryable, index, [], optional_ids) when optional_ids != [] do
     if duckdb?(index) do
-      candidates = duckdb_any_term_candidates(index, optional_ids)
+      candidates = any_term_candidates(index, optional_ids)
 
       join(queryable, :inner, [fragment], candidate in subquery(candidates),
         on: candidate.fragment_id == fragment.id
@@ -211,14 +212,14 @@ defmodule Exograph.Storage.Ecto.InvertedIndex do
   end
 
   defp join_required_term_candidates(queryable, index, required_ids) do
-    candidates = duckdb_required_term_candidates(index, required_ids)
+    candidates = required_term_candidates(index, required_ids)
 
     join(queryable, :inner, [fragment], candidate in subquery(candidates),
       on: candidate.fragment_id == fragment.id
     )
   end
 
-  defp duckdb_required_term_candidates(index, ids) do
+  defp required_term_candidates(index, ids) do
     required_count = length(ids)
 
     from(term in Options.fragment_terms_source(index.prefix),
@@ -229,7 +230,7 @@ defmodule Exograph.Storage.Ecto.InvertedIndex do
     )
   end
 
-  defp duckdb_any_term_candidates(index, ids) do
+  defp any_term_candidates(index, ids) do
     from(term in Options.fragment_terms_source(index.prefix),
       where: term.term_id in ^ids,
       distinct: term.fragment_id,

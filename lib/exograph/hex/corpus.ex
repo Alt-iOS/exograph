@@ -90,7 +90,7 @@ defmodule Exograph.Hex.Corpus do
           %{acc | error: acc.error + 1}
       end)
 
-    finalize_bm25!(backend, repo, prefix, opts)
+    finalize_backend!(backend, repo, prefix, opts)
 
     elapsed = System.monotonic_time(:millisecond) - started
     Progress.finish_run()
@@ -246,11 +246,17 @@ defmodule Exograph.Hex.Corpus do
   end
 
   defp migrate!(_backend, repo, prefix, opts) do
-    bm25? = Keyword.get(opts, :bm25?, true)
-    Exograph.Postgres.migrate!(repo: repo, prefix: prefix, bm25?: bm25?)
+    Exograph.Postgres.migrate!(
+      repo: repo,
+      prefix: prefix,
+      bm25?: Keyword.get(opts, :bm25?, true),
+      postgres_maintenance_work_mem: Keyword.get(opts, :postgres_maintenance_work_mem),
+      postgres_max_parallel_maintenance_workers:
+        Keyword.get(opts, :postgres_max_parallel_maintenance_workers)
+    )
   end
 
-  defp finalize_bm25!(:duckdb, repo, prefix, opts) do
+  defp finalize_backend!(:duckdb, repo, prefix, opts) do
     if Keyword.get(opts, :bm25?, true) do
       Exograph.DuckDB.create_bm25_indexes!(repo: repo, prefix: prefix)
     else
@@ -258,7 +264,7 @@ defmodule Exograph.Hex.Corpus do
     end
   end
 
-  defp finalize_bm25!(_backend, _repo, _prefix, _opts), do: :ok
+  defp finalize_backend!(_backend, _repo, _prefix, _opts), do: :ok
 
   defp existing_versions(repo, prefix) do
     import Ecto.Query

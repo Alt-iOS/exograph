@@ -92,21 +92,29 @@ defmodule Exograph.Postgres.TextSearch do
     limit = Keyword.get(opts, :limit, 50)
 
     records =
-      try do
-        bm25_fun.(limit)
-        |> where_scope(opts)
-        |> index.repo.all()
-      rescue
-        _ in [Postgrex.Error, Ecto.QueryError] ->
-          ilike_fun.(limit)
+      if index.bm25? do
+        try do
+          bm25_fun.(limit)
           |> where_scope(opts)
           |> index.repo.all()
+        rescue
+          _ in [Postgrex.Error, Ecto.QueryError] ->
+            ilike_records(index, ilike_fun, limit, opts)
+        end
+      else
+        ilike_records(index, ilike_fun, limit, opts)
       end
 
     {:ok,
      Enum.map(records, fn {record, source, path} ->
        Hit.new(fragment: Options.hydrate_fragment(record, source, path), score: 1.0)
      end)}
+  end
+
+  defp ilike_records(index, ilike_fun, limit, opts) do
+    ilike_fun.(limit)
+    |> where_scope(opts)
+    |> index.repo.all()
   end
 
   defp where_scope(queryable, opts) do

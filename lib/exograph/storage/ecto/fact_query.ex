@@ -11,40 +11,52 @@ defmodule Exograph.Storage.Ecto.FactQuery do
     files_source = Options.files_source(index.prefix)
 
     results =
-      try do
-        query =
-          from(fragment in {Options.fragments_source(index.prefix), FragmentRecord},
-            join: fact in ^table_source,
-            on: fact.fragment_id == fragment.id,
-            left_join: file in ^files_source,
-            on: file.id == fragment.file_id,
-            where: ^fact_filter(literal),
-            order_by: [desc: fragment("pdb.score(?)", fact.id)],
-            limit: ^limit,
-            select: {fragment, nil, file.path, fact}
-          )
-          |> where_scope(opts)
-
-        index.repo.all(query)
-      rescue
-        _ in [Postgrex.Error, QuackDB.Error, Ecto.QueryError] ->
-          query =
-            from(fragment in {Options.fragments_source(index.prefix), FragmentRecord},
-              join: fact in ^table_source,
-              on: fact.fragment_id == fragment.id,
-              left_join: file in ^files_source,
-              on: file.id == fragment.file_id,
-              where: ilike(fact.qualified_name, ^"%#{escape_like(literal)}%"),
-              order_by: [asc: fact.qualified_name, asc: fact.line],
-              limit: ^limit,
-              select: {fragment, nil, file.path, fact}
-            )
-            |> where_scope(opts)
-
-          index.repo.all(query)
+      if index.bm25? do
+        bm25_search(index, table_source, literal, opts, limit, files_source)
+      else
+        ilike_search(index, table_source, literal, opts, limit, files_source)
       end
 
     {:ok, Enum.map(results, &hit(&1, table_source))}
+  end
+
+  defp bm25_search(index, table_source, literal, opts, limit, files_source) do
+    try do
+      query =
+        from(fragment in {Options.fragments_source(index.prefix), FragmentRecord},
+          join: fact in ^table_source,
+          on: fact.fragment_id == fragment.id,
+          left_join: file in ^files_source,
+          on: file.id == fragment.file_id,
+          where: ^fact_filter(literal),
+          order_by: [desc: fragment("pdb.score(?)", fact.id)],
+          limit: ^limit,
+          select: {fragment, nil, file.path, fact}
+        )
+        |> where_scope(opts)
+
+      index.repo.all(query)
+    rescue
+      _ in [Postgrex.Error, QuackDB.Error, Ecto.QueryError] ->
+        ilike_search(index, table_source, literal, opts, limit, files_source)
+    end
+  end
+
+  defp ilike_search(index, table_source, literal, opts, limit, files_source) do
+    query =
+      from(fragment in {Options.fragments_source(index.prefix), FragmentRecord},
+        join: fact in ^table_source,
+        on: fact.fragment_id == fragment.id,
+        left_join: file in ^files_source,
+        on: file.id == fragment.file_id,
+        where: ilike(fact.qualified_name, ^"%#{escape_like(literal)}%"),
+        order_by: [asc: fact.qualified_name, asc: fact.line],
+        limit: ^limit,
+        select: {fragment, nil, file.path, fact}
+      )
+      |> where_scope(opts)
+
+    index.repo.all(query)
   end
 
   def where_scope(queryable, opts) do

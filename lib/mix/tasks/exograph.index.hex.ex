@@ -37,6 +37,8 @@ defmodule Mix.Tasks.Exograph.Index.Hex do
     * `--cache-tarballs` - directory to cache downloaded tarballs
     * `--backend` - `duckdb` (default) or `postgres`
     * `--database-url` - Postgres URL (or set `EXOGRAPH_DATABASE_URL`)
+    * `--postgres-maintenance-work-mem` - session-local maintenance_work_mem during Postgres index builds
+    * `--postgres-max-parallel-maintenance-workers` - session-local max_parallel_maintenance_workers during Postgres index builds
     * `--quackdb-uri` - QuackDB URI for DuckDB backend (or set `QUACKDB_URI` / `QUACKDB_TEST_URI`)
     * `--quackdb-token` - QuackDB token for DuckDB backend (or set `QUACKDB_TOKEN` / `QUACKDB_TEST_TOKEN`)
     * `--duckdb-database` - managed DuckDB database path when `--quackdb-uri` is omitted
@@ -72,6 +74,8 @@ defmodule Mix.Tasks.Exograph.Index.Hex do
           mirror: :keep,
           cache_tarballs: :string,
           database_url: :string,
+          postgres_maintenance_work_mem: :string,
+          postgres_max_parallel_maintenance_workers: :integer,
           quackdb_uri: :string,
           quackdb_token: :string,
           duckdb_database: :string,
@@ -120,7 +124,10 @@ defmodule Mix.Tasks.Exograph.Index.Hex do
       mirrors: mirrors,
       mirror_strategy: :round_robin,
       timeout: Keyword.get(opts, :timeout, 300) * 1000,
-      cache_dir: Keyword.get(opts, :cache_tarballs)
+      cache_dir: Keyword.get(opts, :cache_tarballs),
+      postgres_maintenance_work_mem: Keyword.get(opts, :postgres_maintenance_work_mem),
+      postgres_max_parallel_maintenance_workers:
+        Keyword.get(opts, :postgres_max_parallel_maintenance_workers)
     ]
 
     Exograph.Hex.Corpus.index(corpus_opts)

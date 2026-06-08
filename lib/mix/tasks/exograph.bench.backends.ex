@@ -383,7 +383,8 @@ defmodule Mix.Tasks.Exograph.Bench.Backends do
       cache_dir: config.cache_dir,
       duckdb_threads: config.duckdb_threads,
       recovery_mode: config.duckdb_recovery_mode,
-      shards: config.duckdb_shards
+      shards: config.duckdb_shards,
+      shard_port_base: sharded_port_base(run, bm25?)
     ]
 
     {index_ms, corpus_result} = timed(fn -> Exograph.Hex.Corpus.index(index_opts) end)
@@ -416,6 +417,10 @@ defmodule Mix.Tasks.Exograph.Bench.Backends do
         files: 0,
         queries: []
       }
+  end
+
+  defp sharded_port_base(run, bm25?) do
+    9_600 + run * 100 + if(bm25?, do: 50, else: 0)
   end
 
   defp benchmark_queries(backend, bm25?, repo, prefix, index, config) do
@@ -1055,11 +1060,21 @@ defmodule Mix.Tasks.Exograph.Bench.Backends do
         {:shards, shards} ->
           Enum.each(shards, fn shard ->
             Exograph.DuckDBShards.with_repo(shard, fn -> drop_prefix(shard.repo, shard.prefix) end)
+
+            stop_shard(shard)
           end)
 
         _other ->
           :ok
       end
+    end)
+  end
+
+  defp stop_shard(shard) do
+    [Map.get(shard, :dynamic_repo), Map.get(shard, :server)]
+    |> Enum.reject(&is_nil/1)
+    |> Enum.each(fn pid ->
+      if Process.alive?(pid), do: Process.exit(pid, :normal)
     end)
   end
 

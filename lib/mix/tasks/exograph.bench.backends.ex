@@ -8,6 +8,7 @@ defmodule Mix.Tasks.Exograph.Bench.Backends do
   the same Hex.pm package workload.
 
       mix exograph.bench.backends --mode top --limit 20 --iterations 10
+      mix exograph.bench.backends --mode top --limit 100 --runs 3 --order random --output-json bench.json
       mix exograph.bench.backends --mode top --limit 20 --concurrency 4 --duckdb-threads 1
       mix exograph.bench.backends --mode top --limit 20 --duckdb-shards 4 --duckdb-threads 1
       mix exograph.bench.backends --mode top --limit 100 --duckdb-shards 8 --duckdb-threads 1 --duckdb-recovery-mode no_wal_writes --postgres-maintenance-work-mem 1GB --postgres-max-parallel-maintenance-workers 4 --postgres-copy --postgres-unlogged --postgres-defer-indexes --postgres-synchronous-commit off --only postgres_plain,duckdb_plain,duckdb_sharded_plain --order random --append-metrics --output-json bench.json
@@ -40,6 +41,7 @@ defmodule Mix.Tasks.Exograph.Bench.Backends do
           index_concurrency: :integer,
           iterations: :integer,
           warmup: :integer,
+          runs: :integer,
           min_mass: :integer,
           cache_tarballs: :string,
           database_url: :string,
@@ -71,6 +73,7 @@ defmodule Mix.Tasks.Exograph.Bench.Backends do
       index_concurrency: Keyword.get(opts, :index_concurrency),
       iterations: Keyword.get(opts, :iterations, 10),
       warmup: Keyword.get(opts, :warmup, 2),
+      runs: Keyword.get(opts, :runs, 1),
       min_mass: Keyword.get(opts, :min_mass, 8),
       timeout: Keyword.get(opts, :timeout, 300) * 1000,
       cache_dir: Keyword.get(opts, :cache_tarballs),
@@ -89,44 +92,19 @@ defmodule Mix.Tasks.Exograph.Bench.Backends do
       output_json: Keyword.get(opts, :output_json)
     }
 
+    if config.runs < 1, do: Mix.raise("--runs must be at least 1")
+
     metrics = maybe_start_append_metrics(Keyword.get(opts, :append_metrics, false))
 
     postgres_repo = start_postgres!(opts)
     duckdb_repo = start_duckdb!(opts, config.concurrency, config.duckdb_threads)
     run_id = System.unique_integer([:positive])
 
-    results =
-      run_order(
-        [
-          {:postgres_plain, :postgres, false, postgres_repo, "bench_pg_plain_#{run_id}"},
-          {:postgres_bm25, :postgres, true, postgres_repo, "bench_pg_bm25_#{run_id}"},
-          {:duckdb_plain, :duckdb, false, duckdb_repo, "bench_duck_plain_#{run_id}"},
-          {:duckdb_bm25, :duckdb, true, duckdb_repo, "bench_duck_bm25_#{run_id}"}
-        ],
-        config.order
-      )
-      |> Enum.filter(fn {label, _backend, _bm25?, _repo, _prefix} ->
-        include_variant?(config, label)
+    all_results =
+      1..config.runs//1
+      |> Enum.flat_map(fn run ->
+        benchmark_run(postgres_repo, duckdb_repo, run_id, run, config)
       end)
-      |> Enum.map(fn {label, backend, bm25?, repo, prefix} ->
-        benchmark_backend(label, backend, bm25?, repo, prefix, config)
-      end)
-
-    sharded_results =
-      if config.duckdb_shards > 1 do
-        [
-          {:duckdb_sharded_plain, false},
-          {:duckdb_sharded_bm25, true}
-        ]
-        |> Enum.filter(fn {label, _bm25?} -> include_variant?(config, label) end)
-        |> Enum.map(fn {label, bm25?} ->
-          benchmark_sharded_duckdb(label, bm25?, run_id, config)
-        end)
-      else
-        []
-      end
-
-    all_results = results ++ sharded_results
 
     print_results(all_results, config)
     maybe_write_json(all_results, config)
@@ -271,6 +249,45 @@ defmodule Mix.Tasks.Exograph.Bench.Backends do
     repo
   end
 
+  defp benchmark_run(postgres_repo, duckdb_repo, run_id, run, config) do
+    results =
+      run_order(
+        [
+          {:postgres_plain, :postgres, false, postgres_repo, "bench_pg_plain_#{run_id}_r#{run}"},
+          {:postgres_bm25, :postgres, true, postgres_repo, "bench_pg_bm25_#{run_id}_r#{run}"},
+          {:duckdb_plain, :duckdb, false, duckdb_repo, "bench_duck_plain_#{run_id}_r#{run}"},
+          {:duckdb_bm25, :duckdb, true, duckdb_repo, "bench_duck_bm25_#{run_id}_r#{run}"}
+        ],
+        config.order
+      )
+      |> Enum.filter(fn {label, _backend, _bm25?, _repo, _prefix} ->
+        include_variant?(config, label)
+      end)
+      |> Enum.map(fn {label, backend, bm25?, repo, prefix} ->
+        label
+        |> benchmark_backend(backend, bm25?, repo, prefix, config)
+        |> Map.put(:run, run)
+      end)
+
+    sharded_results =
+      if config.duckdb_shards > 1 do
+        [
+          {:duckdb_sharded_plain, false},
+          {:duckdb_sharded_bm25, true}
+        ]
+        |> Enum.filter(fn {label, _bm25?} -> include_variant?(config, label) end)
+        |> Enum.map(fn {label, bm25?} ->
+          label
+          |> benchmark_sharded_duckdb(bm25?, run_id, run, config)
+          |> Map.put(:run, run)
+        end)
+      else
+        []
+      end
+
+    results ++ sharded_results
+  end
+
   defp benchmark_backend(label, backend, bm25?, repo, prefix, config) do
     drop_prefix(repo, prefix)
 
@@ -336,8 +353,8 @@ defmodule Mix.Tasks.Exograph.Bench.Backends do
       }
   end
 
-  defp benchmark_sharded_duckdb(label, bm25?, run_id, config) do
-    prefix = "bench_duck_shard_#{run_id}_#{if(bm25?, do: "bm25", else: "plain")}"
+  defp benchmark_sharded_duckdb(label, bm25?, run_id, run, config) do
+    prefix = "bench_duck_shard_#{run_id}_r#{run}_#{if(bm25?, do: "bm25", else: "plain")}"
 
     Mix.shell().info("\nIndexing #{label} shards=#{config.duckdb_shards} prefix=#{prefix}...")
 
@@ -702,14 +719,14 @@ defmodule Mix.Tasks.Exograph.Bench.Backends do
       )
 
     Mix.shell().info(
-      "  workload: #{config.mode} limit=#{config.limit} concurrency=#{config.concurrency} index_concurrency=#{index_concurrency} duckdb_threads=#{duckdb_threads} duckdb_shards=#{config.duckdb_shards} postgres_settings=#{postgres_settings} order=#{config.order}"
+      "  workload: #{config.mode} limit=#{config.limit} runs=#{config.runs} concurrency=#{config.concurrency} index_concurrency=#{index_concurrency} duckdb_threads=#{duckdb_threads} duckdb_shards=#{config.duckdb_shards} postgres_settings=#{postgres_settings} order=#{config.order}"
     )
 
     Mix.shell().info("  queries: warmup=#{config.warmup} iterations=#{config.iterations}\n")
 
     Enum.each(results, fn result ->
       Mix.shell().info([
-        String.upcase(to_string(result.label)),
+        String.upcase(display_label(result)),
         " index_ms=",
         format_ms(result.index_ms),
         " ok=",
@@ -726,6 +743,8 @@ defmodule Mix.Tasks.Exograph.Bench.Backends do
       ])
     end)
 
+    maybe_print_run_summary(results, config)
+
     Mix.shell().info("\nQuery medians")
 
     all_query_names(results)
@@ -735,11 +754,11 @@ defmodule Mix.Tasks.Exograph.Bench.Backends do
         |> Enum.map(fn result ->
           case Keyword.fetch(result.queries, name) do
             {:ok, %{error: error}} ->
-              [to_string(result.label), "=error(", short_error(error), ")"]
+              [display_label(result), "=error(", short_error(error), ")"]
 
             {:ok, stats} ->
               [
-                to_string(result.label),
+                display_label(result),
                 "=",
                 format_ms(stats.median_ms),
                 "ms(n=",
@@ -748,13 +767,34 @@ defmodule Mix.Tasks.Exograph.Bench.Backends do
               ]
 
             :error ->
-              [to_string(result.label), "=n/a"]
+              [display_label(result), "=n/a"]
           end
         end)
         |> Enum.intersperse("  ")
         |> IO.iodata_to_binary()
 
       Mix.shell().info("  #{name}: #{line}")
+    end)
+  end
+
+  defp display_label(%{run: run, label: label}), do: "#{label}[#{run}]"
+  defp display_label(%{label: label}), do: to_string(label)
+
+  defp maybe_print_run_summary(_results, %{runs: 1}), do: :ok
+
+  defp maybe_print_run_summary(results, %{runs: runs}) do
+    Mix.shell().info("\nIndex run summary (#{runs} runs)")
+
+    results
+    |> Enum.group_by(& &1.label)
+    |> Enum.sort_by(fn {label, _results} -> to_string(label) end)
+    |> Enum.each(fn {label, grouped} ->
+      times = Enum.map(grouped, & &1.index_ms)
+      {min_ms, max_ms} = min_max(times)
+
+      Mix.shell().info(
+        "  #{label}: median=#{format_ms(median(times))}ms min=#{format_ms(min_ms)}ms max=#{format_ms(max_ms)}ms"
+      )
     end)
   end
 

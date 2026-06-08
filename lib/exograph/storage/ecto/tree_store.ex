@@ -1,10 +1,10 @@
-defmodule Exograph.Postgres.TreeStore do
+defmodule Exograph.Storage.Ecto.TreeStore do
   @moduledoc """
-  Durable AST tree node store backed by Ecto and Postgres.
+  Durable AST tree node store backed by Ecto repositories.
   """
 
   alias Exograph.Postgres
-  alias Exograph.Postgres.{FragmentRecord, Options}
+  alias Exograph.Storage.Ecto.{FragmentRecord, Options}
   alias Exograph.Tree
 
   defstruct repo: nil, prefix: "exograph"

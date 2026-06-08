@@ -1,4 +1,4 @@
-defmodule Exograph.Postgres.TreeNodeRecord do
+defmodule Exograph.Storage.Ecto.TreeNodeRecord do
   @moduledoc false
 
   use Ecto.Schema

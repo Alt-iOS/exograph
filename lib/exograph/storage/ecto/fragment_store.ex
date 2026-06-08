@@ -1,6 +1,6 @@
-defmodule Exograph.Postgres.FragmentStore do
+defmodule Exograph.Storage.Ecto.FragmentStore do
   @moduledoc """
-  Durable fragment store backed by Ecto and Postgres.
+  Durable fragment store backed by Ecto repositories.
   """
 
   import Ecto.Query
@@ -18,7 +18,7 @@ defmodule Exograph.Postgres.FragmentStore do
 
   alias Exograph.Extractor.Reach, as: ReachExtractor
 
-  alias Exograph.Postgres.{
+  alias Exograph.Storage.Ecto.{
     CallEdgeRecord,
     CommentRecord,
     DefinitionRecord,
@@ -322,19 +322,7 @@ defmodule Exograph.Postgres.FragmentStore do
             |> Map.merge(%{inserted_at: now, updated_at: now})
           end)
 
-        inserted_by_hash = insert_fragments_by_hash(store, entries)
-
-        all_hashes = Enum.map(hashed_unique, & &1.content_hash)
-
-        existing =
-          from(f in {source(store), FragmentRecord},
-            where: f.content_hash in ^all_hashes,
-            select: {f.content_hash, f.id}
-          )
-          |> store.repo.all()
-          |> Map.new()
-
-        hash_to_id = Map.merge(existing, inserted_by_hash)
+        hash_to_id = resolve_fragment_ids_by_hash(store, entries, hashed_unique)
 
         Enum.map(hashed, fn fragment ->
           %{fragment | id: Map.get(hash_to_id, fragment.content_hash)}
@@ -365,9 +353,23 @@ defmodule Exograph.Postgres.FragmentStore do
     resolved
   end
 
+  defp resolve_fragment_ids_by_hash(%{repo: repo} = store, entries, hashed_unique) do
+    inserted_by_hash = insert_fragments_by_hash(store, entries)
+
+    if Exograph.Backend.duckdb_repo?(repo) do
+      inserted_by_hash
+    else
+      all_hashes = Enum.map(hashed_unique, & &1.content_hash)
+
+      store.repo
+      |> fragment_ids_by_hash(source(store), all_hashes)
+      |> Map.merge(inserted_by_hash)
+    end
+  end
+
   defp insert_fragments_by_hash(%{repo: repo} = store, entries) do
-    if repo.__adapter__() == Ecto.Adapters.QuackDB do
-      insert_fragments_by_hash_with_staging(store, entries)
+    if Exograph.Backend.duckdb_repo?(repo) do
+      Exograph.DuckDB.FragmentAppend.insert_by_hash(repo, source(store), FragmentRecord, entries)
     else
       entries
       |> Enum.chunk_every(2_000)
@@ -387,63 +389,13 @@ defmodule Exograph.Postgres.FragmentStore do
     end
   end
 
-  defp insert_fragments_by_hash_with_staging(store, entries) do
-    staging = "#{store.prefix}_staging_fragments_#{System.unique_integer([:positive])}"
-    target_table = source(store)
-    target = {target_table, FragmentRecord}
-
-    try do
-      store.repo.query!(QuackDB.DDL.create_table(staging, FragmentRecord, or_replace: true), [],
-        timeout: :infinity
-      )
-
-      store.repo.insert_all({staging, FragmentRecord}, entries,
-        insert_method: :append,
-        chunk_every: 2_000,
-        timeout: :infinity
-      )
-
-      staged_new_fragments =
-        from(row in {staging, FragmentRecord},
-          as: :row,
-          where:
-            not exists(
-              from(fragment in {target_table, FragmentRecord},
-                where: fragment.content_hash == parent_as(:row).content_hash,
-                select: 1
-              )
-            ),
-          select: %{
-            package_id: row.package_id,
-            package_version_id: row.package_version_id,
-            file_id: row.file_id,
-            content_hash: row.content_hash,
-            ast: row.ast,
-            kind: row.kind,
-            module: row.module,
-            name: row.name,
-            arity: row.arity,
-            line: row.line,
-            end_line: row.end_line,
-            mass: row.mass,
-            exact_hash: row.exact_hash,
-            terms: row.terms,
-            sub_hashes: row.sub_hashes,
-            inserted_at: row.inserted_at,
-            updated_at: row.updated_at
-          }
-        )
-
-      {_count, returning} =
-        store.repo.insert_all(target, staged_new_fragments,
-          returning: [:id, :content_hash],
-          timeout: :infinity
-        )
-
-      Map.new(returning, fn r -> {r.content_hash, r.id} end)
-    after
-      store.repo.query!(QuackDB.DDL.drop_table(staging, if_exists: true), [], timeout: :infinity)
-    end
+  defp fragment_ids_by_hash(repo, target_table, hashes) do
+    from(f in {target_table, FragmentRecord},
+      where: f.content_hash in ^hashes,
+      select: {f.content_hash, f.id}
+    )
+    |> repo.all(timeout: :infinity)
+    |> Map.new()
   end
 
   defp normalize_terms(store, fragments) do
@@ -515,7 +467,7 @@ defmodule Exograph.Postgres.FragmentStore do
   end
 
   defp bulk_insert_duckdb_or_postgres(repo, source, entries, opts) do
-    if repo.__adapter__() == Ecto.Adapters.QuackDB do
+    if Exograph.Backend.duckdb_repo?(repo) do
       repo.insert_all(source, entries,
         insert_method: :append,
         chunk_every: Keyword.fetch!(opts, :chunk_size),
@@ -538,7 +490,7 @@ defmodule Exograph.Postgres.FragmentStore do
     source = terms_source(store)
     {table_name, _schema} = source
 
-    if store.repo.__adapter__() == Ecto.Adapters.QuackDB do
+    if Exograph.Backend.duckdb_repo?(store.repo) do
       :global.trans(
         {{__MODULE__, store.repo, table_name}, self()},
         fn -> insert_term_chunks(store.repo, source, table_name, entries) end,
@@ -569,7 +521,7 @@ defmodule Exograph.Postgres.FragmentStore do
   end
 
   defp lock_terms_table(repo, table_name) do
-    if repo.__adapter__() == Ecto.Adapters.Postgres do
+    if Exograph.Backend.postgres_repo?(repo) do
       repo.query!("SELECT pg_advisory_xact_lock(hashtext($1))", [table_name])
     end
   end

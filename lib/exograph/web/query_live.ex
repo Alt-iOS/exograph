@@ -487,7 +487,7 @@ defmodule Exograph.Web.QueryLive do
     prefix = index.inverted.prefix
     repo = index.inverted.repo
 
-    repo.aggregate({"#{prefix}_packages", Exograph.Postgres.PackageRecord}, :count)
+    repo.aggregate({"#{prefix}_packages", Exograph.Storage.Ecto.PackageRecord}, :count)
   rescue
     _ -> 0
   end
@@ -539,7 +539,7 @@ defmodule Exograph.Web.QueryLive do
     repo = assigns.index.inverted.repo
     source = "#{prefix}_files"
 
-    from(f in {source, Exograph.Postgres.FileRecord},
+    from(f in {source, Exograph.Storage.Ecto.FileRecord},
       where: ilike(f.path, ^"%#{relative_path}"),
       limit: 1,
       select: f.source

@@ -8,7 +8,7 @@ defmodule Exograph.Postgres do
   """
 
   alias Ecto.Migration.Runner
-  alias Exograph.Postgres.Migrations.CreateSchema
+  alias Exograph.Storage.Ecto.Migrations.CreateSchema
 
   defmodule SchemaMigration do
     @moduledoc false

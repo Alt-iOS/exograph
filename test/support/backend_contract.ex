@@ -4,8 +4,8 @@ defmodule Exograph.BackendContract do
   import ExUnit.Assertions
   import Ecto.Query, only: [from: 2]
 
-  alias Exograph.Postgres.FragmentStore, as: PostgresFragmentStore
-  alias Exograph.Postgres.{PackageRecord, PackageVersionRecord}
+  alias Exograph.Storage.Ecto.FragmentStore, as: EctoFragmentStore
+  alias Exograph.Storage.Ecto.{PackageRecord, PackageVersionRecord}
 
   def assert_real_indexing_and_search(opts) do
     path = fixture(opts)
@@ -144,13 +144,13 @@ defmodule Exograph.BackendContract do
   end
 
   defp assert_fragments(index, path) do
-    assert [_ | _] = fragments = PostgresFragmentStore.all(index.fragment_store)
+    assert [_ | _] = fragments = EctoFragmentStore.all(index.fragment_store)
     assert Enum.any?(fragments, &(&1.file == path and &1.name == "get_user"))
     assert Enum.any?(fragments, &(&1.file == path and &1.name == "update_user"))
   end
 
   defp assert_package_scope(index, _opts) do
-    all_fragments = PostgresFragmentStore.all(index.fragment_store)
+    all_fragments = EctoFragmentStore.all(index.fragment_store)
 
     assert Enum.all?(all_fragments, fn fragment ->
              is_integer(fragment.package_id) and is_integer(fragment.package_version_id)
@@ -170,10 +170,10 @@ defmodule Exograph.BackendContract do
              Exograph.search(index, "Repo.get!(_, _)")
 
     assert fragment.file == path
-    assert {:ok, ^fragment} = PostgresFragmentStore.get(index.fragment_store, fragment.id)
+    assert {:ok, ^fragment} = EctoFragmentStore.get(index.fragment_store, fragment.id)
 
     tree_fragment =
-      PostgresFragmentStore.all(index.fragment_store)
+      EctoFragmentStore.all(index.fragment_store)
       |> Enum.find(
         &(&1.file == path and &1.kind in [:module, :def, :defp, :defmacro, :defmacrop])
       )

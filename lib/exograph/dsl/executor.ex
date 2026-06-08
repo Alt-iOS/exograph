@@ -8,11 +8,11 @@ defmodule Exograph.DSL.Executor do
   alias Exograph.{CallEdgeHit, DefinitionHit, Fragment, Hit, ReferenceHit}
   alias Exograph.DSL.{Compiler, JoinSemantics, Plan, Planner, Query, Sources}
   alias Exograph.DSL.Plan.Join
-  alias Exograph.Postgres.FragmentStore, as: PostgresFragmentStore
-  alias Exograph.Postgres.InvertedIndex, as: PostgresInvertedIndex
+  alias Exograph.Storage.Ecto.FragmentStore, as: EctoFragmentStore
+  alias Exograph.Storage.Ecto.InvertedIndex, as: EctoInvertedIndex
   alias Exograph.StructuralQuery
 
-  alias Exograph.Postgres.{
+  alias Exograph.Storage.Ecto.{
     CallEdgeRecord,
     DefinitionRecord,
     FragmentRecord,
@@ -221,7 +221,7 @@ defmodule Exograph.DSL.Executor do
 
   def stream_structural(index, %Exograph.StructuralQuery{} = compiled_query, opts) do
     term_strings = MapSet.to_list(compiled_query.required_terms)
-    term_ids = PostgresInvertedIndex.resolve_term_ids(index.inverted, term_strings)
+    term_ids = EctoInvertedIndex.resolve_term_ids(index.inverted, term_strings)
     kind_filter = structural_query_kind(compiled_query)
     {name_filter, arity_filter} = structural_query_name_arity(compiled_query)
 
@@ -453,7 +453,7 @@ defmodule Exograph.DSL.Executor do
       index,
       plan,
       Keyword.put_new_lazy(opts, :candidate_limit, fn ->
-        PostgresFragmentStore.count(index.fragment_store)
+        EctoFragmentStore.count(index.fragment_store)
       end),
       nil
     )
@@ -973,7 +973,7 @@ defmodule Exograph.DSL.Executor do
     |> StructuralQuery.requires_source?()
   end
 
-  defp duckdb?(index), do: index.inverted.repo.__adapter__() == Ecto.Adapters.QuackDB
+  defp duckdb?(index), do: Exograph.Backend.duckdb_repo?(index.inverted.repo)
 
   defp hydrate_hit_sources(hits, index) do
     missing_source_ids =
@@ -1042,7 +1042,7 @@ defmodule Exograph.DSL.Executor do
 
   defp candidate_limit(index, opts) do
     Keyword.get_lazy(opts, :candidate_limit, fn ->
-      PostgresFragmentStore.count(index.fragment_store)
+      EctoFragmentStore.count(index.fragment_store)
     end)
   end
 

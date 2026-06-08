@@ -4,8 +4,8 @@ defmodule Exograph.DSL.Executor.Scope do
   import Ecto.Query
 
   alias Exograph.DSL.Compiler
-  alias Exograph.Postgres.Options
-  alias Exograph.Postgres.InvertedIndex, as: PostgresInvertedIndex
+  alias Exograph.Storage.Ecto.Options
+  alias Exograph.Storage.Ecto.InvertedIndex, as: EctoInvertedIndex
 
   @doc false
   def where_fragment_scope(queryable, opts) do
@@ -136,7 +136,7 @@ defmodule Exograph.DSL.Executor.Scope do
     )
   end
 
-  defp duckdb?(index), do: index.inverted.repo.__adapter__() == Ecto.Adapters.QuackDB
+  defp duckdb?(index), do: Exograph.Backend.duckdb_repo?(index.inverted.repo)
 
   defp resolve_structural_term_ids(index, plan) do
     required_terms = Compiler.required_terms(plan.query)
@@ -144,7 +144,7 @@ defmodule Exograph.DSL.Executor.Scope do
     if required_terms == [] do
       []
     else
-      PostgresInvertedIndex.resolve_term_ids(index.inverted, required_terms)
+      EctoInvertedIndex.resolve_term_ids(index.inverted, required_terms)
     end
   end
 end

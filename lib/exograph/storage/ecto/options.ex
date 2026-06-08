@@ -1,4 +1,4 @@
-defmodule Exograph.Postgres.Options do
+defmodule Exograph.Storage.Ecto.Options do
   @moduledoc false
 
   alias Exograph.{Package, PackageVersion, Postgres}
@@ -49,23 +49,29 @@ defmodule Exograph.Postgres.Options do
     record
     |> Map.put(:source, source)
     |> Map.put(:file, path)
-    |> Exograph.Postgres.FragmentRecord.to_fragment()
+    |> Exograph.Storage.Ecto.FragmentRecord.to_fragment()
   end
 
-  def files_source(prefix), do: {"#{prefix}_files", Exograph.Postgres.FileRecord}
+  def files_source(prefix), do: {"#{prefix}_files", Exograph.Storage.Ecto.FileRecord}
   def fragments_source(prefix), do: "#{prefix}_fragments"
-  def comments_source(prefix), do: {"#{prefix}_comments", Exograph.Postgres.CommentRecord}
+  def comments_source(prefix), do: {"#{prefix}_comments", Exograph.Storage.Ecto.CommentRecord}
 
   def definitions_source(prefix),
-    do: {"#{prefix}_definitions", Exograph.Postgres.DefinitionRecord}
+    do: {"#{prefix}_definitions", Exograph.Storage.Ecto.DefinitionRecord}
 
-  def references_source(prefix), do: {"#{prefix}_references", Exograph.Postgres.ReferenceRecord}
-  def graph_nodes_source(prefix), do: {"#{prefix}_graph_nodes", Exograph.Postgres.GraphNodeRecord}
-  def call_edges_source(prefix), do: {"#{prefix}_call_edges", Exograph.Postgres.CallEdgeRecord}
-  def terms_source(prefix), do: {"#{prefix}_terms", Exograph.Postgres.TermRecord}
+  def references_source(prefix),
+    do: {"#{prefix}_references", Exograph.Storage.Ecto.ReferenceRecord}
+
+  def graph_nodes_source(prefix),
+    do: {"#{prefix}_graph_nodes", Exograph.Storage.Ecto.GraphNodeRecord}
+
+  def call_edges_source(prefix),
+    do: {"#{prefix}_call_edges", Exograph.Storage.Ecto.CallEdgeRecord}
+
+  def terms_source(prefix), do: {"#{prefix}_terms", Exograph.Storage.Ecto.TermRecord}
 
   def fragment_terms_source(prefix),
-    do: {"#{prefix}_fragment_terms", Exograph.Postgres.FragmentTermRecord}
+    do: {"#{prefix}_fragment_terms", Exograph.Storage.Ecto.FragmentTermRecord}
 
   def migrate(opts) do
     if Keyword.get(opts, :migrate?, false), do: Postgres.migrate!(opts)

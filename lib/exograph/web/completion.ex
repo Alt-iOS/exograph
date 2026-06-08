@@ -1,7 +1,7 @@
 defmodule Exograph.Web.Completion do
   @moduledoc false
 
-  alias Exograph.Postgres.Options
+  alias Exograph.Storage.Ecto.Options
 
   # imported for @eval_env to capture DSL macros
   import Exograph.DSL, warn: false
@@ -198,7 +198,7 @@ defmodule Exograph.Web.Completion do
 
         {:modules, :module} ->
           table = Options.fragments_source(prefix)
-          {{table, Exograph.Postgres.FragmentRecord}, :module}
+          {{table, Exograph.Storage.Ecto.FragmentRecord}, :module}
       end
 
     require Ecto.Query

@@ -5,7 +5,7 @@ defmodule Exograph.Web.APIController do
   import Ecto.Query
 
   alias Exograph.Web.{QueryExecutor, SearchResult}
-  alias Exograph.Postgres.Options
+  alias Exograph.Storage.Ecto.Options
 
   def search(conn, params) do
     index = index()
@@ -77,7 +77,7 @@ defmodule Exograph.Web.APIController do
     repo = Application.get_env(:exograph, :web_repo)
 
     packages =
-      from(p in {"#{prefix}_packages", Exograph.Postgres.PackageRecord},
+      from(p in {"#{prefix}_packages", Exograph.Storage.Ecto.PackageRecord},
         left_join: f in ^Options.fragments_source(prefix),
         on: true,
         where: fragment("? = ?", f.package_id, p.id),

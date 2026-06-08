@@ -6,7 +6,8 @@ defmodule Exograph.DuckDB do
   import Ecto.Query
 
   alias Ecto.Migration.Runner
-  alias Exograph.Postgres.{FragmentTermRecord, Migrations.CreateSchema}
+  alias Exograph.Storage.Ecto.Migrations.CreateSchema
+  alias Exograph.Storage.Ecto.FragmentTermRecord
 
   @doc "Configures DuckDB execution threads for the current connection."
   def configure_threads!(_repo, nil), do: :ok

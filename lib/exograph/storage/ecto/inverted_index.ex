@@ -1,6 +1,6 @@
-defmodule Exograph.Postgres.InvertedIndex do
+defmodule Exograph.Storage.Ecto.InvertedIndex do
   @moduledoc """
-  Postgres/ParadeDB candidate retrieval backend implemented with Ecto queries.
+  Ecto candidate retrieval backend with backend-specific text-search paths.
 
   Structural lookups use the `terms integer[]` GIN index. Term strings are
   normalized to integer IDs in the terms table before querying.
@@ -9,7 +9,7 @@ defmodule Exograph.Postgres.InvertedIndex do
   import Ecto.Query
 
   alias Exograph.{Hit, Package, PackageVersion}
-  alias Exograph.Postgres.{CallEdgeRecord, FactQuery, FragmentRecord, Options}
+  alias Exograph.Storage.Ecto.{CallEdgeRecord, FactQuery, FragmentRecord, Options}
   alias Exograph.StructuralQuery
 
   defstruct repo: nil, prefix: "exograph", package: nil, package_version: nil, bm25?: true
@@ -366,7 +366,7 @@ defmodule Exograph.Postgres.InvertedIndex do
      }, source, path}
   end
 
-  defp duckdb?(index), do: index.repo.__adapter__() == Ecto.Adapters.QuackDB
+  defp duckdb?(index), do: Exograph.Backend.duckdb_repo?(index.repo)
 
   defp escape_like(str), do: str |> String.replace("%", "\\%") |> String.replace("_", "\\_")
 

@@ -250,11 +250,11 @@ defmodule Exograph.Hex.Corpus do
     pkg_source = "#{prefix}_packages"
 
     pkgs =
-      from(p in {pkg_source, Exograph.Postgres.PackageRecord},
+      from(p in {pkg_source, Exograph.Storage.Ecto.PackageRecord},
         select: %{id: p.id, name: p.name}
       )
 
-    from(pv in {pv_source, Exograph.Postgres.PackageVersionRecord},
+    from(pv in {pv_source, Exograph.Storage.Ecto.PackageVersionRecord},
       join: p in subquery(pkgs),
       on: p.id == pv.package_id,
       select: {p.name, pv.version}

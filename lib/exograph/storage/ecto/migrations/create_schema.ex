@@ -1,4 +1,4 @@
-defmodule Exograph.Postgres.Migrations.CreateSchema do
+defmodule Exograph.Storage.Ecto.Migrations.CreateSchema do
   @moduledoc false
 
   use Ecto.Migration

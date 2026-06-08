@@ -1,4 +1,4 @@
-defmodule Exograph.Postgres.PackageRecord do
+defmodule Exograph.Storage.Ecto.PackageRecord do
   @moduledoc false
 
   use Ecto.Schema

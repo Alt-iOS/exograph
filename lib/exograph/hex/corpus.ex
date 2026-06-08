@@ -149,22 +149,7 @@ defmodule Exograph.Hex.Corpus do
       )
       |> Enum.map(fn {:ok, result} -> result end)
 
-    shard_indexes =
-      Enum.map(shards, fn shard ->
-        {:ok, index} =
-          Exograph.DuckDBShards.with_repo(shard, fn ->
-            Exograph.index([],
-              backend: :duckdb,
-              repo: shard.repo,
-              prefix: shard.prefix,
-              migrate?: false,
-              bm25?: Keyword.get(opts, :bm25?, true),
-              duckdb_threads: Keyword.get(opts, :duckdb_threads)
-            )
-          end)
-
-        Map.put(shard, :index, index)
-      end)
+    shard_indexes = Exograph.DuckDBShards.open_indexes(shards, opts)
 
     manifest = Exograph.DuckDBShards.manifest(shard_indexes, prefix: prefix)
     write_manifest(manifest, Keyword.get(opts, :manifest_path))

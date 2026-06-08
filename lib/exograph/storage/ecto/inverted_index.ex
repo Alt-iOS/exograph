@@ -10,7 +10,7 @@ defmodule Exograph.Storage.Ecto.InvertedIndex do
   import Ecto.Query
 
   alias Exograph.{Hit, Package, PackageVersion}
-  alias Exograph.Storage.Ecto.{CallEdgeRecord, FactQuery, FragmentRecord, Options}
+  alias Exograph.Storage.Ecto.{CallEdgeRecord, FactQuery, FragmentRecord, Options, Scope}
   alias Exograph.StructuralQuery
 
   defstruct repo: nil, prefix: "exograph", package: nil, package_version: nil, bm25?: true
@@ -43,7 +43,7 @@ defmodule Exograph.Storage.Ecto.InvertedIndex do
     records =
       base_query(index)
       |> where_term_ids(index, required_ids, optional_ids)
-      |> where_scope(opts)
+      |> Scope.where_scope(opts)
       |> limit(^limit)
       |> with_file(index, include_source?(query))
       |> index.repo.all()
@@ -85,7 +85,7 @@ defmodule Exograph.Storage.Ecto.InvertedIndex do
         order_by: [asc: edge.file_id, asc: edge.line, asc: edge.id],
         limit: ^limit
       )
-      |> where_scope(opts)
+      |> Scope.where_scope(opts)
       |> index.repo.all()
 
     {:ok, Enum.map(records, &CallEdgeRecord.to_call_edge/1)}
@@ -118,7 +118,7 @@ defmodule Exograph.Storage.Ecto.InvertedIndex do
         limit: ^limit,
         select: {fragment, file.source, file.path}
       )
-      |> where_scope(opts)
+      |> Scope.where_scope(opts)
 
     hits =
       index.repo.all(query, timeout: 30_000)
@@ -160,26 +160,6 @@ defmodule Exograph.Storage.Ecto.InvertedIndex do
       order_by: [desc: fragment.mass, asc: fragment.file_id, asc: fragment.line]
     )
   end
-
-  defp where_scope(queryable, opts) do
-    package_id = Keyword.get(opts, :package_id)
-    package_version_id = Keyword.get(opts, :package_version_id)
-    package_version = Keyword.get(opts, :package_version)
-
-    queryable
-    |> maybe_where_package(package_id)
-    |> maybe_where_package_version(package_version_id || package_version)
-  end
-
-  defp maybe_where_package(queryable, nil), do: queryable
-
-  defp maybe_where_package(queryable, package_id),
-    do: where(queryable, [fragment], fragment.package_id == ^package_id)
-
-  defp maybe_where_package_version(queryable, nil), do: queryable
-
-  defp maybe_where_package_version(queryable, package_version_id),
-    do: where(queryable, [fragment], fragment.package_version_id == ^package_version_id)
 
   defp where_term_ids(queryable, _index, [], []), do: queryable
 

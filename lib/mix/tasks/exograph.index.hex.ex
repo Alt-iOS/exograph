@@ -192,7 +192,7 @@ defmodule Mix.Tasks.Exograph.Index.Hex do
             uri:
               Keyword.get(opts, :quackdb_uri) || System.get_env("QUACKDB_URI") ||
                 System.get_env("QUACKDB_TEST_URI") || start_managed_duckdb!(opts),
-            token: duckdb_token(opts),
+            token: Mix.Exograph.BackendOptions.duckdb_token(opts),
             pool_size: Keyword.get(opts, :concurrency, 4),
             telemetry_prefix: [:quackdb],
             log: false,
@@ -211,8 +211,8 @@ defmodule Mix.Tasks.Exograph.Index.Hex do
   end
 
   defp start_managed_duckdb!(opts) do
-    token = duckdb_token(opts)
-    endpoint = "quack:localhost:#{free_tcp_port!()}"
+    token = Mix.Exograph.BackendOptions.duckdb_token(opts)
+    endpoint = "quack:localhost:#{Mix.Exograph.BackendOptions.free_tcp_port!()}"
 
     server_opts =
       [
@@ -221,7 +221,7 @@ defmodule Mix.Tasks.Exograph.Index.Hex do
           Keyword.get(opts, :duckdb_database, "#{Keyword.get(opts, :prefix, "hex")}.duckdb"),
         endpoint: endpoint,
         token: token,
-        settings: duckdb_settings(Keyword.get(opts, :duckdb_threads))
+        settings: Mix.Exograph.BackendOptions.duckdb_settings(Keyword.get(opts, :duckdb_threads))
       ]
       |> put_optional(:recovery_mode, recovery_mode(Keyword.get(opts, :duckdb_recovery_mode)))
 
@@ -232,21 +232,6 @@ defmodule Mix.Tasks.Exograph.Index.Hex do
 
   defp put_optional(opts, _key, nil), do: opts
   defp put_optional(opts, key, value), do: Keyword.put(opts, key, value)
-
-  defp duckdb_token(opts) do
-    Keyword.get(opts, :quackdb_token) || System.get_env("QUACKDB_TOKEN") ||
-      System.get_env("QUACKDB_TEST_TOKEN") || "exograph"
-  end
-
-  defp duckdb_settings(nil), do: [threads: System.schedulers_online()]
-  defp duckdb_settings(threads), do: [threads: threads]
-
-  defp free_tcp_port! do
-    {:ok, socket} = :gen_tcp.listen(0, [:binary, active: false, reuseaddr: true])
-    {:ok, port} = :inet.port(socket)
-    :ok = :gen_tcp.close(socket)
-    port
-  end
 
   defp start_web!(backend, repo, prefix, opts) do
     port = Keyword.get(opts, :port, 4200)

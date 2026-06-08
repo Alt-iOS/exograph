@@ -55,22 +55,7 @@ defmodule Exograph do
     manifest = Exograph.DuckDBShards.load_manifest(manifest)
 
     with {:ok, shards} <- Exograph.DuckDBShards.open(manifest, opts) do
-      shard_indexes =
-        Enum.map(shards, fn shard ->
-          {:ok, index} =
-            Exograph.DuckDBShards.with_repo(shard, fn ->
-              Exograph.index([],
-                backend: :duckdb,
-                repo: shard.repo,
-                prefix: shard.prefix,
-                migrate?: false,
-                bm25?: Keyword.get(opts, :bm25?, true),
-                duckdb_threads: Keyword.get(opts, :duckdb_threads)
-              )
-            end)
-
-          Map.put(shard, :index, index)
-        end)
+      shard_indexes = Exograph.DuckDBShards.open_indexes(shards, opts)
 
       {:ok, ShardedIndex.new(shard_indexes, manifest: manifest)}
     end

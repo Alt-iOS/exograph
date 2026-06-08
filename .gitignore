@@ -23,8 +23,9 @@ erl_crash.dump
 # Also ignore archive artifacts (built via "mix archive.build").
 *.ez
 
-# Ignore package tarball (built via "mix hex.build").
-exograph-*.tar
+# Ignore package artifacts (built via "mix hex.build").
+/exograph-*.tar
+/exograph-*/
 
 # Assets
 assets/node_modules/

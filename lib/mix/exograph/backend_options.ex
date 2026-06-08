@@ -89,15 +89,18 @@ defmodule Mix.Exograph.BackendOptions do
     "#{Keyword.get(opts, :prefix, "exograph")}.duckdb"
   end
 
-  defp duckdb_token(opts) do
+  @doc false
+  def duckdb_token(opts) do
     Keyword.get(opts, :quackdb_token) || System.get_env("QUACKDB_TOKEN") ||
       System.get_env("QUACKDB_TEST_TOKEN") || "exograph"
   end
 
-  defp duckdb_settings(nil), do: [threads: System.schedulers_online()]
-  defp duckdb_settings(threads), do: [threads: threads]
+  @doc false
+  def duckdb_settings(nil), do: [threads: System.schedulers_online()]
+  def duckdb_settings(threads), do: [threads: threads]
 
-  defp free_tcp_port! do
+  @doc false
+  def free_tcp_port! do
     {:ok, socket} = :gen_tcp.listen(0, [:binary, active: false, reuseaddr: true])
     {:ok, port} = :inet.port(socket)
     :ok = :gen_tcp.close(socket)

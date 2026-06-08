@@ -134,6 +134,24 @@ defmodule Exograph.DuckDBShards do
 
   def with_repo(_shard, fun) when is_function(fun, 0), do: fun.()
 
+  def open_indexes(shards, opts \\ []) do
+    Enum.map(shards, fn shard ->
+      {:ok, index} =
+        with_repo(shard, fn ->
+          Exograph.index([],
+            backend: :duckdb,
+            repo: shard.repo,
+            prefix: shard.prefix,
+            migrate?: false,
+            bm25?: Keyword.get(opts, :bm25?, true),
+            duckdb_threads: Keyword.get(opts, :duckdb_threads)
+          )
+        end)
+
+      Map.put(shard, :index, index)
+    end)
+  end
+
   def manifest(shards, opts \\ []) do
     %Manifest{
       shard_count: length(shards),

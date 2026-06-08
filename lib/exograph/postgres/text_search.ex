@@ -4,7 +4,7 @@ defmodule Exograph.Postgres.TextSearch do
   import Ecto.Query
 
   alias Exograph.Hit
-  alias Exograph.Storage.Ecto.{FragmentRecord, Options}
+  alias Exograph.Storage.Ecto.{FragmentRecord, Options, Scope}
 
   def search_file_field(index, literal, field, opts) when field in [:source, :comments_text] do
     file_search(
@@ -95,7 +95,7 @@ defmodule Exograph.Postgres.TextSearch do
       if index.bm25? do
         try do
           bm25_fun.(limit)
-          |> where_scope(opts)
+          |> Scope.where_scope(opts)
           |> index.repo.all()
         rescue
           _ in [Postgrex.Error, Ecto.QueryError] ->
@@ -113,29 +113,9 @@ defmodule Exograph.Postgres.TextSearch do
 
   defp ilike_records(index, ilike_fun, limit, opts) do
     ilike_fun.(limit)
-    |> where_scope(opts)
+    |> Scope.where_scope(opts)
     |> index.repo.all()
   end
-
-  defp where_scope(queryable, opts) do
-    package_id = Keyword.get(opts, :package_id)
-    package_version_id = Keyword.get(opts, :package_version_id)
-    package_version = Keyword.get(opts, :package_version)
-
-    queryable
-    |> maybe_where_package(package_id)
-    |> maybe_where_package_version(package_version_id || package_version)
-  end
-
-  defp maybe_where_package(queryable, nil), do: queryable
-
-  defp maybe_where_package(queryable, package_id),
-    do: where(queryable, [fragment], fragment.package_id == ^package_id)
-
-  defp maybe_where_package_version(queryable, nil), do: queryable
-
-  defp maybe_where_package_version(queryable, package_version_id),
-    do: where(queryable, [fragment], fragment.package_version_id == ^package_version_id)
 
   defp escape_like(value), do: value |> String.replace("%", "\\%") |> String.replace("_", "\\_")
 

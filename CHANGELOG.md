@@ -1,5 +1,35 @@
 # Changelog
 
+## 0.8.0
+
+### Added
+
+- DuckDB/QuackDB is now the default backend for local indexing, search, and web tasks.
+- Managed DuckDB options for Mix tasks: `--backend`, `--quackdb-uri`, `--quackdb-token`, `--duckdb-database`, `--duckdb-threads`, and Hex corpus sharding with `--duckdb-shards`.
+- Dynamic sharded DuckDB corpus indexes with manifest persistence and fan-out query support.
+- Direct DuckDB fragment append path using QuackDB APIs while preserving full persisted data.
+- Backend benchmark harness with repeated runs, JSON reports, Postgres challenge-mode flags, EXPLAIN capture, randomized order, and automatic prefix cleanup.
+- Backend benchmark and Postgres COPY staging design guides.
+
+### Changed
+
+- Switched to the published `quackdb ~> 0.5.3` dependency.
+- Moved shared Ecto storage internals from the Postgres namespace to `Exograph.Storage.Ecto.*`.
+- Split backend text-search paths into DuckDB and Postgres modules.
+- Improved Postgres challenge-mode indexing with deferred non-unique query indexes and an additional `(file_id, line)` fragment index.
+- Updated docs to frame benchmark results as Exograph backend/workload measurements, not universal database claims.
+
+### Fixed
+
+- Stabilized sharded DuckDB benchmark/server teardown by using unique shard port bases and stopping dynamic shard repos.
+- Prevented local benchmark runs from leaving generated `bench_%` prefixes behind by default.
+
+### Breaking / operational notes
+
+- DuckDB/QuackDB is the default backend. Pass `backend: :postgres` or `--backend postgres` for existing Postgres workflows.
+- Internal storage modules moved from `Exograph.Postgres.*` to `Exograph.Storage.Ecto.*`; code that referenced those internals should update module names.
+- `bench-results/` is now gitignored; benchmark JSON and EXPLAIN files are local generated artifacts.
+
 ## 0.7.1
 
 - Fixed Safari: editor content duplication after Run (morphdom updating `data-query` attribute on ignored div)

@@ -160,6 +160,7 @@ Exograph.search_callees(index, "MyApp.Accounts.update_user/2")
 | [DuckDB and QuackDB](guides/duckdb.md) | Recommended backend, sharding, manifests, tuning |
 | [Postgres and ParadeDB](guides/postgres-paradedb.md) | Postgres backend, migrations, BM25, performance tuning |
 | [Backend benchmarks](guides/backend-benchmarks.md) | Current DuckDB/Postgres benchmark methodology and results |
+| [Postgres COPY staging](guides/postgres-copy-staging.md) | Design notes for a future fair Postgres bulk-ingest path |
 | [Package Indexing](guides/package-indexing.md) | Indexing Hex.pm and manual package archives |
 | [Mix Tasks](guides/mix-tasks.md) | CLI indexing, searching, web UI |
 | [Web UI](guides/web-ui.md) | Monaco editor, search modes, progress dashboard |

@@ -87,7 +87,8 @@ Raw SQL is limited to areas Ecto cannot express directly:
 
 ## Recommended Postgres settings
 
-Default Postgres settings are conservative. On a 13.8M fragment index, these
+Default Postgres settings are conservative. For future bulk-ingest work, see
+[Postgres COPY staging](postgres-copy-staging.md). On a 13.8M fragment index, these
 settings reduce structural search time from ~600ms to ~78ms and enable parallel
 BM25 scans.
 

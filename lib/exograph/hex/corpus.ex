@@ -6,7 +6,9 @@ defmodule Exograph.Hex.Corpus do
   require Logger
 
   def index(opts \\ []) do
-    if Keyword.get(opts, :backend, :postgres) == :duckdb and Keyword.get(opts, :shards, 1) > 1 do
+    opts = Keyword.put_new(opts, :backend, inferred_backend(opts))
+
+    if Keyword.get(opts, :backend) == :duckdb and Keyword.get(opts, :shards, 1) > 1 do
       index_sharded(opts)
     else
       index_single(opts)
@@ -23,7 +25,7 @@ defmodule Exograph.Hex.Corpus do
     entries = list_entries(mode, opts)
     total = length(entries)
 
-    backend = Keyword.get(opts, :backend, :postgres)
+    backend = Keyword.fetch!(opts, :backend)
 
     configure_backend!(backend, repo, opts)
     if Keyword.get(opts, :migrate?, true), do: migrate!(backend, repo, prefix, opts)
@@ -217,6 +219,21 @@ defmodule Exograph.Hex.Corpus do
     end)
   end
 
+  defp inferred_backend(opts) do
+    case Keyword.get(opts, :repo) do
+      nil -> :duckdb
+      repo when is_atom(repo) -> inferred_repo_backend(repo)
+    end
+  end
+
+  defp inferred_repo_backend(repo) do
+    cond do
+      Exograph.Backend.duckdb_repo?(repo) -> :duckdb
+      Exograph.Backend.postgres_repo?(repo) -> :postgres
+      true -> :duckdb
+    end
+  end
+
   defp configure_backend!(:duckdb, repo, opts) do
     set_dynamic_repo(opts)
     Exograph.DuckDB.configure_threads!(repo, Keyword.get(opts, :duckdb_threads))
@@ -282,7 +299,7 @@ defmodule Exograph.Hex.Corpus do
       if sources == [], do: throw(:no_elixir)
 
       index_opts = [
-        backend: Keyword.get(opts, :backend, :postgres),
+        backend: Keyword.fetch!(opts, :backend),
         repo: repo,
         prefix: prefix,
         bm25?: Keyword.get(opts, :bm25?, true),

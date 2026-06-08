@@ -45,17 +45,17 @@ def deps do
 end
 ```
 
-DuckDB through QuackDB is the recommended local backend. Postgres remains supported;
+DuckDB through QuackDB is the default local backend. Postgres remains supported;
 ParadeDB's `pg_search` extension is optional and enables BM25-backed text/code-fact retrieval.
 
 ## Quickstart
 
-Point Exograph at Elixir source and an Ecto repo. For DuckDB, use a QuackDB-backed repo:
+Point Exograph at Elixir source. Mix tasks start a managed QuackDB server automatically unless you pass an existing QuackDB-backed Ecto repo:
 
 ```elixir
 {:ok, index} =
   Exograph.index("lib",
-    repo: MyApp.Repo,
+    repo: MyApp.QuackDBRepo,
     migrate?: true
   )
 
@@ -68,7 +68,7 @@ DuckDB/Postgres retrieves candidates by term index; ExAST verifies the structura
 
 Download and index packages directly from Hex.pm:
 
-    mix exograph.index.hex --backend duckdb --mode latest --duckdb-shards 4 --duckdb-threads 1 --prefix hex
+    mix exograph.index.hex --mode latest --duckdb-shards 4 --duckdb-threads 1 --prefix hex
 
 Modes: `latest` (one version per package), `top --limit 5000`, `all` (every version).
 Resumes automatically — already-indexed packages are skipped.

@@ -14,13 +14,14 @@ defmodule Mix.Tasks.Exograph.Search do
 
   ## Options
 
-    * `--backend` - `postgres` (default) or `duckdb`
+    * `--backend` - `duckdb` (default) or `postgres`
     * `--repo` - Ecto repo module for the selected backend
     * `--prefix` - Exograph table prefix (default: `exograph`)
     * `--migrate` - create/upgrade backend tables and text indexes
     * `--no-bm25` - skip BM25/full-text index creation during migration/finalization
     * `--quackdb-uri` - QuackDB URI for the DuckDB backend when `--repo` is omitted
     * `--quackdb-token` - QuackDB token for the DuckDB backend
+    * `--duckdb-database` - managed DuckDB database path when `--quackdb-uri` is omitted
     * `--duckdb-threads` - DuckDB execution threads for indexing/query setup
     * `--min-mass` - minimum AST fragment mass (default: `8`)
     * `--limit` - maximum results (default: `20`)
@@ -46,6 +47,7 @@ defmodule Mix.Tasks.Exograph.Search do
           no_bm25: :boolean,
           quackdb_uri: :string,
           quackdb_token: :string,
+          duckdb_database: :string,
           duckdb_threads: :integer,
           min_mass: :integer,
           limit: :integer,
@@ -73,7 +75,7 @@ defmodule Mix.Tasks.Exograph.Search do
   end
 
   defp run_search(query_text, paths, opts) do
-    backend_name = Keyword.get(opts, :backend, "postgres")
+    backend_name = Keyword.get(opts, :backend, Mix.Exograph.BackendOptions.default_backend())
     min_mass = Keyword.get(opts, :min_mass, 8)
     limit = Keyword.get(opts, :limit, 20)
     backend_opts = backend_opts(backend_name, opts)

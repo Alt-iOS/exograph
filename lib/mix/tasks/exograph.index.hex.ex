@@ -4,7 +4,7 @@ defmodule Mix.Tasks.Exograph.Index.Hex do
   @shortdoc "Index Hex.pm packages into Exograph"
 
   @moduledoc """
-  Downloads and indexes Hex.pm packages into a Postgres-backed Exograph index.
+  Downloads and indexes Hex.pm packages into a DuckDB/QuackDB-backed Exograph index by default.
 
       mix exograph.index.hex
       mix exograph.index.hex --mode top --limit 5000
@@ -35,10 +35,11 @@ defmodule Mix.Tasks.Exograph.Index.Hex do
     * `--no-bm25` - skip ParadeDB BM25 index creation
     * `--mirror` - tarball mirror URL (repeatable)
     * `--cache-tarballs` - directory to cache downloaded tarballs
-    * `--backend` - `postgres` (default) or `duckdb`
+    * `--backend` - `duckdb` (default) or `postgres`
     * `--database-url` - Postgres URL (or set `EXOGRAPH_DATABASE_URL`)
     * `--quackdb-uri` - QuackDB URI for DuckDB backend (or set `QUACKDB_URI` / `QUACKDB_TEST_URI`)
     * `--quackdb-token` - QuackDB token for DuckDB backend (or set `QUACKDB_TOKEN` / `QUACKDB_TEST_TOKEN`)
+    * `--duckdb-database` - managed DuckDB database path when `--quackdb-uri` is omitted
     * `--repo` - Ecto repo module (uses built-in if omitted)
     * `--timeout` - per-package timeout in seconds (default: `300`)
     * `--web` - start web UI with live progress dashboard
@@ -73,6 +74,7 @@ defmodule Mix.Tasks.Exograph.Index.Hex do
           database_url: :string,
           quackdb_uri: :string,
           quackdb_token: :string,
+          duckdb_database: :string,
           repo: :string,
           timeout: :integer,
           web: :boolean,
@@ -84,7 +86,7 @@ defmodule Mix.Tasks.Exograph.Index.Hex do
       Mix.raise("Invalid options: #{inspect(invalid)}")
     end
 
-    backend = backend!(Keyword.get(opts, :backend, "postgres"))
+    backend = backend!(Keyword.get(opts, :backend, Mix.Exograph.BackendOptions.default_backend()))
     repo = resolve_repo(backend, opts)
     prefix = Keyword.get(opts, :prefix, "hex")
 
@@ -173,10 +175,8 @@ defmodule Mix.Tasks.Exograph.Index.Hex do
           Application.put_env(:exograph, Exograph.DuckDBRepo,
             uri:
               Keyword.get(opts, :quackdb_uri) || System.get_env("QUACKDB_URI") ||
-                System.get_env("QUACKDB_TEST_URI") || Mix.raise("Missing --quackdb-uri"),
-            token:
-              Keyword.get(opts, :quackdb_token) || System.get_env("QUACKDB_TOKEN") ||
-                System.get_env("QUACKDB_TEST_TOKEN") || "",
+                System.get_env("QUACKDB_TEST_URI") || start_managed_duckdb!(opts),
+            token: duckdb_token(opts),
             pool_size: Keyword.get(opts, :concurrency, 4),
             telemetry_prefix: [:quackdb],
             log: false,
@@ -192,6 +192,39 @@ defmodule Mix.Tasks.Exograph.Index.Hex do
         Mix.Task.run("app.start")
         Module.concat([repo_str])
     end
+  end
+
+  defp start_managed_duckdb!(opts) do
+    token = duckdb_token(opts)
+    endpoint = "quack:localhost:#{free_tcp_port!()}"
+
+    {:ok, server} =
+      QuackDB.Server.start_link(
+        duckdb: :managed,
+        database:
+          Keyword.get(opts, :duckdb_database, "#{Keyword.get(opts, :prefix, "hex")}.duckdb"),
+        endpoint: endpoint,
+        token: token,
+        recovery_mode: recovery_mode(Keyword.get(opts, :duckdb_recovery_mode)),
+        settings: duckdb_settings(Keyword.get(opts, :duckdb_threads))
+      )
+
+    QuackDB.Server.uri(server)
+  end
+
+  defp duckdb_token(opts) do
+    Keyword.get(opts, :quackdb_token) || System.get_env("QUACKDB_TOKEN") ||
+      System.get_env("QUACKDB_TEST_TOKEN") || "exograph"
+  end
+
+  defp duckdb_settings(nil), do: [threads: System.schedulers_online()]
+  defp duckdb_settings(threads), do: [threads: threads]
+
+  defp free_tcp_port! do
+    {:ok, socket} = :gen_tcp.listen(0, [:binary, active: false, reuseaddr: true])
+    {:ok, port} = :inet.port(socket)
+    :ok = :gen_tcp.close(socket)
+    port
   end
 
   defp start_web!(backend, repo, prefix, opts) do

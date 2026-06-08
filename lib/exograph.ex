@@ -1,10 +1,10 @@
 defmodule Exograph do
   @moduledoc """
-  Local CodeQL-style code search for Elixir, backed by Postgres and ExAST.
+  Local CodeQL-style code search for Elixir, backed by DuckDB/QuackDB or Postgres and ExAST.
 
   ## Quick start
 
-      {:ok, index} = Exograph.index("lib", repo: MyApp.Repo, migrate?: true)
+      {:ok, index} = Exograph.index("lib", repo: MyApp.QuackDBRepo, migrate?: true)
       {:ok, hits} = Exograph.search(index, "Repo.get!(_, _)")
 
   ## DSL queries
@@ -303,24 +303,42 @@ defmodule Exograph do
   end
 
   defp normalize_backend(opts) do
-    case Keyword.get(opts, :backend, :postgres) do
-      nil ->
-        Keyword.put(opts, :backend, :postgres)
+    case Keyword.fetch(opts, :backend) do
+      :error ->
+        Keyword.put(opts, :backend, inferred_backend(opts))
 
-      :postgres ->
+      {:ok, nil} ->
+        Keyword.put(opts, :backend, inferred_backend(opts))
+
+      {:ok, :postgres} ->
         opts
 
-      "postgres" ->
+      {:ok, "postgres"} ->
         Keyword.put(opts, :backend, :postgres)
 
-      :duckdb ->
+      {:ok, :duckdb} ->
         opts
 
-      "duckdb" ->
+      {:ok, "duckdb"} ->
         Keyword.put(opts, :backend, :duckdb)
 
-      other ->
+      {:ok, other} ->
         raise ArgumentError, "unsupported backend #{inspect(other)}; use :postgres or :duckdb"
+    end
+  end
+
+  defp inferred_backend(opts) do
+    case Keyword.get(opts, :repo) do
+      nil -> :duckdb
+      repo when is_atom(repo) -> inferred_repo_backend(repo)
+    end
+  end
+
+  defp inferred_repo_backend(repo) do
+    cond do
+      Exograph.Backend.duckdb_repo?(repo) -> :duckdb
+      Exograph.Backend.postgres_repo?(repo) -> :postgres
+      true -> :duckdb
     end
   end
 

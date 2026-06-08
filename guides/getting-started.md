@@ -12,19 +12,19 @@ def deps do
 end
 ```
 
-DuckDB through QuackDB is the recommended local backend. Postgres is also supported; ParadeDB's `pg_search` extension is optional for BM25-ranked Postgres search.
+DuckDB through QuackDB is the default local backend. Postgres is also supported; ParadeDB's `pg_search` extension is optional for BM25-ranked Postgres search.
 
-For DuckDB, start a QuackDB server and configure a QuackDB-backed Ecto repo. For large Hex.pm corpora, prefer the sharded DuckDB mode shown below, which starts managed shard servers for you.
+The Mix tasks start a managed QuackDB server automatically when `--quackdb-uri` is omitted. Use `--duckdb-database` to choose the DuckDB file path. For large Hex.pm corpora, prefer the sharded DuckDB mode shown below, which starts managed shard servers for you.
 
 ## Index your project
 
 Point Exograph at your source directories with `--migrate` to create the tables:
 
-    mix exograph.index --backend duckdb --repo MyApp.ExographRepo --migrate lib
+    mix exograph.index --migrate lib
 
 To also index tests and set a custom prefix:
 
-    mix exograph.index --backend duckdb --repo MyApp.ExographRepo --migrate --prefix exograph lib test
+    mix exograph.index --migrate --prefix exograph lib test
 
 From Elixir:
 
@@ -44,20 +44,20 @@ Re-running is safe; migrations are idempotent.
 
 Structural search — finds fragments matching an ExAST pattern:
 
-    mix exograph.search 'Repo.get!(_, _)' --repo MyApp.Repo --migrate lib
+    mix exograph.search 'Repo.get!(_, _)' --migrate lib
 
 Text search:
 
-    mix exograph.search 'TODO' --text --repo MyApp.Repo --migrate lib
+    mix exograph.search 'TODO' --text --migrate lib
 
 Regex search:
 
-    mix exograph.search 'Repo\.get!\(' --regex --repo MyApp.Repo --migrate lib
+    mix exograph.search 'Repo\.get!\(' --regex --migrate lib
 
 Structural search with predicates:
 
     mix exograph.search 'def _ do ... end' \
-      --repo MyApp.Repo --migrate lib \
+      --migrate lib \
       --contains 'Repo.transaction(_)' \
       --not-contains 'IO.inspect(_)'
 
@@ -77,7 +77,6 @@ application repo:
 Download and index packages straight from Hex.pm with the recommended DuckDB sharded backend:
 
     mix exograph.index.hex \
-      --backend duckdb \
       --mode top --limit 1000 \
       --duckdb-shards 4 \
       --duckdb-threads 1 \

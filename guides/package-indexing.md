@@ -4,7 +4,7 @@
 
 `mix exograph.index.hex` is the primary way to index Hex packages. DuckDB sharding is recommended for large local corpora.
 
-    mix exograph.index.hex --backend duckdb --mode latest --duckdb-shards 4 --duckdb-threads 1 --prefix hex
+    mix exograph.index.hex --mode latest --duckdb-shards 4 --duckdb-threads 1 --prefix hex
 
 For a live dashboard during the run:
 
@@ -34,12 +34,11 @@ On a full Hex.pm run with `--mode latest`:
 
 ### DuckDB sharding
 
-With `--backend duckdb --duckdb-shards N`, Exograph splits the package list across `N` independent DuckDB files. Indexing runs shard workers in parallel and returns a `%Exograph.ShardedIndex{}`. Query APIs fan out across shards and merge the global result limit.
+With `--duckdb-shards N`, Exograph splits the package list across `N` independent DuckDB files. Indexing runs shard workers in parallel and returns a `%Exograph.ShardedIndex{}`. Query APIs fan out across shards and merge the global result limit.
 
 Persist the shard manifest when you want to reopen the index later:
 
     mix exograph.index.hex \
-      --backend duckdb \
       --mode latest \
       --duckdb-shards 4 \
       --duckdb-threads 1 \

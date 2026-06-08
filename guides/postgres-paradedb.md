@@ -1,6 +1,6 @@
 # Postgres and ParadeDB
 
-Postgres is Exograph's built-in backend. Exograph uses Ecto migrations, schemas,
+Postgres is Exograph's alternative Ecto backend. Exograph uses Ecto migrations, schemas,
 `Repo` operations, and transactions for source files, fragments, comments,
 definitions, references, package metadata, and call graph facts.
 
@@ -12,13 +12,14 @@ retrieval when available.
 ```elixir
 {:ok, index} =
   Exograph.index("lib",
+    backend: :postgres,
     repo: MyApp.Repo,
     migrate?: true,
     bm25?: true
   )
 ```
 
-`backend: :postgres` is accepted explicitly, but Postgres is the only built-in backend.
+DuckDB/QuackDB is the default backend, so pass `backend: :postgres` explicitly for Postgres indexes.
 
 ## Tables
 

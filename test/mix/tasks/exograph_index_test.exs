@@ -28,6 +28,8 @@ defmodule Mix.Tasks.Exograph.IndexTest do
       """)
 
     Mix.Tasks.Exograph.Index.run([
+      "--backend",
+      "postgres",
       "--repo",
       "Exograph.TestRepo",
       "--prefix",
@@ -57,6 +59,8 @@ defmodule Mix.Tasks.Exograph.IndexTest do
 
     Mix.Tasks.Exograph.Index.run([
       "--json",
+      "--backend",
+      "postgres",
       "--repo",
       "Exograph.TestRepo",
       "--prefix",

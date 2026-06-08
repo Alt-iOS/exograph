@@ -14,14 +14,14 @@ structural verifier — and can index all of Hex.pm in under 30 minutes.
 | Reach | dependence analysis | in-memory graph/reports | APIs / Mix tasks | yes | call/data/control-flow analysis |
 | CodeQL | semantic code analysis | CodeQL database | QL language | not first-class Elixir | security analysis at scale |
 | Sourcegraph | cross-repo search | external index | text/structural depending setup | not Elixir-specific | organization-wide search |
-| Exograph | Elixir code fact index | Postgres/ParadeDB | ExAST + Ecto-shaped DSL | yes | local/self-hosted Elixir code intelligence; indexed ~21k Hex packages in 28 min |
+| Exograph | Elixir code fact index | DuckDB/QuackDB or Postgres/ParadeDB | ExAST + Ecto-shaped DSL | yes | local/self-hosted Elixir code intelligence; large Hex package indexing |
 
 ## Exograph vs ExAST
 
 | Question | ExAST | Exograph |
 |----------|-------|----------|
 | What is indexed? | Nothing by default; exposes advisory terms | Files, fragments, comments, symbols, references, calls |
-| Storage | Source/in-memory | Postgres |
+| Storage | Source/in-memory | DuckDB/QuackDB or Postgres |
 | Matching authority | ExAST | ExAST |
 | Best for | exact AST search, replace, patching, selector semantics | persisted/cross-package code intelligence |
 | Scale | scan source or caller-managed index terms | query persisted candidates, then verify with ExAST |
@@ -34,7 +34,7 @@ Exograph depends on ExAST. It does not replace it.
 |----------|-------|----------|
 | Primary model | dependence graph | normalized code fact index |
 | Output | maps, checks, reports, graph queries | persisted rows and query hits |
-| Storage | analysis-time graph | Postgres |
+| Storage | analysis-time graph | DuckDB/QuackDB or Postgres |
 | Role | semantic extractor/analyzer | storage/query layer |
 | Relationship | provides call graph facts | persists and queries Reach facts |
 
@@ -47,7 +47,7 @@ codebases and package sets.
 |----------|--------|----------|
 | Languages | many | Elixir-focused |
 | Query language | QL | Elixir API / Ecto-shaped DSL / ExAST selectors |
-| Database | CodeQL database | Postgres |
+| Database | CodeQL database | DuckDB/QuackDB or Postgres |
 | Semantic model | CodeQL libraries | ExAST + Reach + normalized facts |
 | Deployment | CodeQL CLI / GitHub Advanced Security | local/self-hosted Elixir library |
 | Scale | organization-wide | indexed 21k Hex packages, 13.8M fragments, 28 min |

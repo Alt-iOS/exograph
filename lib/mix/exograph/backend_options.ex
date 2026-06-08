@@ -1,6 +1,8 @@
 defmodule Mix.Exograph.BackendOptions do
   @moduledoc false
 
+  def default_backend, do: "duckdb"
+
   def backend_opts("postgres", opts) do
     [
       repo: repo!(opts),
@@ -32,15 +34,14 @@ defmodule Mix.Exograph.BackendOptions do
   end
 
   defp start_default_duckdb_repo!(opts) do
+    Application.ensure_all_started(:ecto_sql)
     Application.ensure_all_started(:quackdb)
 
+    {uri, token} = duckdb_connection(opts)
+
     Application.put_env(:exograph, Exograph.DuckDBRepo,
-      uri:
-        Keyword.get(opts, :quackdb_uri) || System.get_env("QUACKDB_URI") ||
-          System.get_env("QUACKDB_TEST_URI") || Mix.raise("Missing --quackdb-uri"),
-      token:
-        Keyword.get(opts, :quackdb_token) || System.get_env("QUACKDB_TOKEN") ||
-          System.get_env("QUACKDB_TEST_TOKEN", ""),
+      uri: uri,
+      token: token,
       pool_size: 5,
       telemetry_prefix: [:quackdb],
       log: false,
@@ -53,6 +54,48 @@ defmodule Mix.Exograph.BackendOptions do
     end
 
     Exograph.DuckDBRepo
+  end
+
+  defp duckdb_connection(opts) do
+    case Keyword.get(opts, :quackdb_uri) || System.get_env("QUACKDB_URI") ||
+           System.get_env("QUACKDB_TEST_URI") do
+      nil ->
+        token = duckdb_token(opts)
+        endpoint = "quack:localhost:#{free_tcp_port!()}"
+
+        {:ok, server} =
+          QuackDB.Server.start_link(
+            duckdb: :managed,
+            database: Keyword.get(opts, :duckdb_database, default_duckdb_database(opts)),
+            endpoint: endpoint,
+            token: token,
+            settings: duckdb_settings(Keyword.get(opts, :duckdb_threads))
+          )
+
+        {QuackDB.Server.uri(server), token}
+
+      uri ->
+        {uri, duckdb_token(opts)}
+    end
+  end
+
+  defp default_duckdb_database(opts) do
+    "#{Keyword.get(opts, :prefix, "exograph")}.duckdb"
+  end
+
+  defp duckdb_token(opts) do
+    Keyword.get(opts, :quackdb_token) || System.get_env("QUACKDB_TOKEN") ||
+      System.get_env("QUACKDB_TEST_TOKEN") || "exograph"
+  end
+
+  defp duckdb_settings(nil), do: [threads: System.schedulers_online()]
+  defp duckdb_settings(threads), do: [threads: threads]
+
+  defp free_tcp_port! do
+    {:ok, socket} = :gen_tcp.listen(0, [:binary, active: false, reuseaddr: true])
+    {:ok, port} = :inet.port(socket)
+    :ok = :gen_tcp.close(socket)
+    port
   end
 
   defp repo!(opts) do

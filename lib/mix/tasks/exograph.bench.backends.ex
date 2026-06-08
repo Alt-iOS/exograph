@@ -643,6 +643,7 @@ defmodule Mix.Tasks.Exograph.Bench.Backends do
     result
     |> Map.update!(:label, &to_string/1)
     |> Map.update!(:backend, &to_string/1)
+    |> Map.update!(:corpus, &Map.drop(&1, [:index, :manifest]))
     |> Map.update!(:queries, fn queries ->
       Map.new(queries, fn {name, stats} -> {to_string(name), stats} end)
     end)

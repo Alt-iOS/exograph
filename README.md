@@ -168,6 +168,17 @@ Exograph.search_callees(index, "MyApp.Accounts.update_user/2")
 | [Comparisons](guides/comparisons.md) | Exograph vs ExAST, Reach, CodeQL, Sourcegraph |
 | [Architecture](guides/architecture.md) | Storage model, verifier contract, extraction pipeline |
 
+## Part of Elixir Vibe
+
+Exograph indexes Elixir code — up to the entire public package ecosystem — for structural, AST-verified search.
+
+It is one building block of a larger stack — tools that make AI-generated
+software checkable: structural search, dependence analysis, duplication and
+slop detection, session replay, and ecosystem-wide code search. See the
+[Elixir Vibe](https://github.com/elixir-vibe) organization for the rest, and
+[Building Blocks for the Future Web](https://github.com/elixir-vibe/building-blocks)
+for the thesis, architecture, and roadmap that tie them together.
+
 ## License
 
 MIT.

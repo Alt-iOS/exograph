@@ -95,30 +95,42 @@ defmodule Exograph.Hex.Corpus do
       end)
     end)
 
-    results =
-      shards
-      |> Task.async_stream(
-        fn shard ->
-          Exograph.DuckDBShards.with_repo(shard, fn ->
-            index_single(
-              opts
-              |> Keyword.put(:repo, shard.repo)
-              |> Keyword.put(:dynamic_repo, shard.dynamic_repo)
-              |> Keyword.put(:prefix, shard.prefix)
-              |> Keyword.put(:entries, shard.entries)
-              |> Keyword.put(:migrate?, false)
-              |> Keyword.put(:shards, 1)
-              |> Keyword.put(:concurrency, shard_concurrency)
-              |> Keyword.put(:progress_lifecycle?, false)
-              |> Keyword.put(:cli?, false)
-            )
-          end)
-        end,
-        max_concurrency: shard_count,
-        timeout: :infinity,
-        ordered: true
-      )
-      |> Enum.map(fn {:ok, result} -> result end)
+    shard_opts =
+      opts
+      |> Keyword.put(:migrate?, false)
+      |> Keyword.put(:shards, 1)
+      |> Keyword.put(:concurrency, shard_concurrency)
+      |> Keyword.put(:progress_lifecycle?, false)
+      |> Keyword.put(:cli?, false)
+
+    {combined_results, elapsed} =
+      if Keyword.get(opts, :pipeline) == :broadway do
+        Exograph.Hex.BroadwayPipeline.index_sharded(shards, shard_opts)
+      else
+        results =
+          shards
+          |> Task.async_stream(
+            fn shard ->
+              Exograph.DuckDBShards.with_repo(shard, fn ->
+                index_single(
+                  shard_opts
+                  |> Keyword.put(:repo, shard.repo)
+                  |> Keyword.put(:dynamic_repo, shard.dynamic_repo)
+                  |> Keyword.put(:prefix, shard.prefix)
+                  |> Keyword.put(:entries, shard.entries)
+                )
+              end)
+            end,
+            max_concurrency: shard_count,
+            timeout: :infinity,
+            ordered: true
+          )
+          |> Enum.map(fn {:ok, result} -> result end)
+
+        {combine_results(results), System.monotonic_time(:millisecond) - started}
+      end
+
+    results = [combined_results]
 
     Progress.finish_run()
 
@@ -128,7 +140,7 @@ defmodule Exograph.Hex.Corpus do
     write_manifest(manifest, Keyword.get(opts, :manifest_path))
 
     combined_results = combine_results(results)
-    cli_summary(combined_results, System.monotonic_time(:millisecond) - started)
+    cli_summary(combined_results, elapsed)
 
     combined_results
     |> Map.put(:index, Exograph.ShardedIndex.new(shard_indexes, manifest: manifest))

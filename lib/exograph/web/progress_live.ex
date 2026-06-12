@@ -88,6 +88,30 @@ defmodule Exograph.Web.ProgressLive do
             </div>
           </div>
 
+          <div :if={map_size(@progress.broadway) > 0} class="rounded border border-zinc-800 overflow-hidden mb-4">
+            <div class="px-3 py-1.5 text-[11px] text-zinc-500 bg-zinc-900 border-b border-zinc-800">
+              Broadway
+            </div>
+            <div class="grid grid-cols-2 gap-px bg-zinc-800 text-[11px]">
+              <div class="bg-zinc-950 px-3 py-2">
+                <div class="text-zinc-600">processor</div>
+                <div class="text-zinc-300 tabular-nums">{stage_messages(@progress, :processor)} msgs</div>
+              </div>
+              <div class="bg-zinc-950 px-3 py-2">
+                <div class="text-zinc-600">shard batches</div>
+                <div class="text-zinc-300 tabular-nums">{stage_batches(@progress, :batcher)}</div>
+              </div>
+            </div>
+            <div :if={stage_metrics(@progress, :batcher) != []} class="divide-y divide-zinc-800/70">
+              <div :for={{key, metric} <- stage_metrics(@progress, :batcher)} class="flex items-center justify-between px-3 py-1 text-[11px]">
+                <span class="text-zinc-500">shard {key}</span>
+                <span class="text-zinc-300 tabular-nums">
+                  {metric.messages} msgs · {metric.batches} batches · last {metric.last_batch}
+                </span>
+              </div>
+            </div>
+          </div>
+
           <%!-- Current package --%>
           <div
             :if={@progress.current && @progress.state == :running}
@@ -129,6 +153,26 @@ defmodule Exograph.Web.ProgressLive do
       </div>
     </div>
     """
+  end
+
+  defp stage_metrics(%{broadway: broadway}, stage) do
+    broadway
+    |> Map.get(stage, %{})
+    |> Enum.sort_by(fn {key, _metric} -> key end)
+  end
+
+  defp stage_messages(progress, stage) do
+    progress
+    |> stage_metrics(stage)
+    |> Enum.map(fn {_key, metric} -> metric.messages end)
+    |> Enum.sum()
+  end
+
+  defp stage_batches(progress, stage) do
+    progress
+    |> stage_metrics(stage)
+    |> Enum.map(fn {_key, metric} -> metric.batches end)
+    |> Enum.sum()
   end
 
   defp pct(%{total: 0}), do: 0

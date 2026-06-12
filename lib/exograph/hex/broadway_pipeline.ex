@@ -13,6 +13,7 @@ defmodule Exograph.Hex.BroadwayPipeline do
     owner = self()
     total = length(entries)
     started = System.monotonic_time(:millisecond)
+    telemetry_id = Exograph.Hex.BroadwayTelemetry.attach(name)
 
     {:ok, pid} =
       Broadway.start_link(__MODULE__,
@@ -23,7 +24,7 @@ defmodule Exograph.Hex.BroadwayPipeline do
         batchers: [default: batcher(opts)]
       )
 
-    finish(name, pid, total, started)
+    finish(name, pid, total, started, telemetry_id)
   end
 
   def index_sharded(shards, opts) do
@@ -35,6 +36,7 @@ defmodule Exograph.Hex.BroadwayPipeline do
     shard_by_id = Map.new(shards, &{&1.id, &1})
     batchers = [shards: Keyword.merge(batcher(opts), concurrency: length(shards))]
     started = System.monotonic_time(:millisecond)
+    telemetry_id = Exograph.Hex.BroadwayTelemetry.attach(name)
 
     {:ok, pid} =
       Broadway.start_link(__MODULE__,
@@ -45,7 +47,7 @@ defmodule Exograph.Hex.BroadwayPipeline do
         batchers: batchers
       )
 
-    finish(name, pid, length(jobs), started)
+    finish(name, pid, length(jobs), started, telemetry_id)
   end
 
   def transform(data, [%{owner: owner}]) do
@@ -132,8 +134,9 @@ defmodule Exograph.Hex.BroadwayPipeline do
       Message.update_data(message, &Map.put(&1, :result, result))
   end
 
-  defp finish(name, pid, total, started) do
+  defp finish(name, pid, total, started, telemetry_id) do
     results = await_results(total, %{ok: 0, skipped: 0, error: 0})
+    Exograph.Hex.BroadwayTelemetry.detach(telemetry_id)
     Broadway.stop(name)
     ref = Process.monitor(pid)
 

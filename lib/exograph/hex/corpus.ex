@@ -380,11 +380,21 @@ defmodule Exograph.Hex.Corpus do
       ]
 
       case Exograph.index_sources(sources, index_opts) do
-        {:ok, _index} -> :ok
-        {:error, reason} -> {:error, reason}
+        {:ok, _index} ->
+          :ok
+
+        {:error, reason} ->
+          Logger.warning(
+            "Hex package #{entry.name}@#{entry.version} indexing failed: #{inspect(reason, limit: 30)}"
+          )
+
+          {:error, reason}
       end
     rescue
-      error -> {:error, Exception.message(error)}
+      error ->
+        reason = Exception.message(error)
+        Logger.warning("Hex package #{entry.name}@#{entry.version} indexing failed: #{reason}")
+        {:error, reason}
     catch
       :no_elixir -> :skipped
     end

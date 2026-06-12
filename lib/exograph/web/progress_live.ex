@@ -140,7 +140,7 @@ defmodule Exograph.Web.ProgressLive do
                     {item.name}<span class="text-zinc-600">@{item.version}</span>
                   </span>
                 </div>
-                <span class={["text-[11px] shrink-0 ml-3", status_color(item.status)]}>
+                <span class={["text-[11px] shrink-0 ml-3", status_color(item.status)]} title={item.reason}>
                   {status_text(item.status)}
                 </span>
               </div>

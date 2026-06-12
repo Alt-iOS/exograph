@@ -130,9 +130,19 @@ defmodule Exograph.Hex.Progress do
   defp increment_status(state, {:error, _}), do: Map.update!(state, :errors, &(&1 + 1))
 
   defp prepend_recent(state, entry, status) do
-    item = %{name: entry.name, version: entry.version, status: status, at: DateTime.utc_now()}
+    item = %{
+      name: entry.name,
+      version: entry.version,
+      status: status,
+      reason: error_reason(status),
+      at: DateTime.utc_now()
+    }
+
     %{state | recent: Enum.take([item | state.recent], 50)}
   end
+
+  defp error_reason({:error, reason}), do: inspect(reason, limit: 20)
+  defp error_reason(_status), do: nil
 
   defp broadcast(state) do
     if pubsub_available?() do

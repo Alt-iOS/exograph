@@ -38,7 +38,8 @@ defmodule Exograph.File do
   end
 
   def comments(source) do
-    {:ok, _ast, comments} = Code.string_to_quoted_with_comments(source, emit_warnings: false)
+    {:ok, _ast, comments} =
+      Exograph.ElixirParser.string_to_quoted_with_comments(source, emit_warnings: false)
 
     Enum.map(comments, fn comment ->
       %ExAST.Comment{

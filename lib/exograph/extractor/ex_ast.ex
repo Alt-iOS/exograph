@@ -57,7 +57,7 @@ defmodule Exograph.Extractor.ExAST do
     opts = Keyword.merge(@default_opts, opts)
 
     with {:ok, ast} <-
-           Code.string_to_quoted(source,
+           Exograph.ElixirParser.string_to_quoted(source,
              line: 1,
              columns: true,
              token_metadata: true,

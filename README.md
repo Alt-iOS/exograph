@@ -70,6 +70,10 @@ Download and index packages directly from Hex.pm:
 
     mix exograph.index.hex --mode latest --duckdb-shards 4 --duckdb-threads 1 --prefix hex
 
+Use a Hex-compatible mirror for registry metadata and tarballs:
+
+    mix exograph.index.hex --mode latest --mirror https://hex.elixir.toys --prefix hex
+
 Modes: `latest` (one version per package), `top --limit 5000`, `all` (every version).
 Resumes automatically — already-indexed packages are skipped.
 

@@ -78,6 +78,8 @@ Download and index Hex.pm packages in a streaming pipeline.
 | `--force` | false | Re-index already-indexed packages |
 | `--no-bm25` | false | Skip ParadeDB BM25 index creation |
 | `--mirror` | `https://repo.hex.pm` | Tarball mirror URL (repeatable, round-robin) |
+| `--registry-url` | first `--mirror` value | Hex registry URL for `versions`, `latest`, and `all` modes |
+| `--api-url` | `https://hex.pm/api/packages` | Hex package API URL for `top` mode |
 | `--cache-tarballs` | — | Directory to cache downloaded tarballs |
 | `--database-url` | `EXOGRAPH_DATABASE_URL` | Postgres connection URL |
 | `--quackdb-uri` | `QUACKDB_URI` | QuackDB URI for single DuckDB backend |

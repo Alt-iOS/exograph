@@ -77,11 +77,18 @@ Use `--force` to re-index everything.
 
 ### Mirror balancing
 
-Multiple `--mirror` flags distribute downloads round-robin:
+Multiple `--mirror` flags distribute tarball downloads round-robin. By default, registry metadata is read from the first mirror so a self-hosted Hex-compatible mirror can be used without extra flags:
 
     mix exograph.index.hex \
+      --mirror https://hex.elixir.toys \
+      --concurrency 16
+
+Use `--registry-url` when registry metadata and tarballs should come from different endpoints:
+
+    mix exograph.index.hex \
+      --registry-url https://hex.elixir.toys \
+      --mirror https://hex.elixir.toys \
       --mirror https://repo.hex.pm \
-      --mirror https://repo.hex.pm/mirror \
       --concurrency 16
 
 ### Caching tarballs

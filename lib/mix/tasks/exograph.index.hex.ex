@@ -34,6 +34,8 @@ defmodule Mix.Tasks.Exograph.Index.Hex do
     * `--force` - re-index already-indexed packages
     * `--no-bm25` - skip ParadeDB BM25 index creation
     * `--mirror` - tarball mirror URL (repeatable)
+    * `--registry-url` - Hex registry URL for `versions`, `latest`, and `all` modes
+    * `--api-url` - Hex package API URL for `top` mode
     * `--cache-tarballs` - directory to cache downloaded tarballs
     * `--backend` - `duckdb` (default) or `postgres`
     * `--database-url` - Postgres URL (or set `EXOGRAPH_DATABASE_URL`)
@@ -75,6 +77,8 @@ defmodule Mix.Tasks.Exograph.Index.Hex do
           force: :boolean,
           no_bm25: :boolean,
           mirror: :keep,
+          registry_url: :string,
+          api_url: :string,
           cache_tarballs: :string,
           database_url: :string,
           postgres_maintenance_work_mem: :string,
@@ -107,6 +111,7 @@ defmodule Mix.Tasks.Exograph.Index.Hex do
     end
 
     mirrors = mirrors_from_opts(opts)
+    registry_url = Keyword.get(opts, :registry_url, List.first(mirrors))
 
     extractors =
       if Keyword.get(opts, :reach, false), do: [:ex_ast, :reach], else: [:ex_ast]
@@ -128,6 +133,8 @@ defmodule Mix.Tasks.Exograph.Index.Hex do
       extractors: extractors,
       repo: repo,
       mirrors: mirrors,
+      registry_url: registry_url,
+      api_url: Keyword.get(opts, :api_url),
       mirror_strategy: :round_robin,
       timeout: Keyword.get(opts, :timeout, 300) * 1000,
       cache_dir: Keyword.get(opts, :cache_tarballs),

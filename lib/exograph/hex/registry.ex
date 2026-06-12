@@ -33,10 +33,11 @@ defmodule Exograph.Hex.Registry do
   def top(opts \\ []) do
     limit = Keyword.get(opts, :limit, 300)
     timeout = Keyword.get(opts, :timeout, 120_000)
+    api_url = Keyword.get(opts, :api_url, @api_url)
 
     Stream.iterate(1, &(&1 + 1))
     |> Enum.reduce_while([], fn page, acc ->
-      batch = get_json!("#{@api_url}?sort=downloads&page=#{page}", timeout)
+      batch = get_json!("#{api_url}?sort=downloads&page=#{page}", timeout)
       next = Enum.reverse(batch, acc)
 
       cond do

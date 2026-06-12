@@ -31,8 +31,12 @@ defmodule Exograph.Hex.Corpus do
     if Keyword.get(opts, :migrate?, true), do: migrate!(backend, repo, prefix, opts)
     existing = if resume?, do: existing_versions(repo, prefix), else: MapSet.new()
 
-    Progress.start_run(total)
-    cli_header(total, mode, MapSet.size(existing))
+    progress_lifecycle? = Keyword.get(opts, :progress_lifecycle?, true)
+
+    if progress_lifecycle? do
+      Progress.start_run(total)
+      cli_header(total, mode, MapSet.size(existing))
+    end
 
     counter = :counters.new(1, [:atomics])
     started = System.monotonic_time(:millisecond)
@@ -93,7 +97,7 @@ defmodule Exograph.Hex.Corpus do
     finalize_backend!(backend, repo, prefix, opts)
 
     elapsed = System.monotonic_time(:millisecond) - started
-    Progress.finish_run()
+    if progress_lifecycle?, do: Progress.finish_run()
     cli_summary(results, elapsed)
     results
   end
@@ -102,6 +106,7 @@ defmodule Exograph.Hex.Corpus do
     shard_count = Keyword.fetch!(opts, :shards)
     mode = Keyword.get(opts, :mode, :latest)
     entries = list_entries(mode, opts)
+    Progress.start_run(length(entries))
     entries_by_shard = entries_by_shard(entries, shard_count)
     prefix = Keyword.get(opts, :prefix, "hex")
 
@@ -140,6 +145,7 @@ defmodule Exograph.Hex.Corpus do
               |> Keyword.put(:entries, shard.entries)
               |> Keyword.put(:migrate?, false)
               |> Keyword.put(:shards, 1)
+              |> Keyword.put(:progress_lifecycle?, false)
             )
           end)
         end,
@@ -148,6 +154,8 @@ defmodule Exograph.Hex.Corpus do
         ordered: true
       )
       |> Enum.map(fn {:ok, result} -> result end)
+
+    Progress.finish_run()
 
     shard_indexes = Exograph.DuckDBShards.open_indexes(shards, opts)
 

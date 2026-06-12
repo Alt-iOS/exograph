@@ -16,7 +16,11 @@ defmodule Exograph.DuckDB.FragmentAppend do
     target = {source, schema}
     hashes = Enum.map(entries, & &1.content_hash)
     existing = fragment_ids_by_hash(repo, source, schema, hashes)
-    new_entries = Enum.reject(entries, &Map.has_key?(existing, &1.content_hash))
+
+    new_entries =
+      entries
+      |> Enum.reject(&Map.has_key?(existing, &1.content_hash))
+      |> Enum.uniq_by(& &1.content_hash)
 
     inserted =
       if new_entries == [] do

@@ -42,7 +42,7 @@ defmodule Exograph.DuckDBShards do
       Enum.map(0..(count - 1), fn index ->
         database = database_path(Keyword.get(opts, :database), directory, prefix, index)
         token = Keyword.get(opts, :token, "exograph-shard-#{System.unique_integer([:positive])}")
-        endpoint = "quack:localhost:#{port_base + index}"
+        endpoint = "quack:127.0.0.1:#{port_base + index}"
 
         {:ok, server} =
           QuackDB.Server.start_link(
@@ -90,7 +90,7 @@ defmodule Exograph.DuckDBShards do
     opened =
       Enum.map(manifest.shards, fn %Shard{} = shard ->
         token = Keyword.get(opts, :token, "exograph-shard-#{System.unique_integer([:positive])}")
-        endpoint = "quack:localhost:#{port_base + shard.id}"
+        endpoint = "quack:127.0.0.1:#{port_base + shard.id}"
 
         {:ok, server} =
           QuackDB.Server.start_link(

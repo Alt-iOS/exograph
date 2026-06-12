@@ -67,7 +67,7 @@ defmodule Mix.Exograph.BackendOptions do
            System.get_env("QUACKDB_TEST_URI") do
       nil ->
         token = duckdb_token(opts)
-        endpoint = "quack:localhost:#{free_tcp_port!()}"
+        endpoint = "quack:127.0.0.1:#{free_tcp_port!()}"
 
         {:ok, server} =
           QuackDB.Server.start_link(

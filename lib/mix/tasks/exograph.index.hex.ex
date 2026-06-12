@@ -219,7 +219,7 @@ defmodule Mix.Tasks.Exograph.Index.Hex do
 
   defp start_managed_duckdb!(opts) do
     token = Mix.Exograph.BackendOptions.duckdb_token(opts)
-    endpoint = "quack:localhost:#{Mix.Exograph.BackendOptions.free_tcp_port!()}"
+    endpoint = "quack:127.0.0.1:#{Mix.Exograph.BackendOptions.free_tcp_port!()}"
 
     server_opts =
       [

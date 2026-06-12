@@ -146,7 +146,11 @@ defmodule Mix.Tasks.Exograph.Index.Hex do
       postgres_copy?: Keyword.get(opts, :postgres_copy, false)
     ]
 
-    Exograph.Hex.Corpus.index(corpus_opts)
+    result = Exograph.Hex.Corpus.index(corpus_opts)
+
+    if Keyword.get(opts, :web, false) and is_map(result) and Map.has_key?(result, :index) do
+      Application.put_env(:exograph, :web_index, result.index)
+    end
 
     if Keyword.get(opts, :web, false) do
       Mix.shell().info(["\nIndexing complete. Web UI still running. Press Ctrl+C to stop."])

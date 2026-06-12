@@ -718,7 +718,7 @@ defmodule Exograph.Storage.Ecto.FragmentStore do
   end
 
   defp extract_comments(source) do
-    ExAST.Comments.extract(source)
+    Exograph.File.comments(source)
   rescue
     _ -> []
   end

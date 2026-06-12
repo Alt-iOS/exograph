@@ -30,8 +30,24 @@ defmodule Exograph.File do
   end
 
   def comments_text(source) do
-    ExAST.Comments.text(source)
+    source
+    |> comments()
+    |> Enum.map_join("\n", & &1.text)
   rescue
     _ -> ""
+  end
+
+  def comments(source) do
+    {:ok, _ast, comments} = Code.string_to_quoted_with_comments(source, emit_warnings: false)
+
+    Enum.map(comments, fn comment ->
+      %ExAST.Comment{
+        text: Map.get(comment, :text, ""),
+        line: Map.get(comment, :line),
+        column: Map.get(comment, :column),
+        previous_eol_count: Map.get(comment, :previous_eol_count),
+        next_eol_count: Map.get(comment, :next_eol_count)
+      }
+    end)
   end
 end

@@ -109,6 +109,13 @@ defmodule Exograph.Hex.Corpus do
     Progress.start_run(length(entries))
     entries_by_shard = entries_by_shard(entries, shard_count)
     prefix = Keyword.get(opts, :prefix, "hex")
+    global_concurrency = Keyword.get(opts, :concurrency, 4)
+
+    shard_concurrency =
+      Keyword.get(opts, :shard_concurrency) ||
+        per_shard_concurrency(global_concurrency, shard_count)
+
+    shard_pool_size = Keyword.get(opts, :shard_pool_size) || shard_concurrency
 
     {:ok, shards} =
       Exograph.DuckDBShards.start_managed(shard_count,
@@ -116,7 +123,8 @@ defmodule Exograph.Hex.Corpus do
         prefix: prefix,
         port_base: Keyword.get(opts, :shard_port_base, 9_600),
         duckdb_threads: Keyword.get(opts, :duckdb_threads),
-        recovery_mode: Keyword.get(opts, :recovery_mode)
+        recovery_mode: Keyword.get(opts, :recovery_mode),
+        pool_size: shard_pool_size
       )
 
     shards =
@@ -145,6 +153,7 @@ defmodule Exograph.Hex.Corpus do
               |> Keyword.put(:entries, shard.entries)
               |> Keyword.put(:migrate?, false)
               |> Keyword.put(:shards, 1)
+              |> Keyword.put(:concurrency, shard_concurrency)
               |> Keyword.put(:progress_lifecycle?, false)
             )
           end)
@@ -178,6 +187,10 @@ defmodule Exograph.Hex.Corpus do
   defp list_registry_entries(:latest, opts), do: Registry.latest(opts)
   defp list_registry_entries(:top, opts), do: Registry.top(opts)
   defp list_registry_entries(:all, opts), do: Registry.all_versions(opts)
+
+  defp per_shard_concurrency(global_concurrency, shard_count) do
+    max(1, ceil(global_concurrency / shard_count))
+  end
 
   defp entries_by_shard(entries, shard_count) do
     empty = Map.new(0..(shard_count - 1), &{&1, []})

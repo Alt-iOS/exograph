@@ -23,7 +23,9 @@ defmodule Mix.Tasks.Exograph.Index.Hex do
     * `--mode` - `latest` (default), `top`, or `all`
     * `--limit` - max packages to index
     * `--prefix` - table prefix (default: `hex`)
-    * `--concurrency` - parallel download+index workers (default: `4`)
+    * `--concurrency` - global download+index worker target (default: `4`)
+    * `--shard-concurrency` - workers per DuckDB shard (default: `ceil(concurrency / duckdb_shards)`)
+    * `--shard-pool-size` - DB connections per DuckDB shard (default: shard concurrency)
     * `--duckdb-shards` - shard count for DuckDB corpus indexing (recommended for large corpora)
     * `--duckdb-threads` - DuckDB execution threads per shard/server
     * `--duckdb-recovery-mode` - DuckDB managed-server recovery mode (`no_wal_writes` for rebuildable indexes)
@@ -67,6 +69,8 @@ defmodule Mix.Tasks.Exograph.Index.Hex do
           limit: :integer,
           prefix: :string,
           concurrency: :integer,
+          shard_concurrency: :integer,
+          shard_pool_size: :integer,
           duckdb_shards: :integer,
           duckdb_threads: :integer,
           duckdb_recovery_mode: :string,
@@ -122,6 +126,8 @@ defmodule Mix.Tasks.Exograph.Index.Hex do
       limit: Keyword.get(opts, :limit),
       prefix: prefix,
       concurrency: Keyword.get(opts, :concurrency, 4),
+      shard_concurrency: Keyword.get(opts, :shard_concurrency),
+      shard_pool_size: Keyword.get(opts, :shard_pool_size),
       shards: Keyword.get(opts, :duckdb_shards, 1),
       duckdb_threads: Keyword.get(opts, :duckdb_threads),
       recovery_mode: recovery_mode(Keyword.get(opts, :duckdb_recovery_mode)),

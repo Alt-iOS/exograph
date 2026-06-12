@@ -30,15 +30,10 @@ defmodule Exograph.Hex.BroadwayPipeline do
     name = Keyword.get(opts, :name, unique_name())
     owner = self()
 
-    jobs =
-      Enum.flat_map(shards, fn shard ->
-        Enum.with_index(shard.entries, fn entry, index ->
-          %{entry: entry, index: index, shard_id: shard.id}
-        end)
-      end)
+    jobs = interleave_shard_jobs(shards)
 
     shard_by_id = Map.new(shards, &{&1.id, &1})
-    batchers = Enum.map(shards, &{batcher_name(&1.id), batcher(opts)})
+    batchers = [shards: Keyword.merge(batcher(opts), concurrency: length(shards))]
     started = System.monotonic_time(:millisecond)
 
     {:ok, pid} =
@@ -63,7 +58,9 @@ defmodule Exograph.Hex.BroadwayPipeline do
   end
 
   def handle_message(_, message, %{shards: shards}) when is_map(shards) do
-    Message.put_batcher(message, batcher_name(message.data.shard_id))
+    message
+    |> Message.put_batcher(:shards)
+    |> Message.put_batch_key(message.data.shard_id)
   end
 
   @impl Broadway
@@ -71,8 +68,8 @@ defmodule Exograph.Hex.BroadwayPipeline do
     Enum.map(messages, &index_message(&1, opts))
   end
 
-  def handle_batch(_batcher, messages, _batch_info, %{opts: opts, shards: shards}) do
-    shard_id = messages |> hd() |> then(& &1.data.shard_id)
+  def handle_batch(:shards, messages, batch_info, %{opts: opts, shards: shards}) do
+    shard_id = batch_info.batch_key
     shard = Map.fetch!(shards, shard_id)
 
     Exograph.DuckDBShards.with_repo(shard, fn ->
@@ -171,7 +168,30 @@ defmodule Exograph.Hex.BroadwayPipeline do
   defp normalize_job({entry, index}), do: %{entry: entry, index: index}
   defp normalize_job(%{entry: _entry, index: _index} = job), do: job
 
-  defp batcher_name(shard_id), do: String.to_atom("shard_#{shard_id}")
+  defp interleave_shard_jobs(shards) do
+    indexed_entries =
+      Map.new(shards, fn shard ->
+        jobs =
+          Enum.with_index(shard.entries, fn entry, index ->
+            %{entry: entry, index: index, shard_id: shard.id}
+          end)
+
+        {shard.id, jobs}
+      end)
+
+    max_count =
+      indexed_entries
+      |> Map.values()
+      |> Enum.map(&length/1)
+      |> Enum.max(fn -> 0 end)
+
+    for index <- 0..max(max_count - 1, 0),
+        shard <- shards,
+        job = Enum.at(Map.fetch!(indexed_entries, shard.id), index),
+        not is_nil(job) do
+      job
+    end
+  end
 
   defp unique_name do
     :erlang.unique_integer([:positive])

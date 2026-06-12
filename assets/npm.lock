@@ -1,0 +1,21 @@
+{
+  "lockfileVersion": 1,
+  "packages": {
+    "monaco-editor": {
+      "dependencies": {},
+      "has_install_script": false,
+      "integrity": "sha512-GEQWEZmfkOGLdd3XK8ryrfWz3AIP8YymVXiPHEdewrUq7mh0qrKrfHLNCXcbB6sTnMLnOZ3ztSiKcciFUkIJwQ==",
+      "optional_dependencies": {},
+      "tarball": "https://registry.npmjs.org/monaco-editor/-/monaco-editor-0.52.2.tgz",
+      "version": "0.52.2"
+    }
+  },
+  "policy": {
+    "allow_registry_redirects": false,
+    "allowed_registries": [
+      "https://registry.npmjs.org"
+    ],
+    "block_exotic_subdeps": true,
+    "exotic_deps": []
+  }
+}

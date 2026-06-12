@@ -32,10 +32,11 @@ defmodule Exograph.Hex.Corpus do
     existing = if resume?, do: existing_versions(repo, prefix), else: MapSet.new()
 
     progress_lifecycle? = Keyword.get(opts, :progress_lifecycle?, true)
+    cli? = Keyword.get(opts, :cli?, true)
 
     if progress_lifecycle? do
       Progress.start_run(total)
-      cli_header(total, mode, MapSet.size(existing))
+      if cli?, do: cli_header(total, mode, MapSet.size(existing))
     end
 
     counter = :counters.new(1, [:atomics])
@@ -78,15 +79,15 @@ defmodule Exograph.Hex.Corpus do
       )
       |> Enum.reduce(%{ok: 0, skipped: 0, error: 0}, fn
         {:ok, {:ok, entry, count}}, acc ->
-          cli_package(entry, count, total, started, :ok)
+          if cli?, do: cli_package(entry, count, total, started, :ok)
           %{acc | ok: acc.ok + 1}
 
         {:ok, {:skipped, entry, count}}, acc ->
-          cli_package(entry, count, total, started, :skipped)
+          if cli?, do: cli_package(entry, count, total, started, :skipped)
           %{acc | skipped: acc.skipped + 1}
 
         {:ok, {{:error, reason}, entry, count}}, acc ->
-          cli_package(entry, count, total, started, {:error, reason})
+          if cli?, do: cli_package(entry, count, total, started, {:error, reason})
           %{acc | error: acc.error + 1}
 
         {:exit, reason}, acc ->
@@ -98,7 +99,7 @@ defmodule Exograph.Hex.Corpus do
 
     elapsed = System.monotonic_time(:millisecond) - started
     if progress_lifecycle?, do: Progress.finish_run()
-    cli_summary(results, elapsed)
+    if cli?, do: cli_summary(results, elapsed)
     results
   end
 
@@ -106,7 +107,9 @@ defmodule Exograph.Hex.Corpus do
     shard_count = Keyword.fetch!(opts, :shards)
     mode = Keyword.get(opts, :mode, :latest)
     entries = list_entries(mode, opts)
+    started = System.monotonic_time(:millisecond)
     Progress.start_run(length(entries))
+    cli_header(length(entries), mode, 0)
     entries_by_shard = entries_by_shard(entries, shard_count)
     prefix = Keyword.get(opts, :prefix, "hex")
     global_concurrency = Keyword.get(opts, :concurrency, 4)
@@ -155,6 +158,7 @@ defmodule Exograph.Hex.Corpus do
               |> Keyword.put(:shards, 1)
               |> Keyword.put(:concurrency, shard_concurrency)
               |> Keyword.put(:progress_lifecycle?, false)
+              |> Keyword.put(:cli?, false)
             )
           end)
         end,
@@ -171,8 +175,10 @@ defmodule Exograph.Hex.Corpus do
     manifest = Exograph.DuckDBShards.manifest(shard_indexes, prefix: prefix)
     write_manifest(manifest, Keyword.get(opts, :manifest_path))
 
-    results
-    |> combine_results()
+    combined_results = combine_results(results)
+    cli_summary(combined_results, System.monotonic_time(:millisecond) - started)
+
+    combined_results
     |> Map.put(:index, Exograph.ShardedIndex.new(shard_indexes, manifest: manifest))
     |> Map.put(:manifest, manifest)
   end

@@ -295,7 +295,7 @@ defmodule Exograph.Hex.Corpus do
 
       sources =
         files
-        |> Enum.filter(fn {path, _source} -> String.ends_with?(path, [".ex", ".exs"]) end)
+        |> Enum.filter(fn {path, source} -> elixir_source?(path, source) end)
         |> Enum.map(fn {path, source} -> {safe_path!(path), source} end)
 
       if sources == [], do: throw(:no_elixir)
@@ -328,6 +328,12 @@ defmodule Exograph.Hex.Corpus do
     catch
       :no_elixir -> :skipped
     end
+  end
+
+  defp elixir_source?(path, source) do
+    String.ends_with?(path, [".ex", ".exs"]) and
+      not String.starts_with?(Path.basename(path), "._") and
+      String.valid?(source)
   end
 
   defp safe_path!(path) do

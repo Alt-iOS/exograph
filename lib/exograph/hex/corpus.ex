@@ -39,65 +39,17 @@ defmodule Exograph.Hex.Corpus do
       if cli?, do: cli_header(total, mode, MapSet.size(existing))
     end
 
-    counter = :counters.new(1, [:atomics])
     started = System.monotonic_time(:millisecond)
 
-    results =
-      entries
-      |> Stream.with_index()
-      |> Task.async_stream(
-        fn {entry, index} ->
-          set_dynamic_repo(opts)
-          key = {entry.name, entry.version}
-
-          if MapSet.member?(existing, key) do
-            :counters.add(counter, 1, 1)
-            n = :counters.get(counter, 1)
-            Progress.package_done(entry, :skipped)
-            {:skipped, entry, n}
-          else
-            Progress.package_started(entry)
-
-            case index_one(entry, index, opts) do
-              :skipped ->
-                :counters.add(counter, 1, 1)
-                n = :counters.get(counter, 1)
-                Progress.package_done(entry, :skipped)
-                {:skipped, entry, n}
-
-              result ->
-                :counters.add(counter, 1, 1)
-                n = :counters.get(counter, 1)
-                Progress.package_done(entry, result)
-                {result, entry, n}
-            end
-          end
-        end,
-        max_concurrency: concurrency,
-        timeout: Keyword.get(opts, :timeout, 300_000),
-        ordered: false
-      )
-      |> Enum.reduce(%{ok: 0, skipped: 0, error: 0}, fn
-        {:ok, {:ok, entry, count}}, acc ->
-          if cli?, do: cli_package(entry, count, total, started, :ok)
-          %{acc | ok: acc.ok + 1}
-
-        {:ok, {:skipped, entry, count}}, acc ->
-          if cli?, do: cli_package(entry, count, total, started, :skipped)
-          %{acc | skipped: acc.skipped + 1}
-
-        {:ok, {{:error, reason}, entry, count}}, acc ->
-          if cli?, do: cli_package(entry, count, total, started, {:error, reason})
-          %{acc | error: acc.error + 1}
-
-        {:exit, reason}, acc ->
-          Logger.error("Task crashed: #{inspect(reason)}")
-          %{acc | error: acc.error + 1}
-      end)
+    {results, elapsed} =
+      if Keyword.get(opts, :pipeline) == :broadway do
+        index_with_broadway(entries, existing, opts)
+      else
+        index_with_tasks(entries, existing, opts, total, started, cli?, concurrency)
+      end
 
     finalize_backend!(backend, repo, prefix, opts)
 
-    elapsed = System.monotonic_time(:millisecond) - started
     if progress_lifecycle?, do: Progress.finish_run()
     if cli?, do: cli_summary(results, elapsed)
     results
@@ -181,6 +133,75 @@ defmodule Exograph.Hex.Corpus do
     combined_results
     |> Map.put(:index, Exograph.ShardedIndex.new(shard_indexes, manifest: manifest))
     |> Map.put(:manifest, manifest)
+  end
+
+  defp index_with_broadway(entries, existing, opts) do
+    entries = Enum.reject(entries, &MapSet.member?(existing, {&1.name, &1.version}))
+    Exograph.Hex.BroadwayPipeline.index(entries, opts)
+  end
+
+  defp index_with_tasks(entries, existing, opts, total, started, cli?, concurrency) do
+    counter = :counters.new(1, [:atomics])
+
+    results =
+      entries
+      |> Stream.with_index()
+      |> Task.async_stream(
+        fn {entry, index} ->
+          set_dynamic_repo(opts)
+          key = {entry.name, entry.version}
+
+          if MapSet.member?(existing, key) do
+            :counters.add(counter, 1, 1)
+            n = :counters.get(counter, 1)
+            Progress.package_done(entry, :skipped)
+            {:skipped, entry, n}
+          else
+            Progress.package_started(entry)
+
+            case index_entry(entry, index, opts) do
+              :skipped ->
+                :counters.add(counter, 1, 1)
+                n = :counters.get(counter, 1)
+                Progress.package_done(entry, :skipped)
+                {:skipped, entry, n}
+
+              result ->
+                :counters.add(counter, 1, 1)
+                n = :counters.get(counter, 1)
+                Progress.package_done(entry, result)
+                {result, entry, n}
+            end
+          end
+        end,
+        max_concurrency: concurrency,
+        timeout: Keyword.get(opts, :timeout, 300_000),
+        on_timeout: :kill_task,
+        ordered: false
+      )
+      |> Enum.reduce(%{ok: 0, skipped: 0, error: 0}, fn
+        {:ok, {:ok, entry, count}}, acc ->
+          if cli?, do: cli_package(entry, count, total, started, :ok)
+          %{acc | ok: acc.ok + 1}
+
+        {:ok, {:skipped, entry, count}}, acc ->
+          if cli?, do: cli_package(entry, count, total, started, :skipped)
+          %{acc | skipped: acc.skipped + 1}
+
+        {:ok, {{:error, reason}, entry, count}}, acc ->
+          if cli?, do: cli_package(entry, count, total, started, {:error, reason})
+          %{acc | error: acc.error + 1}
+
+        {:exit, :timeout}, acc ->
+          Logger.error("Package indexing timed out")
+          %{acc | error: acc.error + 1}
+
+        {:exit, reason}, acc ->
+          Logger.error("Task crashed: #{inspect(reason)}")
+          %{acc | error: acc.error + 1}
+      end)
+
+    {results, System.monotonic_time(:millisecond) - started}
   end
 
   defp list_entries(mode, opts) do
@@ -309,7 +330,7 @@ defmodule Exograph.Hex.Corpus do
     |> MapSet.new()
   end
 
-  defp index_one(entry, index, opts) do
+  def index_entry(entry, index, opts) do
     set_dynamic_repo(opts)
     repo = Keyword.fetch!(opts, :repo)
     prefix = Keyword.get(opts, :prefix, "hex")

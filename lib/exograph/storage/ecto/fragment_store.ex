@@ -585,96 +585,121 @@ defmodule Exograph.Storage.Ecto.FragmentStore do
     fragments_by_file_id = Enum.group_by(fragments, & &1.file_id)
 
     files_with_ast =
-      Enum.map(files, fn file ->
-        ast =
-          case Exograph.ElixirParser.string_to_quoted(file.source || "",
-                 line: 1,
-                 columns: true,
-                 emit_warnings: false
-               ) do
-            {:ok, ast} -> ast
-            _ -> nil
-          end
+      Exograph.Hex.StageTimings.measure(:code_facts_parse_ast, fn ->
+        Enum.map(files, fn file ->
+          ast =
+            case Exograph.ElixirParser.string_to_quoted(file.source || "",
+                   line: 1,
+                   columns: true,
+                   emit_warnings: false
+                 ) do
+              {:ok, ast} -> ast
+              _ -> nil
+            end
 
-        {file, ast}
+          {file, ast}
+        end)
       end)
 
     comments =
-      files_with_ast
-      |> Enum.flat_map(fn {file, _ast} ->
-        (file.source || "")
-        |> extract_comments()
-        |> Enum.map(fn comment ->
-          Comment.new(
-            file,
-            comment,
-            FragmentLocator.containing_fragment_id(fragments_by_file_id[file.id], comment.line)
-          )
+      Exograph.Hex.StageTimings.measure(:code_facts_extract_comments, fn ->
+        files_with_ast
+        |> Enum.flat_map(fn {file, _ast} ->
+          (file.source || "")
+          |> extract_comments()
+          |> Enum.map(fn comment ->
+            Comment.new(
+              file,
+              comment,
+              FragmentLocator.containing_fragment_id(fragments_by_file_id[file.id], comment.line)
+            )
+          end)
         end)
       end)
 
     definitions =
-      files_with_ast
-      |> Enum.flat_map(fn {file, ast} ->
-        symbols_from(ast, file.source || "", &ExAST.Symbols.definitions/1)
-        |> Enum.map(fn definition ->
-          Definition.new(
-            file,
-            definition,
-            FragmentLocator.containing_fragment_id(
-              fragments_by_file_id[file.id],
-              definition.line
+      Exograph.Hex.StageTimings.measure(:code_facts_extract_definitions, fn ->
+        files_with_ast
+        |> Enum.flat_map(fn {file, ast} ->
+          symbols_from(ast, file.source || "", &ExAST.Symbols.definitions/1)
+          |> Enum.map(fn definition ->
+            Definition.new(
+              file,
+              definition,
+              FragmentLocator.containing_fragment_id(
+                fragments_by_file_id[file.id],
+                definition.line
+              )
             )
-          )
+          end)
         end)
       end)
 
     references =
-      files_with_ast
-      |> Enum.flat_map(fn {file, ast} ->
-        symbols_from(ast, file.source || "", &ExAST.Symbols.references/1)
-        |> Enum.reject(fn ref ->
-          MapSet.member?(@noise_references, ref.qualified_name) or
-            String.starts_with?(ref.qualified_name, "__block__/") or
-            (ref.kind == :local_call and ref.name == "__block__")
-        end)
-        |> Enum.map(fn reference ->
-          Reference.new(
-            file,
-            reference,
-            FragmentLocator.containing_fragment_id(
-              fragments_by_file_id[file.id],
-              reference.line
+      Exograph.Hex.StageTimings.measure(:code_facts_extract_references, fn ->
+        files_with_ast
+        |> Enum.flat_map(fn {file, ast} ->
+          symbols_from(ast, file.source || "", &ExAST.Symbols.references/1)
+          |> Enum.reject(fn ref ->
+            MapSet.member?(@noise_references, ref.qualified_name) or
+              String.starts_with?(ref.qualified_name, "__block__/") or
+              (ref.kind == :local_call and ref.name == "__block__")
+          end)
+          |> Enum.map(fn reference ->
+            Reference.new(
+              file,
+              reference,
+              FragmentLocator.containing_fragment_id(
+                fragments_by_file_id[file.id],
+                reference.line
+              )
             )
-          )
+          end)
         end)
       end)
 
-    insert_code_facts(store, comments_source(store), comments, CommentRecord, :from_comment, now)
+    Exograph.Hex.StageTimings.measure(:code_facts_insert_comments, fn ->
+      insert_code_facts(
+        store,
+        comments_source(store),
+        comments,
+        CommentRecord,
+        :from_comment,
+        now
+      )
+    end)
 
-    insert_code_facts(
-      store,
-      definitions_source(store),
-      definitions,
-      DefinitionRecord,
-      :from_definition,
-      now
-    )
+    Exograph.Hex.StageTimings.measure(:code_facts_insert_definitions, fn ->
+      insert_code_facts(
+        store,
+        definitions_source(store),
+        definitions,
+        DefinitionRecord,
+        :from_definition,
+        now
+      )
+    end)
 
-    insert_code_facts(
-      store,
-      references_source(store),
-      references,
-      ReferenceRecord,
-      :from_reference,
-      now
-    )
+    Exograph.Hex.StageTimings.measure(:code_facts_insert_references, fn ->
+      insert_code_facts(
+        store,
+        references_source(store),
+        references,
+        ReferenceRecord,
+        :from_reference,
+        now
+      )
+    end)
 
     if extractor_enabled?(store, :reach) do
       %{graph_nodes: graph_nodes, call_edges: call_edges} =
-        ReachExtractor.extract_files(files, fragments_by_file_id)
+        Exograph.Hex.StageTimings.measure(:code_facts_extract_reach, fn ->
+          ReachExtractor.extract_files(files, fragments_by_file_id)
+        end)
 
-      insert_graph_nodes_and_edges(store, graph_nodes, call_edges, now)
+      Exograph.Hex.StageTimings.measure(:code_facts_insert_reach, fn ->
+        insert_graph_nodes_and_edges(store, graph_nodes, call_edges, now)
+      end)
     end
   end
 

@@ -66,7 +66,7 @@ defmodule Exograph.Tree do
           [{role, child}]
 
         child when is_tuple(child) or is_list(child) ->
-          [{String.to_atom("arg#{index}"), child}]
+          [{:arg, child}]
 
         _ ->
           []
@@ -80,7 +80,7 @@ defmodule Exograph.Tree do
     list
     |> Enum.with_index()
     |> Enum.filter(fn {child, _} -> is_tuple(child) or is_list(child) end)
-    |> Enum.map(fn {child, index} -> {String.to_atom("item#{index}"), child} end)
+    |> Enum.map(fn {child, _index} -> {:item, child} end)
   end
 
   defp semantic_children(_), do: []

@@ -22,6 +22,7 @@ defmodule Mix.Tasks.Exograph.Index.Hex do
 
     * `--mode` - `latest` (default), `top`, or `all`
     * `--limit` - max packages to index
+    * `--entries-file` - JSON report or NDJSON file with `name` and `version` entries to index
     * `--prefix` - table prefix (default: `hex`)
     * `--concurrency` - global download+index worker target (default: `4`)
     * `--shard-concurrency` - workers per DuckDB shard (default: `ceil(concurrency / duckdb_shards)`)
@@ -71,6 +72,7 @@ defmodule Mix.Tasks.Exograph.Index.Hex do
           backend: :string,
           mode: :string,
           limit: :integer,
+          entries_file: :string,
           prefix: :string,
           concurrency: :integer,
           shard_concurrency: :integer,
@@ -131,6 +133,7 @@ defmodule Mix.Tasks.Exograph.Index.Hex do
     corpus_opts = [
       backend: backend,
       mode: String.to_atom(Keyword.get(opts, :mode, "latest")),
+      entries: entries_from_file(Keyword.get(opts, :entries_file)),
       limit: Keyword.get(opts, :limit),
       prefix: prefix,
       concurrency: Keyword.get(opts, :concurrency, 4),
@@ -174,6 +177,36 @@ defmodule Mix.Tasks.Exograph.Index.Hex do
       Mix.shell().info(["\nIndexing complete. Web UI still running. Press Ctrl+C to stop."])
       unless iex_running?(), do: Process.sleep(:infinity)
     end
+  end
+
+  defp entries_from_file(nil), do: nil
+
+  defp entries_from_file(path) do
+    path
+    |> File.read!()
+    |> decode_entries(path)
+  end
+
+  defp decode_entries(content, path) do
+    if String.ends_with?(path, ".json") do
+      content
+      |> Jason.decode!()
+      |> Map.get("failures", [])
+      |> Enum.map(&entry_from_map!/1)
+    else
+      content
+      |> String.split("\n", trim: true)
+      |> Enum.map(&Jason.decode!/1)
+      |> Enum.map(&entry_from_map!/1)
+    end
+  end
+
+  defp entry_from_map!(%{"name" => name, "version" => version}) do
+    %{name: name, version: version}
+  end
+
+  defp entry_from_map!(%{name: name, version: version}) do
+    %{name: name, version: version}
   end
 
   defp iex_running?, do: Code.ensure_loaded?(IEx) and IEx.started?()

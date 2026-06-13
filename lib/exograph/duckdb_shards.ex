@@ -37,6 +37,7 @@ defmodule Exograph.DuckDBShards do
     prefix = Keyword.get(opts, :prefix, "exograph_shard")
     port_base = Keyword.get(opts, :port_base, 9_600)
     duckdb_threads = Keyword.get(opts, :duckdb_threads)
+    duckdb_memory_limit = Keyword.get(opts, :duckdb_memory_limit)
 
     shards =
       Enum.map(0..(count - 1), fn index ->
@@ -50,7 +51,7 @@ defmodule Exograph.DuckDBShards do
               database: database,
               endpoint: endpoint,
               token: token,
-              settings: duckdb_settings(duckdb_threads)
+              settings: duckdb_settings(duckdb_threads, duckdb_memory_limit)
             )
           )
 
@@ -86,6 +87,7 @@ defmodule Exograph.DuckDBShards do
   def open(%Manifest{} = manifest, opts) do
     port_base = Keyword.get(opts, :port_base, 9_700)
     duckdb_threads = Keyword.get(opts, :duckdb_threads)
+    duckdb_memory_limit = Keyword.get(opts, :duckdb_memory_limit)
 
     opened =
       Enum.map(manifest.shards, fn %Shard{} = shard ->
@@ -98,7 +100,7 @@ defmodule Exograph.DuckDBShards do
               database: shard.database,
               endpoint: endpoint,
               token: token,
-              settings: duckdb_settings(duckdb_threads)
+              settings: duckdb_settings(duckdb_threads, duckdb_memory_limit)
             )
           )
 
@@ -186,8 +188,10 @@ defmodule Exograph.DuckDBShards do
 
   defp database_path(path, _directory, _prefix, _index) when is_binary(path), do: path
 
-  defp duckdb_settings(nil), do: [threads: System.schedulers_online()]
-  defp duckdb_settings(threads), do: [threads: threads]
+  defp duckdb_settings(threads, memory_limit) do
+    [threads: threads || System.schedulers_online()]
+    |> put_optional(:memory_limit, memory_limit)
+  end
 
   defp unique_repo_name do
     :erlang.unique_integer([:positive])

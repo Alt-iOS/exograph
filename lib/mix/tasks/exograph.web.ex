@@ -16,6 +16,7 @@ defmodule Mix.Tasks.Exograph.Web do
     * `--duckdb-database` — managed DuckDB database path
     * `--manifest-path` — sharded DuckDB manifest path
     * `--duckdb-threads` — DuckDB execution threads per shard/server
+    * `--duckdb-memory-limit` — DuckDB memory limit per shard/server, e.g. `2GB`
     * `--shard-pool-size` — DB connections per shard when opening a manifest
 
   """
@@ -42,6 +43,7 @@ defmodule Mix.Tasks.Exograph.Web do
           duckdb_database: :string,
           manifest_path: :string,
           duckdb_threads: :integer,
+          duckdb_memory_limit: :string,
           shard_pool_size: :integer
         ]
       )
@@ -97,6 +99,7 @@ defmodule Mix.Tasks.Exograph.Web do
         {:ok, shards} =
           Exograph.DuckDBShards.open(path,
             duckdb_threads: opts[:duckdb_threads],
+            duckdb_memory_limit: opts[:duckdb_memory_limit],
             pool_size: opts[:shard_pool_size] || 1
           )
 

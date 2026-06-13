@@ -79,6 +79,7 @@ defmodule Exograph.Hex.Corpus do
         prefix: prefix,
         port_base: Keyword.get(opts, :shard_port_base, 9_600),
         duckdb_threads: Keyword.get(opts, :duckdb_threads),
+        duckdb_memory_limit: Keyword.get(opts, :duckdb_memory_limit),
         recovery_mode: Keyword.get(opts, :recovery_mode),
         pool_size: shard_pool_size,
         queue_target: Keyword.get(opts, :duckdb_queue_target, 60_000),

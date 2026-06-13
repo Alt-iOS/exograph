@@ -1,11 +1,16 @@
 defmodule Exograph.Web.Monaco do
   @moduledoc false
 
+  alias Mix
+
   @app_root Path.expand("../../..", __DIR__)
+  @assets_root Path.join(@app_root, "assets")
   @entry Path.join(@app_root, "assets/node_modules/monaco-editor/esm/vs/editor/edcore.main.js")
   @css_src Path.join(@app_root, "assets/node_modules/monaco-editor/min/vs/editor/editor.main.css")
 
   def ensure_bundled! do
+    ensure_installed!()
+
     outdir = Volt.Config.build().outdir |> to_string()
     vendor_dir = Path.join(outdir, "vendor")
 
@@ -35,6 +40,20 @@ defmodule Exograph.Web.Monaco do
         {:error, errors} ->
           {:error, errors}
       end
+    end
+  end
+
+  defp ensure_installed! do
+    unless File.regular?(@entry) and File.regular?(@css_src) do
+      Mix.raise("""
+      mix exograph.web requires Monaco editor assets.
+
+      Run:
+
+          npm install --prefix #{@assets_root}
+
+      Then rerun mix exograph.web.
+      """)
     end
   end
 

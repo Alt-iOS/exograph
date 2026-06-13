@@ -80,4 +80,6 @@ The web UI requires optional dependencies:
 {:phoenix_iconify, "~> 0.1"}
 ```
 
+The web task also requires Exograph's asset dependencies. If they are missing, `mix exograph.web` prints the `npm install --prefix .../assets` command to run.
+
 See [API](api.md) for the JSON API exposed by the same server.

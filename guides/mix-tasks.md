@@ -114,5 +114,6 @@ Start a standalone web interface for exploring an index.
 | `--quackdb-token` | `QUACKDB_TOKEN` | QuackDB token |
 | `--duckdb-database` | `exograph.duckdb` | Managed DuckDB database path when no QuackDB URI is provided |
 
-Requires optional dependencies: `phoenix`, `phoenix_live_view`, `volt`, `bandit`.
+Requires optional dependencies: `phoenix`, `phoenix_html`, `phoenix_live_view`, `volt`, `bandit`.
+The web task also requires Exograph's asset dependencies. If they are missing, `mix exograph.web` prints the `npm install --prefix .../assets` command to run.
 See [Web UI](web-ui.md) for editor features, search modes, and API details.

@@ -176,7 +176,8 @@ defmodule Mix.Tasks.Exograph.Web do
         outdir: Path.join(@app_root, "priv/static/assets"),
         target: :es2020,
         hash: false,
-        resolve_dirs: [Path.join(assets_root, "node_modules"), Path.join(@app_root, "deps")],
+        external: [],
+        resolve_dirs: resolve_dirs(assets_root),
         module_types: %{".css" => :empty, ".ttf" => :empty},
         tailwind: [
           css: Path.join(@app_root, "assets/web/app.css"),
@@ -193,10 +194,21 @@ defmodule Mix.Tasks.Exograph.Web do
     )
   end
 
+  defp resolve_dirs(assets_root) do
+    [
+      Path.join(assets_root, "node_modules"),
+      Mix.Project.deps_path(),
+      Path.join(@app_root, "deps")
+    ]
+    |> Enum.map(&Path.expand/1)
+    |> Enum.uniq()
+  end
+
   defp ensure_web_dependencies! do
     missing =
       [
         {:phoenix, Phoenix},
+        {:phoenix_html, Phoenix.HTML},
         {:phoenix_live_view, Phoenix.LiveView},
         {:volt, Volt},
         {:volt, Volt.Config},

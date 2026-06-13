@@ -67,6 +67,7 @@ defmodule Exograph.Extractor.ExAST do
       package_context = package_context(opts)
       source_file = SourceFile.new(file, source, package_context)
 
+      ast = neutralize_atom_word_sigils(ast)
       modules = collect_modules(ast)
 
       ast
@@ -107,6 +108,19 @@ defmodule Exograph.Extractor.ExAST do
       terms: terms,
       sub_hashes: fingerprint.sub_hashes
     }
+  end
+
+  defp neutralize_atom_word_sigils(ast) do
+    Macro.prewalk(ast, fn
+      {:sigil_w, meta, [content, modifiers]} when modifiers in [[?a], ~c"a"] ->
+        {:sigil_w, meta, [content, []]}
+
+      {:sigil_W, meta, [content, modifiers]} when modifiers in [[?a], ~c"a"] ->
+        {:sigil_W, meta, [content, []]}
+
+      node ->
+        node
+    end)
   end
 
   defp collect_modules(ast) do

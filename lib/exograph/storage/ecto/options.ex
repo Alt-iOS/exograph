@@ -36,7 +36,8 @@ defmodule Exograph.Storage.Ecto.Options do
       extractors: extractors(opts),
       bm25?: Keyword.get(opts, :bm25?, true),
       postgres_copy?: Keyword.get(opts, :postgres_copy?, false),
-      defer_fragment_terms?: Keyword.get(opts, :defer_fragment_terms?, false)
+      defer_fragment_terms?: Keyword.get(opts, :defer_fragment_terms?, false),
+      duckdb_insert_buffer: Keyword.get(opts, :duckdb_insert_buffer)
     }
 
     module

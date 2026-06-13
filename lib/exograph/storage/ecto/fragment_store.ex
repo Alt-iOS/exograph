@@ -41,7 +41,8 @@ defmodule Exograph.Storage.Ecto.FragmentStore do
             package_version: nil,
             extractors: [:ex_ast, :reach],
             postgres_copy?: false,
-            defer_fragment_terms?: false
+            defer_fragment_terms?: false,
+            duckdb_insert_buffer: nil
 
   @type t :: %__MODULE__{
           repo: module(),
@@ -50,7 +51,8 @@ defmodule Exograph.Storage.Ecto.FragmentStore do
           package_version: PackageVersion.t() | nil,
           extractors: keyword() | [atom()],
           postgres_copy?: boolean(),
-          defer_fragment_terms?: boolean()
+          defer_fragment_terms?: boolean(),
+          duckdb_insert_buffer: pid() | nil
         }
 
   def new(opts \\ []), do: {:ok, Options.store(__MODULE__, opts)}
@@ -814,7 +816,13 @@ defmodule Exograph.Storage.Ecto.FragmentStore do
       end)
 
     Exograph.Hex.StageTimings.measure(bulk_stage, fn ->
-      bulk_insert_facts(store.repo, source, entries, chunk_size: code_fact_chunk_size(store.repo))
+      if store.duckdb_insert_buffer && Exograph.Backend.duckdb_repo?(store.repo) do
+        Exograph.DuckDB.InsertBuffer.insert(store.duckdb_insert_buffer, source, entries)
+      else
+        bulk_insert_facts(store.repo, source, entries,
+          chunk_size: code_fact_chunk_size(store.repo)
+        )
+      end
     end)
   end
 

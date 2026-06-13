@@ -41,6 +41,7 @@ defmodule Exograph.Hex.Corpus do
     end
 
     started = System.monotonic_time(:millisecond)
+    {opts, insert_buffer} = maybe_start_insert_buffer(backend, repo, opts)
 
     {results, elapsed} =
       if Keyword.get(opts, :pipeline) == :broadway do
@@ -49,9 +50,15 @@ defmodule Exograph.Hex.Corpus do
         index_with_tasks(entries, existing, opts, total, started, cli?, concurrency)
       end
 
+    Exograph.Hex.StageTimings.measure(:duckdb_insert_buffer_flush, fn ->
+      Exograph.DuckDB.InsertBuffer.flush(insert_buffer)
+    end)
+
     Exograph.Hex.StageTimings.measure(:finalize_backend, fn ->
       finalize_backend!(backend, repo, prefix, opts)
     end)
+
+    Exograph.DuckDB.InsertBuffer.stop(insert_buffer)
 
     write_report(results, elapsed, opts)
     write_timings(Exograph.Hex.StageTimings.snapshot(), Keyword.get(opts, :timings_path))
@@ -59,6 +66,19 @@ defmodule Exograph.Hex.Corpus do
     if cli?, do: cli_summary(results, elapsed)
     results
   end
+
+  defp maybe_start_insert_buffer(:duckdb, repo, opts) do
+    {:ok, buffer} =
+      Exograph.DuckDB.InsertBuffer.start_link(
+        repo: repo,
+        dynamic_repo: Keyword.get(opts, :dynamic_repo),
+        chunk_size: Keyword.get(opts, :duckdb_insert_buffer_size, 50_000)
+      )
+
+    {Keyword.put(opts, :duckdb_insert_buffer, buffer), buffer}
+  end
+
+  defp maybe_start_insert_buffer(_backend, _repo, opts), do: {opts, nil}
 
   defp index_sharded(opts) do
     shard_count = Keyword.fetch!(opts, :shards)
@@ -436,6 +456,7 @@ defmodule Exograph.Hex.Corpus do
         extractors: extractors,
         postgres_copy?: Keyword.get(opts, :postgres_copy?, false),
         defer_fragment_terms?: Keyword.get(opts, :backend) == :duckdb,
+        duckdb_insert_buffer: Keyword.get(opts, :duckdb_insert_buffer),
         package_version: [
           ecosystem: :hex,
           name: entry.name,

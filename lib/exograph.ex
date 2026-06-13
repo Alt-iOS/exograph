@@ -359,7 +359,8 @@ defmodule Exograph do
       :package,
       :package_version,
       :extractors,
-      :defer_fragment_terms?
+      :defer_fragment_terms?,
+      :duckdb_insert_buffer
     ])
   end
 

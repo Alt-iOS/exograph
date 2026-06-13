@@ -202,12 +202,18 @@ defmodule Exograph.Hex.Corpus do
           else
             Progress.package_started(entry)
 
-            case index_entry(entry, index, opts) do
+            case index_entry_with_timeout(entry, index, opts) do
               :skipped ->
                 :counters.add(counter, 1, 1)
                 n = :counters.get(counter, 1)
                 Progress.package_done(entry, :skipped)
                 {:skipped, entry, n}
+
+              {:timeout, entry} ->
+                :counters.add(counter, 1, 1)
+                n = :counters.get(counter, 1)
+                Progress.package_done(entry, {:error, :timeout})
+                {{:error, :timeout}, entry, n}
 
               result ->
                 :counters.add(counter, 1, 1)
@@ -218,8 +224,7 @@ defmodule Exograph.Hex.Corpus do
           end
         end,
         max_concurrency: concurrency,
-        timeout: Keyword.get(opts, :timeout, 300_000),
-        on_timeout: :kill_task,
+        timeout: :infinity,
         ordered: false
       )
       |> Enum.reduce(%{ok: 0, skipped: 0, error: 0, failures: []}, fn
@@ -246,6 +251,20 @@ defmodule Exograph.Hex.Corpus do
       |> then(&%{&1 | failures: Enum.reverse(&1.failures)})
 
     {results, System.monotonic_time(:millisecond) - started}
+  end
+
+  defp index_entry_with_timeout(entry, index, opts) do
+    timeout = Keyword.get(opts, :timeout, 300_000)
+    task = Task.async(fn -> index_entry(entry, index, opts) end)
+
+    case Task.yield(task, timeout) || Task.shutdown(task, :brutal_kill) do
+      {:ok, result} ->
+        result
+
+      nil ->
+        Logger.error("Package #{entry.name}@#{entry.version} indexing timed out")
+        {:timeout, entry}
+    end
   end
 
   defp list_entries(mode, opts) do

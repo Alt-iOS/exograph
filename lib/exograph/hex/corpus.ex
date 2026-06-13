@@ -49,7 +49,9 @@ defmodule Exograph.Hex.Corpus do
         index_with_tasks(entries, existing, opts, total, started, cli?, concurrency)
       end
 
-    finalize_backend!(backend, repo, prefix, opts)
+    Exograph.Hex.StageTimings.measure(:finalize_backend, fn ->
+      finalize_backend!(backend, repo, prefix, opts)
+    end)
 
     write_report(results, elapsed, opts)
     write_timings(Exograph.Hex.StageTimings.snapshot(), Keyword.get(opts, :timings_path))
@@ -433,6 +435,7 @@ defmodule Exograph.Hex.Corpus do
         migrate?: false,
         extractors: extractors,
         postgres_copy?: Keyword.get(opts, :postgres_copy?, false),
+        defer_fragment_terms?: Keyword.get(opts, :backend) == :duckdb,
         package_version: [
           ecosystem: :hex,
           name: entry.name,

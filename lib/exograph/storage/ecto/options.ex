@@ -35,7 +35,8 @@ defmodule Exograph.Storage.Ecto.Options do
       package_version: package_version(opts),
       extractors: extractors(opts),
       bm25?: Keyword.get(opts, :bm25?, true),
-      postgres_copy?: Keyword.get(opts, :postgres_copy?, false)
+      postgres_copy?: Keyword.get(opts, :postgres_copy?, false),
+      defer_fragment_terms?: Keyword.get(opts, :defer_fragment_terms?, false)
     }
 
     module

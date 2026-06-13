@@ -358,7 +358,8 @@ defmodule Exograph do
       :bm25?,
       :package,
       :package_version,
-      :extractors
+      :extractors,
+      :defer_fragment_terms?
     ])
   end
 

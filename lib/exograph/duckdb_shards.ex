@@ -56,7 +56,7 @@ defmodule Exograph.DuckDBShards do
 
         name = unique_repo_name()
         uri = QuackDB.Server.uri(server)
-        dynamic_repo = start_repo!(name, uri, token, Keyword.get(opts, :pool_size, 1))
+        dynamic_repo = start_repo!(name, uri, token, repo_opts(opts))
 
         %Shard{
           id: index,
@@ -104,7 +104,7 @@ defmodule Exograph.DuckDBShards do
 
         name = unique_repo_name()
         uri = QuackDB.Server.uri(server)
-        dynamic_repo = start_repo!(name, uri, token, Keyword.get(opts, :pool_size, 1))
+        dynamic_repo = start_repo!(name, uri, token, repo_opts(opts))
 
         %{
           shard
@@ -194,12 +194,22 @@ defmodule Exograph.DuckDBShards do
     |> then(&:"exograph_duckdb_shard_#{&1}")
   end
 
-  defp start_repo!(name, uri, token, pool_size) do
+  defp repo_opts(opts) do
+    [
+      pool_size: Keyword.get(opts, :pool_size, 1),
+      queue_target: Keyword.get(opts, :queue_target, 60_000),
+      queue_interval: Keyword.get(opts, :queue_interval, 120_000)
+    ]
+  end
+
+  defp start_repo!(name, uri, token, opts) do
     config = [
       name: name,
       uri: uri,
       token: token,
-      pool_size: pool_size,
+      pool_size: Keyword.fetch!(opts, :pool_size),
+      queue_target: Keyword.fetch!(opts, :queue_target),
+      queue_interval: Keyword.fetch!(opts, :queue_interval),
       telemetry_prefix: [:quackdb],
       log: false,
       timeout: 120_000

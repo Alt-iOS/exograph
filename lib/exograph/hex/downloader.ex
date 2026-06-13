@@ -28,22 +28,36 @@ defmodule Exograph.Hex.Downloader do
   defp download!(name, version, mirrors, timeout) do
     path = "/tarballs/#{name}-#{version}.tar"
 
-    Enum.reduce_while(mirrors, nil, fn mirror, _acc ->
-      url = mirror <> path
+    {result, failures} =
+      Enum.reduce_while(mirrors, {nil, []}, fn mirror, {_body, failures} ->
+        url = mirror <> path
 
-      try do
-        %{status: status, body: body} =
-          Req.get!(url, receive_timeout: timeout, retry: false, decode_body: false)
-
-        if status in 200..299 do
-          {:halt, body}
-        else
-          {:cont, nil}
+        case download_url(url, timeout) do
+          {:ok, body} -> {:halt, {body, failures}}
+          {:error, reason} -> {:cont, {nil, [{url, reason} | failures]}}
         end
-      rescue
-        _error -> {:cont, nil}
-      end
-    end) || raise "failed to download #{name}-#{version} from all mirrors"
+      end)
+
+    result || raise download_error(name, version, failures)
+  end
+
+  defp download_url(url, timeout) do
+    case Req.get(url, receive_timeout: timeout, retry: false, decode_body: false) do
+      {:ok, %{status: status, body: body}} when status in 200..299 -> {:ok, body}
+      {:ok, %{status: status}} -> {:error, {:http_status, status}}
+      {:error, reason} -> {:error, reason}
+    end
+  rescue
+    error -> {:error, error}
+  end
+
+  defp download_error(name, version, failures) do
+    details =
+      failures
+      |> Enum.reverse()
+      |> Enum.map_join("; ", fn {url, reason} -> "#{url}: #{inspect(reason, limit: 10)}" end)
+
+    "failed to download #{name}-#{version} from all mirrors (#{details})"
   end
 
   def extract_to_memory(tarball_bytes) do

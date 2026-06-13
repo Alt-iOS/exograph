@@ -30,6 +30,8 @@ defmodule Mix.Tasks.Exograph.Index.Hex do
     * `--pipeline` - `task` (default) or `broadway`
     * `--duckdb-shards` - shard count for DuckDB corpus indexing (recommended for large corpora)
     * `--duckdb-threads` - DuckDB execution threads per shard/server
+    * `--duckdb-queue-target` - DBConnection queue target in milliseconds for DuckDB shard repos (default: `60000`)
+    * `--duckdb-queue-interval` - DBConnection queue interval in milliseconds for DuckDB shard repos (default: `120000`)
     * `--duckdb-recovery-mode` - DuckDB managed-server recovery mode (`no_wal_writes` for rebuildable indexes)
     * `--manifest-path` - write a sharded DuckDB manifest to this path
     * `--report-path` - write indexing totals and failures as JSON
@@ -80,6 +82,8 @@ defmodule Mix.Tasks.Exograph.Index.Hex do
           pipeline: :string,
           duckdb_shards: :integer,
           duckdb_threads: :integer,
+          duckdb_queue_target: :integer,
+          duckdb_queue_interval: :integer,
           duckdb_recovery_mode: :string,
           manifest_path: :string,
           report_path: :string,
@@ -141,6 +145,8 @@ defmodule Mix.Tasks.Exograph.Index.Hex do
       pipeline: pipeline(Keyword.get(opts, :pipeline)),
       shards: Keyword.get(opts, :duckdb_shards, 1),
       duckdb_threads: Keyword.get(opts, :duckdb_threads),
+      duckdb_queue_target: Keyword.get(opts, :duckdb_queue_target, 60_000),
+      duckdb_queue_interval: Keyword.get(opts, :duckdb_queue_interval, 120_000),
       recovery_mode: recovery_mode(Keyword.get(opts, :duckdb_recovery_mode)),
       manifest_path: Keyword.get(opts, :manifest_path),
       report_path: Keyword.get(opts, :report_path),

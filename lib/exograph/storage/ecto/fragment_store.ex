@@ -552,7 +552,7 @@ defmodule Exograph.Storage.Ecto.FragmentStore do
     files_with_ast =
       Enum.map(files, fn file ->
         ast =
-          case Code.string_to_quoted(file.source || "",
+          case Exograph.ElixirParser.string_to_quoted(file.source || "",
                  line: 1,
                  columns: true,
                  emit_warnings: false

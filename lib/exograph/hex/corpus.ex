@@ -50,6 +50,7 @@ defmodule Exograph.Hex.Corpus do
 
     finalize_backend!(backend, repo, prefix, opts)
 
+    write_report(results, elapsed, opts)
     if progress_lifecycle?, do: Progress.finish_run()
     if cli?, do: cli_summary(results, elapsed)
     results
@@ -140,6 +141,7 @@ defmodule Exograph.Hex.Corpus do
     write_manifest(manifest, Keyword.get(opts, :manifest_path))
 
     combined_results = combine_results(results)
+    write_report(combined_results, elapsed, opts)
     cli_summary(combined_results, elapsed)
 
     combined_results
@@ -191,7 +193,7 @@ defmodule Exograph.Hex.Corpus do
         on_timeout: :kill_task,
         ordered: false
       )
-      |> Enum.reduce(%{ok: 0, skipped: 0, error: 0}, fn
+      |> Enum.reduce(%{ok: 0, skipped: 0, error: 0, failures: []}, fn
         {:ok, {:ok, entry, count}}, acc ->
           if cli?, do: cli_package(entry, count, total, started, :ok)
           %{acc | ok: acc.ok + 1}
@@ -202,16 +204,17 @@ defmodule Exograph.Hex.Corpus do
 
         {:ok, {{:error, reason}, entry, count}}, acc ->
           if cli?, do: cli_package(entry, count, total, started, {:error, reason})
-          %{acc | error: acc.error + 1}
+          %{acc | error: acc.error + 1, failures: [failure(entry, reason) | acc.failures]}
 
         {:exit, :timeout}, acc ->
           Logger.error("Package indexing timed out")
-          %{acc | error: acc.error + 1}
+          %{acc | error: acc.error + 1, failures: [failure(nil, :timeout) | acc.failures]}
 
         {:exit, reason}, acc ->
           Logger.error("Task crashed: #{inspect(reason)}")
-          %{acc | error: acc.error + 1}
+          %{acc | error: acc.error + 1, failures: [failure(nil, reason) | acc.failures]}
       end)
+      |> then(&%{&1 | failures: Enum.reverse(&1.failures)})
 
     {results, System.monotonic_time(:millisecond) - started}
   end
@@ -244,6 +247,12 @@ defmodule Exograph.Hex.Corpus do
 
   defp package_keys(entries), do: Enum.map(entries, &Map.take(&1, [:name, :version]))
 
+  defp failure(nil, reason), do: %{name: nil, version: nil, reason: inspect(reason, limit: 50)}
+
+  defp failure(entry, reason) do
+    %{name: entry.name, version: entry.version, reason: inspect(reason, limit: 50)}
+  end
+
   defp write_manifest(_manifest, nil), do: :ok
 
   defp write_manifest(manifest, path) do
@@ -255,13 +264,38 @@ defmodule Exograph.Hex.Corpus do
   end
 
   defp combine_results(results) do
-    Enum.reduce(results, %{ok: 0, skipped: 0, error: 0}, fn result, acc ->
+    Enum.reduce(results, %{ok: 0, skipped: 0, error: 0, failures: []}, fn result, acc ->
       %{
         ok: acc.ok + result.ok,
         skipped: acc.skipped + result.skipped,
-        error: acc.error + result.error
+        error: acc.error + result.error,
+        failures: acc.failures ++ Map.get(result, :failures, [])
       }
     end)
+  end
+
+  defp write_report(results, elapsed, opts) do
+    case Keyword.get(opts, :report_path) do
+      nil -> :ok
+      path -> write_report!(path, results, elapsed)
+    end
+  end
+
+  defp write_report!(path, results, elapsed) do
+    report = %{
+      generated_at: DateTime.utc_now(),
+      elapsed_ms: elapsed,
+      ok: results.ok,
+      skipped: results.skipped,
+      error: results.error,
+      failures: Map.get(results, :failures, [])
+    }
+
+    path
+    |> Path.dirname()
+    |> File.mkdir_p!()
+
+    File.write!(path, Jason.encode!(report, pretty: true))
   end
 
   defp inferred_backend(opts) do

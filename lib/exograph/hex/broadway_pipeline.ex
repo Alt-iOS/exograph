@@ -123,7 +123,7 @@ defmodule Exograph.Hex.BroadwayPipeline do
     %{entry: entry, index: index} = message.data
     Progress.package_started(entry)
 
-    result = Exograph.Hex.Corpus.index_entry(entry, index, opts)
+    result = index_with_retries(entry, index, opts)
     Progress.package_done(entry, result)
 
     Message.update_data(message, &Map.put(&1, :result, result))
@@ -134,8 +134,37 @@ defmodule Exograph.Hex.BroadwayPipeline do
       Message.update_data(message, &Map.put(&1, :result, result))
   end
 
+  defp index_with_retries(entry, index, opts) do
+    retry_count = Keyword.get(opts, :retry_count, 3)
+    retry_sleep = Keyword.get(opts, :retry_sleep, 1_000)
+
+    Enum.reduce_while(0..retry_count, nil, fn attempt, _last_result ->
+      result = Exograph.Hex.Corpus.index_entry(entry, index, opts)
+
+      if transient_error?(result) and attempt < retry_count do
+        Process.sleep(retry_sleep * (attempt + 1))
+        {:cont, result}
+      else
+        {:halt, result}
+      end
+    end)
+  end
+
+  defp transient_error?({:error, reason}) do
+    text = inspect(reason)
+
+    String.contains?(text, [
+      "queue_timeout",
+      "connection not available",
+      "request was dropped from queue",
+      "timed out"
+    ])
+  end
+
+  defp transient_error?(_result), do: false
+
   defp finish(name, pid, total, started, telemetry_id) do
-    results = await_results(total, %{ok: 0, skipped: 0, error: 0})
+    results = await_results(total, %{ok: 0, skipped: 0, error: 0, failures: []})
     Exograph.Hex.BroadwayTelemetry.detach(telemetry_id)
     Broadway.stop(name)
     ref = Process.monitor(pid)
@@ -149,7 +178,7 @@ defmodule Exograph.Hex.BroadwayPipeline do
     {results, System.monotonic_time(:millisecond) - started}
   end
 
-  defp await_results(0, acc), do: acc
+  defp await_results(0, acc), do: %{acc | failures: Enum.reverse(acc.failures)}
 
   defp await_results(remaining, acc) do
     receive do
@@ -158,14 +187,25 @@ defmodule Exograph.Hex.BroadwayPipeline do
 
         next =
           Enum.reduce(messages, acc, fn
-            %{result: :ok}, acc -> %{acc | ok: acc.ok + 1}
-            %{result: :skipped}, acc -> %{acc | skipped: acc.skipped + 1}
-            %{result: {:error, _}}, acc -> %{acc | error: acc.error + 1}
-            _message, acc -> %{acc | error: acc.error + 1}
+            %{result: :ok}, acc ->
+              %{acc | ok: acc.ok + 1}
+
+            %{result: :skipped}, acc ->
+              %{acc | skipped: acc.skipped + 1}
+
+            %{entry: entry, result: {:error, reason}}, acc ->
+              %{acc | error: acc.error + 1, failures: [failure(entry, reason) | acc.failures]}
+
+            %{entry: entry}, acc ->
+              %{acc | error: acc.error + 1, failures: [failure(entry, :unknown) | acc.failures]}
           end)
 
         await_results(remaining - length(messages), next)
     end
+  end
+
+  defp failure(entry, reason) do
+    %{name: entry.name, version: entry.version, reason: inspect(reason, limit: 50)}
   end
 
   defp normalize_job({entry, index}), do: %{entry: entry, index: index}

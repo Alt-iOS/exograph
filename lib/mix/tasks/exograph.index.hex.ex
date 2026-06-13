@@ -31,6 +31,9 @@ defmodule Mix.Tasks.Exograph.Index.Hex do
     * `--duckdb-threads` - DuckDB execution threads per shard/server
     * `--duckdb-recovery-mode` - DuckDB managed-server recovery mode (`no_wal_writes` for rebuildable indexes)
     * `--manifest-path` - write a sharded DuckDB manifest to this path
+    * `--report-path` - write indexing totals and failures as JSON
+    * `--retry-count` - retry transient per-package failures this many times (default: `3`)
+    * `--retry-sleep` - base retry sleep in milliseconds (default: `1000`)
     * `--shard-dir` - directory for managed DuckDB shard files
     * `--min-mass` - minimum fragment AST mass (default: `8`)
     * `--reach` - include Reach call graph extraction
@@ -77,6 +80,9 @@ defmodule Mix.Tasks.Exograph.Index.Hex do
           duckdb_threads: :integer,
           duckdb_recovery_mode: :string,
           manifest_path: :string,
+          report_path: :string,
+          retry_count: :integer,
+          retry_sleep: :integer,
           shard_dir: :string,
           min_mass: :integer,
           reach: :boolean,
@@ -135,6 +141,9 @@ defmodule Mix.Tasks.Exograph.Index.Hex do
       duckdb_threads: Keyword.get(opts, :duckdb_threads),
       recovery_mode: recovery_mode(Keyword.get(opts, :duckdb_recovery_mode)),
       manifest_path: Keyword.get(opts, :manifest_path),
+      report_path: Keyword.get(opts, :report_path),
+      retry_count: Keyword.get(opts, :retry_count, 3),
+      retry_sleep: Keyword.get(opts, :retry_sleep, 1_000),
       shard_directory: Keyword.get(opts, :shard_dir),
       min_mass: Keyword.get(opts, :min_mass, 8),
       resume: not Keyword.get(opts, :force, false),

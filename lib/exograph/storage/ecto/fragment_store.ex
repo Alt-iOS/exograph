@@ -391,12 +391,20 @@ defmodule Exograph.Storage.Ecto.FragmentStore do
 
   defp resolve_fragment_ids_by_hash(store, entries, hashed_unique) do
     inserted_by_hash = insert_fragments_by_hash(store, entries)
-    all_hashes = Enum.map(hashed_unique, & &1.content_hash)
+
+    missing_hashes =
+      hashed_unique
+      |> Enum.map(& &1.content_hash)
+      |> Enum.reject(&Map.has_key?(inserted_by_hash, &1))
 
     hash_to_id =
-      store.repo
-      |> fragment_ids_by_hash(source(store), all_hashes)
-      |> Map.merge(inserted_by_hash)
+      if missing_hashes == [] do
+        inserted_by_hash
+      else
+        store.repo
+        |> fragment_ids_by_hash(source(store), missing_hashes)
+        |> Map.merge(inserted_by_hash)
+      end
 
     inserted_fragment_ids =
       inserted_by_hash

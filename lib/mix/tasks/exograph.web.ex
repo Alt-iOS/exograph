@@ -14,6 +14,9 @@ defmodule Mix.Tasks.Exograph.Web do
     * `--quackdb-uri` — QuackDB URI (or starts managed DuckDB when omitted)
     * `--quackdb-token` — QuackDB token
     * `--duckdb-database` — managed DuckDB database path
+    * `--manifest-path` — sharded DuckDB manifest path
+    * `--duckdb-threads` — DuckDB execution threads per shard/server
+    * `--shard-pool-size` — DB connections per shard when opening a manifest
 
   """
   use Mix.Task
@@ -36,7 +39,10 @@ defmodule Mix.Tasks.Exograph.Web do
           database_url: :string,
           quackdb_uri: :string,
           quackdb_token: :string,
-          duckdb_database: :string
+          duckdb_database: :string,
+          manifest_path: :string,
+          duckdb_threads: :integer,
+          shard_pool_size: :integer
         ]
       )
 
@@ -48,13 +54,7 @@ defmodule Mix.Tasks.Exograph.Web do
     Application.ensure_all_started(:phoenix)
     Application.ensure_all_started(:phoenix_live_view)
 
-    index_opts = backend_opts(backend, Keyword.put(opts, :prefix, prefix))
-
-    {:ok, index} =
-      Exograph.index(
-        [],
-        Keyword.merge([backend: backend, migrate?: false, bm25?: true], index_opts)
-      )
+    {index, index_opts} = open_index!(backend, Keyword.put(opts, :prefix, prefix))
 
     Application.put_env(:exograph, :web_index, index)
     Application.put_env(:exograph, :web_repo, Keyword.fetch!(index_opts, :repo))
@@ -78,6 +78,48 @@ defmodule Mix.Tasks.Exograph.Web do
     ])
 
     unless iex_running?(), do: Process.sleep(:infinity)
+  end
+
+  defp open_index!("duckdb", opts) do
+    case opts[:manifest_path] do
+      nil ->
+        index_opts = backend_opts("duckdb", opts)
+
+        {:ok, index} =
+          Exograph.index(
+            [],
+            Keyword.merge([backend: :duckdb, migrate?: false, bm25?: true], index_opts)
+          )
+
+        {index, index_opts}
+
+      path ->
+        {:ok, shards} =
+          Exograph.DuckDBShards.open(path,
+            duckdb_threads: opts[:duckdb_threads],
+            pool_size: opts[:shard_pool_size] || 1
+          )
+
+        shard_indexes = Exograph.DuckDBShards.open_indexes(shards, bm25?: true)
+        manifest = Exograph.DuckDBShards.load_manifest(path)
+        index = Exograph.ShardedIndex.new(shard_indexes, manifest: manifest)
+        {index, [repo: Exograph.DuckDBRepo, prefix: opts[:prefix]]}
+    end
+  end
+
+  defp open_index!(backend, opts) do
+    index_opts = backend_opts(backend, opts)
+
+    {:ok, index} =
+      Exograph.index(
+        [],
+        Keyword.merge(
+          [backend: String.to_atom(backend), migrate?: false, bm25?: true],
+          index_opts
+        )
+      )
+
+    {index, index_opts}
   end
 
   defp backend_opts("postgres", opts) do

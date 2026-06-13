@@ -33,16 +33,57 @@ defmodule Exograph.DuckDB.FragmentAppend do
           |> Enum.zip(ids)
           |> Enum.map(fn {entry, id} -> Map.put(entry, :id, id) end)
 
-        repo.insert_all(target, rows,
-          insert_method: :append,
-          chunk_every: 2_000,
-          timeout: :infinity
-        )
-
-        Map.new(rows, fn row -> {row.content_hash, row.id} end)
+        append_rows(repo, target, rows)
       end
 
     Map.merge(existing, inserted)
+  end
+
+  defp append_rows(repo, target, rows) do
+    repo.insert_all(target, rows,
+      insert_method: :append,
+      chunk_every: 2_000,
+      timeout: :infinity
+    )
+
+    Map.new(rows, fn row -> {row.content_hash, row.id} end)
+  rescue
+    error ->
+      if duplicate_content_hash?(error) do
+        append_rows_idempotently(repo, target, rows)
+      else
+        reraise error, __STACKTRACE__
+      end
+  end
+
+  defp append_rows_idempotently(repo, {source, schema} = target, rows) do
+    Enum.reduce(rows, %{}, fn row, acc ->
+      content_hash = row.content_hash
+
+      case fragment_ids_by_hash(repo, source, schema, [content_hash]) do
+        %{^content_hash => id} ->
+          Map.put(acc, content_hash, id)
+
+        %{} ->
+          try do
+            repo.insert_all(target, [row], insert_method: :append, timeout: :infinity)
+            Map.put(acc, content_hash, row.id)
+          rescue
+            error ->
+              if duplicate_content_hash?(error) do
+                Map.merge(acc, fragment_ids_by_hash(repo, source, schema, [content_hash]))
+              else
+                reraise error, __STACKTRACE__
+              end
+          end
+      end
+    end)
+  end
+
+  defp duplicate_content_hash?(error) do
+    error
+    |> Exception.message()
+    |> String.contains?(["Duplicate key", "content_hash", "unique constraint"])
   end
 
   defp fragment_ids_by_hash(repo, source, schema, hashes) do

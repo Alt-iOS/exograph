@@ -9,17 +9,23 @@ defmodule Exograph.Hex.Downloader do
     index = Keyword.get(opts, :index, 0)
     timeout = Keyword.get(opts, :timeout, 120_000)
     cache_dir = Keyword.get(opts, :cache_dir)
+    tarball_dir = Keyword.get(opts, :tarball_dir)
 
     slug = "#{name}-#{version}"
     cached = if cache_dir, do: Path.join(cache_dir, "#{slug}.tar")
 
     tarball_bytes =
-      if cached && File.exists?(cached) do
-        File.read!(cached)
-      else
-        bytes = download!(name, version, ordered_mirrors(mirrors, strategy, index), timeout)
-        if cached, do: write_cached!(cached, bytes)
-        bytes
+      cond do
+        tarball_dir ->
+          tarball_dir |> Path.join("#{slug}.tar") |> File.read!()
+
+        cached && File.exists?(cached) ->
+          File.read!(cached)
+
+        true ->
+          bytes = download!(name, version, ordered_mirrors(mirrors, strategy, index), timeout)
+          if cached, do: write_cached!(cached, bytes)
+          bytes
       end
 
     extract_to_memory(tarball_bytes)

@@ -388,7 +388,9 @@ defmodule Exograph.Hex.Corpus do
     prefix = Keyword.get(opts, :prefix, "hex")
     min_mass = Keyword.get(opts, :min_mass, 8)
     extractors = Keyword.get(opts, :extractors, [:ex_ast])
-    download_opts = Keyword.take(opts, [:mirrors, :mirror_strategy, :timeout, :cache_dir])
+
+    download_opts =
+      Keyword.take(opts, [:mirrors, :mirror_strategy, :timeout, :cache_dir, :tarball_dir])
 
     try do
       files = Downloader.fetch(entry.name, entry.version, [{:index, index} | download_opts])

@@ -46,6 +46,7 @@ defmodule Mix.Tasks.Exograph.Index.Hex do
     * `--registry-url` - Hex registry URL for `versions`, `latest`, and `all` modes
     * `--api-url` - Hex package API URL for `top` mode
     * `--cache-tarballs` - directory to cache downloaded tarballs
+    * `--tarball-dir` - local directory of Hex tarballs; bypasses HTTP tarball downloads
     * `--backend` - `duckdb` (default) or `postgres`
     * `--database-url` - Postgres URL (or set `EXOGRAPH_DATABASE_URL`)
     * `--postgres-maintenance-work-mem` - session-local maintenance_work_mem during Postgres index builds
@@ -98,6 +99,7 @@ defmodule Mix.Tasks.Exograph.Index.Hex do
           registry_url: :string,
           api_url: :string,
           cache_tarballs: :string,
+          tarball_dir: :string,
           database_url: :string,
           postgres_maintenance_work_mem: :string,
           postgres_max_parallel_maintenance_workers: :integer,
@@ -164,6 +166,7 @@ defmodule Mix.Tasks.Exograph.Index.Hex do
       mirror_strategy: :round_robin,
       timeout: Keyword.get(opts, :timeout, 300) * 1000,
       cache_dir: Keyword.get(opts, :cache_tarballs),
+      tarball_dir: Keyword.get(opts, :tarball_dir),
       postgres_maintenance_work_mem: Keyword.get(opts, :postgres_maintenance_work_mem),
       postgres_max_parallel_maintenance_workers:
         Keyword.get(opts, :postgres_max_parallel_maintenance_workers),

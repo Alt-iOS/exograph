@@ -15,7 +15,11 @@ defmodule Exograph.DuckDB.FragmentAppend do
   defp locked_insert_by_hash(repo, source, schema, entries) do
     target = {source, schema}
     hashes = Enum.map(entries, & &1.content_hash)
-    existing = fragment_ids_by_hash(repo, source, schema, hashes)
+
+    existing =
+      Exograph.Hex.StageTimings.measure(:fragment_append_lookup_existing, fn ->
+        fragment_ids_by_hash(repo, source, schema, hashes)
+      end)
 
     new_entries =
       entries
@@ -26,14 +30,19 @@ defmodule Exograph.DuckDB.FragmentAppend do
       if new_entries == [] do
         %{}
       else
-        ids = allocate_ids(repo, target, length(new_entries))
+        ids =
+          Exograph.Hex.StageTimings.measure(:fragment_append_allocate_ids, fn ->
+            allocate_ids(repo, target, length(new_entries))
+          end)
 
         rows =
           new_entries
           |> Enum.zip(ids)
           |> Enum.map(fn {entry, id} -> Map.put(entry, :id, id) end)
 
-        append_rows(repo, target, rows)
+        Exograph.Hex.StageTimings.measure(:fragment_append_rows, fn ->
+          append_rows(repo, target, rows)
+        end)
       end
 
     Map.merge(existing, inserted)

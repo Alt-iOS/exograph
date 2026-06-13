@@ -56,8 +56,16 @@ defmodule Exograph.Storage.Ecto.FragmentStore do
   def put(%__MODULE__{} = store, fragments) when is_list(fragments) do
     now = DateTime.utc_now(:microsecond)
 
-    store = ensure_package_context(store, now)
-    files = upsert_files(store, fragments, now)
+    store =
+      Exograph.Hex.StageTimings.measure(:fragment_store_package_context, fn ->
+        ensure_package_context(store, now)
+      end)
+
+    files =
+      Exograph.Hex.StageTimings.measure(:fragment_store_upsert_files, fn ->
+        upsert_files(store, fragments, now)
+      end)
+
     files_by_path = Map.new(files, &{&1.path, &1})
 
     package_id = store.package && store.package.id
@@ -76,9 +84,14 @@ defmodule Exograph.Storage.Ecto.FragmentStore do
         }
       end)
 
-    resolved_fragments = upsert_fragments(store, resolved_fragments, now)
+    resolved_fragments =
+      Exograph.Hex.StageTimings.measure(:fragment_store_upsert_fragments, fn ->
+        upsert_fragments(store, resolved_fragments, now)
+      end)
 
-    upsert_code_facts(store, files, resolved_fragments, now)
+    Exograph.Hex.StageTimings.measure(:fragment_store_code_facts, fn ->
+      upsert_code_facts(store, files, resolved_fragments, now)
+    end)
 
     {:ok, store}
   end
@@ -308,7 +321,10 @@ defmodule Exograph.Storage.Ecto.FragmentStore do
   end
 
   defp upsert_fragments(store, fragments, now) do
-    fragments_with_term_ids = normalize_terms(store, fragments)
+    fragments_with_term_ids =
+      Exograph.Hex.StageTimings.measure(:fragment_store_normalize_terms, fn ->
+        normalize_terms(store, fragments)
+      end)
 
     hashed = Enum.reject(fragments_with_term_ids, &is_nil(&1.content_hash))
     unhashed = Enum.filter(fragments_with_term_ids, &is_nil(&1.content_hash))
@@ -324,7 +340,10 @@ defmodule Exograph.Storage.Ecto.FragmentStore do
             |> Map.merge(%{inserted_at: now, updated_at: now})
           end)
 
-        hash_to_id = resolve_fragment_ids_by_hash(store, entries, hashed_unique)
+        hash_to_id =
+          Exograph.Hex.StageTimings.measure(:fragment_store_resolve_fragment_ids, fn ->
+            resolve_fragment_ids_by_hash(store, entries, hashed_unique)
+          end)
 
         Enum.map(hashed, fn fragment ->
           %{fragment | id: Map.get(hash_to_id, fragment.content_hash)}
@@ -341,17 +360,23 @@ defmodule Exograph.Storage.Ecto.FragmentStore do
           |> Map.merge(%{inserted_at: now, updated_at: now})
         end)
 
-      SQL.bulk_insert_all(
-        store.repo,
-        {source(store), FragmentRecord},
-        entries,
-        on_conflict: :nothing,
-        timeout: :infinity
-      )
+      Exograph.Hex.StageTimings.measure(:fragment_store_insert_unhashed, fn ->
+        SQL.bulk_insert_all(
+          store.repo,
+          {source(store), FragmentRecord},
+          entries,
+          on_conflict: :nothing,
+          timeout: :infinity
+        )
+      end)
     end
 
     resolved = resolved_hashed ++ unhashed
-    upsert_fragment_terms(store, resolved)
+
+    Exograph.Hex.StageTimings.measure(:fragment_store_upsert_fragment_terms, fn ->
+      upsert_fragment_terms(store, resolved)
+    end)
+
     resolved
   end
 
@@ -410,8 +435,14 @@ defmodule Exograph.Storage.Ecto.FragmentStore do
     if all_terms == [] do
       fragments
     else
-      upsert_terms(store, all_terms)
-      term_to_id = load_term_ids(store, all_terms)
+      Exograph.Hex.StageTimings.measure(:fragment_store_upsert_terms, fn ->
+        upsert_terms(store, all_terms)
+      end)
+
+      term_to_id =
+        Exograph.Hex.StageTimings.measure(:fragment_store_load_term_ids, fn ->
+          load_term_ids(store, all_terms)
+        end)
 
       Enum.map(fragments, fn fragment ->
         if Enum.all?(MapSet.to_list(fragment.terms), &is_integer/1) do
@@ -453,10 +484,14 @@ defmodule Exograph.Storage.Ecto.FragmentStore do
       fragment_ids = entries |> Enum.map(& &1.fragment_id) |> Enum.uniq()
       source = Options.fragment_terms_source(store.prefix)
 
-      from(term in source, where: term.fragment_id in ^fragment_ids)
-      |> store.repo.delete_all(timeout: :infinity)
+      Exograph.Hex.StageTimings.measure(:fragment_terms_delete_existing, fn ->
+        from(term in source, where: term.fragment_id in ^fragment_ids)
+        |> store.repo.delete_all(timeout: :infinity)
+      end)
 
-      bulk_insert_fragment_terms(store, source, entries)
+      Exograph.Hex.StageTimings.measure(:fragment_terms_bulk_insert, fn ->
+        bulk_insert_fragment_terms(store, source, entries)
+      end)
     end
   end
 

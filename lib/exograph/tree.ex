@@ -57,7 +57,7 @@ defmodule Exograph.Tree do
   defp semantic_children({_form, _meta, args}) when is_list(args) do
     args
     |> Enum.with_index()
-    |> Enum.flat_map(fn {arg, index} ->
+    |> Enum.flat_map(fn {arg, _index} ->
       case arg do
         [{role, {:__block__, _, children}}] when is_atom(role) and is_list(children) ->
           Enum.map(children, &{role, &1})

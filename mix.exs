@@ -44,6 +44,7 @@ defmodule Exograph.MixProject do
       {:reach, "~> 2.2", optional: true},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
       {:broadway, "~> 1.2"},
+      {:json_codec, "~> 0.1.1"},
       {:ecto_sql, "~> 3.13"},
       {:postgrex, "~> 0.22"},
       {:quackdb, "~> 0.5.3"},

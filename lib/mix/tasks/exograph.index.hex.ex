@@ -133,7 +133,6 @@ defmodule Mix.Tasks.Exograph.Index.Hex do
     corpus_opts = [
       backend: backend,
       mode: String.to_atom(Keyword.get(opts, :mode, "latest")),
-      entries: entries_from_file(Keyword.get(opts, :entries_file)),
       limit: Keyword.get(opts, :limit),
       prefix: prefix,
       concurrency: Keyword.get(opts, :concurrency, 4),
@@ -167,6 +166,8 @@ defmodule Mix.Tasks.Exograph.Index.Hex do
       postgres_copy?: Keyword.get(opts, :postgres_copy, false)
     ]
 
+    corpus_opts = put_entries(corpus_opts, Keyword.get(opts, :entries_file))
+
     result = Exograph.Hex.Corpus.index(corpus_opts)
 
     if Keyword.get(opts, :web, false) and is_map(result) and Map.has_key?(result, :index) do
@@ -179,7 +180,8 @@ defmodule Mix.Tasks.Exograph.Index.Hex do
     end
   end
 
-  defp entries_from_file(nil), do: nil
+  defp put_entries(opts, nil), do: opts
+  defp put_entries(opts, path), do: Keyword.put(opts, :entries, entries_from_file(path))
 
   defp entries_from_file(path) do
     path
@@ -190,8 +192,8 @@ defmodule Mix.Tasks.Exograph.Index.Hex do
   defp decode_entries(content, path) do
     if String.ends_with?(path, ".json") do
       content
-      |> Jason.decode!()
-      |> Map.get("failures", [])
+      |> Exograph.Hex.IndexReport.decode!()
+      |> Map.fetch!(:failures)
       |> Enum.map(&entry_from_map!/1)
     else
       content
@@ -202,6 +204,10 @@ defmodule Mix.Tasks.Exograph.Index.Hex do
   end
 
   defp entry_from_map!(%{"name" => name, "version" => version}) do
+    %{name: name, version: version}
+  end
+
+  defp entry_from_map!(%Exograph.Hex.IndexReport.Failure{name: name, version: version}) do
     %{name: name, version: version}
   end
 

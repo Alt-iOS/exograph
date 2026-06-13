@@ -282,20 +282,24 @@ defmodule Exograph.Hex.Corpus do
   end
 
   defp write_report!(path, results, elapsed) do
-    report = %{
-      generated_at: DateTime.utc_now(),
+    report = %Exograph.Hex.IndexReport{
+      generated_at: DateTime.utc_now() |> DateTime.to_iso8601(),
       elapsed_ms: elapsed,
       ok: results.ok,
       skipped: results.skipped,
       error: results.error,
-      failures: Map.get(results, :failures, [])
+      failures: Enum.map(Map.get(results, :failures, []), &index_report_failure/1)
     }
 
     path
     |> Path.dirname()
     |> File.mkdir_p!()
 
-    File.write!(path, Jason.encode!(report, pretty: true))
+    File.write!(path, Jason.encode!(JSONCodec.dump(report), pretty: true))
+  end
+
+  defp index_report_failure(%{name: name, version: version, reason: reason}) do
+    %Exograph.Hex.IndexReport.Failure{name: name, version: version, reason: reason}
   end
 
   defp inferred_backend(opts) do

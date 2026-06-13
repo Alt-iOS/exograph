@@ -279,9 +279,20 @@ defmodule Exograph do
                                                                             {inverted,
                                                                              fragment_store,
                                                                              tree_store}} ->
-      {:ok, inverted} = EctoInvertedIndex.add(inverted, batch)
-      {:ok, fragment_store} = EctoFragmentStore.put(fragment_store, batch)
-      {:ok, tree_store} = EctoTreeStore.put_fragments(tree_store, batch)
+      {:ok, inverted} =
+        Exograph.Hex.StageTimings.measure(:inverted_index_add, fn ->
+          EctoInvertedIndex.add(inverted, batch)
+        end)
+
+      {:ok, fragment_store} =
+        Exograph.Hex.StageTimings.measure(:fragment_store_put, fn ->
+          EctoFragmentStore.put(fragment_store, batch)
+        end)
+
+      {:ok, tree_store} =
+        Exograph.Hex.StageTimings.measure(:tree_store_put, fn ->
+          EctoTreeStore.put_fragments(tree_store, batch)
+        end)
 
       {:cont, {:ok, {inverted, fragment_store, tree_store}}}
     end)

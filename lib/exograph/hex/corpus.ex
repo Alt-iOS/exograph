@@ -35,6 +35,7 @@ defmodule Exograph.Hex.Corpus do
     cli? = Keyword.get(opts, :cli?, true)
 
     if progress_lifecycle? do
+      Exograph.Hex.StageTimings.reset()
       Progress.start_run(total)
       if cli?, do: cli_header(total, mode, MapSet.size(existing))
     end
@@ -51,6 +52,7 @@ defmodule Exograph.Hex.Corpus do
     finalize_backend!(backend, repo, prefix, opts)
 
     write_report(results, elapsed, opts)
+    write_timings(Exograph.Hex.StageTimings.snapshot(), Keyword.get(opts, :timings_path))
     if progress_lifecycle?, do: Progress.finish_run()
     if cli?, do: cli_summary(results, elapsed)
     results
@@ -61,6 +63,7 @@ defmodule Exograph.Hex.Corpus do
     mode = Keyword.get(opts, :mode, :latest)
     entries = list_entries(mode, opts)
     started = System.monotonic_time(:millisecond)
+    Exograph.Hex.StageTimings.reset()
     Progress.start_run(length(entries))
     cli_header(length(entries), mode, 0)
     entries_by_shard = entries_by_shard(entries, shard_count)
@@ -145,6 +148,7 @@ defmodule Exograph.Hex.Corpus do
 
     combined_results = combine_results(results)
     write_report(combined_results, elapsed, opts)
+    write_timings(Exograph.Hex.StageTimings.snapshot(), Keyword.get(opts, :timings_path))
     cli_summary(combined_results, elapsed)
 
     combined_results
@@ -277,6 +281,16 @@ defmodule Exograph.Hex.Corpus do
     end)
   end
 
+  defp write_timings(_timings, nil), do: :ok
+
+  defp write_timings(timings, path) do
+    path
+    |> Path.dirname()
+    |> File.mkdir_p!()
+
+    File.write!(path, Jason.encode!(JSONCodec.dump(timings), pretty: true))
+  end
+
   defp write_report(results, elapsed, opts) do
     case Keyword.get(opts, :report_path) do
       nil -> :ok
@@ -394,12 +408,17 @@ defmodule Exograph.Hex.Corpus do
       Keyword.take(opts, [:mirrors, :mirror_strategy, :timeout, :cache_dir, :tarball_dir])
 
     try do
-      files = Downloader.fetch(entry.name, entry.version, [{:index, index} | download_opts])
+      files =
+        Exograph.Hex.StageTimings.measure(:fetch_extract, fn ->
+          Downloader.fetch(entry.name, entry.version, [{:index, index} | download_opts])
+        end)
 
       sources =
-        files
-        |> Enum.filter(fn {path, source} -> elixir_source?(path, source) end)
-        |> Enum.map(fn {path, source} -> {safe_path!(path), source} end)
+        Exograph.Hex.StageTimings.measure(:source_filter, fn ->
+          files
+          |> Enum.filter(fn {path, source} -> elixir_source?(path, source) end)
+          |> Enum.map(fn {path, source} -> {safe_path!(path), source} end)
+        end)
 
       if sources == [], do: throw(:no_elixir)
 
@@ -422,7 +441,9 @@ defmodule Exograph.Hex.Corpus do
         ]
       ]
 
-      case Exograph.index_sources(sources, index_opts) do
+      case Exograph.Hex.StageTimings.measure(:index_sources, fn ->
+             Exograph.index_sources(sources, index_opts)
+           end) do
         {:ok, _index} ->
           :ok
 

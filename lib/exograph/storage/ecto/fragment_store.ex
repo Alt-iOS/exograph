@@ -798,15 +798,33 @@ defmodule Exograph.Storage.Ecto.FragmentStore do
   defp insert_code_facts(_store, _source, [], _record, _mapper, _now), do: :ok
 
   defp insert_code_facts(store, source, facts, record, mapper, now) do
+    {build_stage, bulk_stage} = code_fact_insert_stages(mapper)
+
     entries =
-      Enum.map(facts, fn fact ->
-        record
-        |> apply(mapper, [fact])
-        |> Map.merge(%{inserted_at: now, updated_at: now})
+      Exograph.Hex.StageTimings.measure(build_stage, fn ->
+        Enum.map(facts, fn fact ->
+          record
+          |> apply(mapper, [fact])
+          |> Map.merge(%{inserted_at: now, updated_at: now})
+        end)
       end)
 
-    bulk_insert_facts(store.repo, source, entries, chunk_size: 3_000)
+    Exograph.Hex.StageTimings.measure(bulk_stage, fn ->
+      bulk_insert_facts(store.repo, source, entries, chunk_size: 3_000)
+    end)
   end
+
+  defp code_fact_insert_stages(:from_comment),
+    do: {:code_facts_build_comment_rows, :code_facts_bulk_insert_comments}
+
+  defp code_fact_insert_stages(:from_definition),
+    do: {:code_facts_build_definition_rows, :code_facts_bulk_insert_definitions}
+
+  defp code_fact_insert_stages(:from_reference),
+    do: {:code_facts_build_reference_rows, :code_facts_bulk_insert_references}
+
+  defp code_fact_insert_stages(:from_call_edge),
+    do: {:code_facts_build_call_edge_rows, :code_facts_bulk_insert_call_edges}
 
   defp package_from_version(%PackageVersion{} = version) do
     %Package{

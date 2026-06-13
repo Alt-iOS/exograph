@@ -445,9 +445,12 @@ defmodule Exograph.Hex.Corpus do
   end
 
   defp safe_path!(path) do
-    parts = Path.split(path)
+    parts =
+      path
+      |> Path.split()
+      |> Enum.reject(&(&1 == "/"))
 
-    if Path.type(path) != :relative or ".." in parts or parts == [] do
+    if ".." in parts or parts == [] do
       raise "unsafe package path #{inspect(path)}"
     end
 
